@@ -27,7 +27,7 @@ ALERGENOS_MAP = {
 def intentar_generar(prompt, key):
     genai.configure(api_key=key)
     # Lista de modelos a probar en orden de preferencia
-    modelos = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.0-pro']
+    modelos = ['gemini-2.5-flash']
     
     for modelo in modelos:
         try:
