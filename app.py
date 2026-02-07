@@ -4,113 +4,138 @@ from docx.shared import Inches
 import google.generativeai as genai
 import io
 
-# Configuración de la página
-st.set_page_config(page_title="Generador Alérgenos PRO", page_icon="🍽️")
+# --- CONFIGURACIÓN VISUAL ---
+st.set_page_config(page_title="Generador Visual", page_icon="👁️", layout="wide")
 
-st.title("👨‍🍳 Generador de Carta Automático")
-st.markdown("---")
+st.title("👨‍🍳 Visualizador de Carta con IA")
+st.markdown("### 1. Sube tu menú -> 2. La IA detecta alérgenos -> 3. Copia o Descarga")
 
-# --- BARRA LATERAL (CLAVE) ---
-st.sidebar.header("🔐 Configuración")
+# --- BARRA LATERAL ---
+st.sidebar.header("🔑 Llave de Acceso")
 api_key = st.sidebar.text_input("Pega tu API Key aquí:", type="password")
 
-# --- LISTA DE TUS IMÁGENES ---
+# --- MAPA DE IMÁGENES (Asegúrate que están en GitHub) ---
 ALERGENOS_MAP = {
-    "altramuces": "altramuces.png",
-    "apio": "apio.png",
-    "cacahuetes": "cacahuetes.png",
-    "cereales": "cereales.png",
-    "crustaceos": "crustaceos.png",
-    "frutos de cáscara": "frutos_cascara.png",
-    "huevos": "huevos.png",
-    "lácteos": "lacteos.png",
-    "moluscos": "moluscos.png",
-    "mostaza": "mostaza.png",
-    "pescado": "pescado.png",
-    "sésamo": "sesamo.png",
-    "soja": "soja.png",
-    "sulfitos": "sulfitos.png"
+    "altramuces": "altramuces.png", "apio": "apio.png", "cacahuetes": "cacahuetes.png",
+    "cereales": "cereales.png", "crustaceos": "crustaceos.png", "frutos de cáscara": "frutos_cascara.png",
+    "huevos": "huevos.png", "lácteos": "lacteos.png", "moluscos": "moluscos.png",
+    "mostaza": "mostaza.png", "pescado": "pescado.png", "sésamo": "sesamo.png",
+    "soja": "soja.png", "sulfitos": "sulfitos.png"
 }
 
+# --- FUNCIÓN INTELIGENTE PARA EVITAR ERRORES ---
+def intentar_generar(prompt, key):
+    genai.configure(api_key=key)
+    # Lista de modelos a probar en orden de preferencia
+    modelos = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.0-pro']
+    
+    for modelo in modelos:
+        try:
+            model = genai.GenerativeModel(modelo)
+            response = model.generate_content(prompt)
+            return response.text, modelo # Si funciona, devuelve el texto y el modelo usado
+        except Exception as e:
+            continue # Si falla, prueba el siguiente
+    return None, None
+
+# --- INTERFAZ ---
 if not api_key:
-    st.info("👈 Por favor, pega tu llave maestra en la barra lateral.")
+    st.warning("⚠️ Pega tu API Key a la izquierda para empezar.")
 else:
-    try:
-        genai.configure(api_key=api_key)
-        
-        # USAREMOS LA VERSIÓN 1.5 FLASH (ESTA ES LA SEGURA EN ESPAÑA)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+    # Área de texto manual (OPCIÓN NUEVA: NO HACE FALTA SUBIR WORD SI NO QUIERES)
+    opcion = st.radio("¿Cómo quieres introducir los platos?", ["Escribir texto manual", "Subir archivo Word"])
+    
+    texto_para_analizar = ""
 
-        # --- SUBIDA DE ARCHIVO ---
-        uploaded_file = st.file_uploader("Sube tu archivo Word (.docx)", type=["docx"])
+    if opcion == "Subir archivo Word":
+        uploaded_file = st.file_uploader("Sube tu Word", type=["docx"])
+        if uploaded_file:
+            doc = Document(uploaded_file)
+            texto_para_analizar = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+    else:
+        texto_para_analizar = st.text_area("Escribe aquí tus platos (Ej: Calamares 10€, Ensalada de queso 8€)", height=150)
 
-        if uploaded_file is not None:
-            if st.button("🚀 GENERAR CARTA AHORA"):
-                with st.spinner('⏳ La IA está leyendo tus platos...'):
+    if st.button("✨ ANALIZAR CARTA AHORA"):
+        if not texto_para_analizar:
+            st.error("Por favor, sube un archivo o escribe algunos platos.")
+        else:
+            with st.spinner("🧠 La IA está buscando el mejor modelo y analizando alérgenos..."):
+                
+                prompt = f"""
+                Eres un experto en alérgenos. Analiza: {texto_para_analizar}
+                Detecta: Altramuces, Apio, Cacahuetes, Cereales, Crustáceos, Frutos de cáscara, Huevos, Lácteos, Moluscos, Mostaza, Pescado, Sésamo, Soja, Sulfitos.
+                
+                IMPORTANTE: Devuelve SOLO una lista con este formato exacto:
+                Plato | Precio | Alérgenos
+                """
+                
+                resultado_texto, modelo_usado = intentar_generar(prompt, api_key)
+
+                if resultado_texto:
+                    st.success(f"✅ ¡Éxito! Usando el modelo: {modelo_usado}")
                     
-                    # 1. Leer el Word
-                    doc_cliente = Document(uploaded_file)
-                    texto_menu = "\n".join([p.text for p in doc_cliente.paragraphs if p.text.strip()])
-
-                    # 2. Prompt
-                    prompt = f"""
-                    Actúa como un experto en seguridad alimentaria. Analiza estos platos y detecta los 14 alérgenos legales UE:
-                    (Altramuces, Apio, Cacahuetes, Cereales, Crustáceos, Frutos de cáscara, Huevos, Lácteos, Moluscos, Mostaza, Pescado, Sésamo, Soja, Sulfitos).
-
-                    Reglas:
-                    1. Sé preciso. "Queso" = Lácteos. "Pan" = Cereales.
-                    2. Formato de salida OBLIGATORIO (usa | para separar):
-                    Nombre del Plato | Precio | Alérgenos detectados
+                    # --- MOSTRAR RESULTADO VISUALMENTE (TABLA BONITA) ---
+                    st.markdown("---")
+                    st.subheader("👀 Vista Previa del Resultado")
                     
-                    MENÚ:
-                    {texto_menu}
-                    """
+                    # Preparamos el Word en memoria por si acaso lo quiere
+                    doc_final = Document()
+                    doc_final.add_heading("CARTA DE ALÉRGENOS", 0)
+
+                    cols_header = st.columns([3, 1, 4])
+                    cols_header[0].markdown("**PLATO**")
+                    cols_header[1].markdown("**PRECIO**")
+                    cols_header[2].markdown("**ICONOS DETECTADOS**")
                     
-                    # 3. Generar
-                    response = model.generate_content(prompt)
+                    lineas = resultado_texto.split('\n')
+                    for linea in lineas:
+                        if '|' in linea and "Plato" not in linea:
+                            partes = linea.split('|')
+                            if len(partes) >= 2:
+                                nombre = partes[0].strip()
+                                precio = partes[1].strip()
+                                alergenos = partes[2].lower() if len(partes) > 2 else ""
+
+                                # 1. DIBUJAR EN PANTALLA
+                                c1, c2, c3 = st.columns([3, 1, 4])
+                                c1.write(nombre)
+                                c2.write(precio)
+                                
+                                # Lógica de iconos en pantalla
+                                iconos_encontrados = []
+                                for k, v in ALERGENOS_MAP.items():
+                                    clave_corta = k.split(' ')[0]
+                                    if k in alergenos or clave_corta in alergenos:
+                                        iconos_encontrados.append(v)
+                                
+                                # Mostrar imágenes en la columna 3
+                                if iconos_encontrados:
+                                    c3.image(iconos_encontrados, width=30) # Iconos pequeños en fila
+                                else:
+                                    c3.write("-")
+
+                                # 2. GUARDAR EN WORD (Invisible)
+                                p = doc_final.add_paragraph()
+                                p.add_run(f"{nombre} ... {precio}  ").bold = True
+                                for ico in iconos_encontrados:
+                                    try:
+                                        p.add_run().add_picture(ico, width=Inches(0.2))
+                                        p.add_run(" ")
+                                    except:
+                                        pass
                     
-                    # 4. Crear Word
-                    try:
-                        doc_final = Document("PLANTILLA BASE CARTA.docx")
-                        doc_final.add_paragraph("\n")
-                    except:
-                        doc_final = Document()
+                    st.markdown("---")
+                    
+                    # --- OPCIÓN DE DESCARGA (PLAN B) ---
+                    buffer = io.BytesIO()
+                    doc_final.save(buffer)
+                    buffer.seek(0)
+                    
+                    col_dl1, col_dl2 = st.columns(2)
+                    with col_dl1:
+                        st.download_button("📥 Descargar Word con Iconos", buffer, "Carta_Lista.docx")
+                    with col_dl2:
+                        st.info("💡 Si prefieres, copia el texto de arriba y pégalo en tu PC, aunque los iconos no se copiarán automáticos.")
 
-                    if response.text:
-                        lineas = response.text.split('\n')
-                        for linea in lineas:
-                            if '|' in linea and "Nombre del Plato" not in linea:
-                                partes = linea.split('|')
-                                if len(partes) >= 2:
-                                    nombre = partes[0].strip()
-                                    precio = partes[1].strip()
-                                    alerg = partes[2].lower() if len(partes) > 2 else ""
-
-                                    p = doc_final.add_paragraph()
-                                    runner = p.add_run(f"{nombre} ................. {precio}   ")
-                                    runner.bold = True
-                                    
-                                    for clave, archivo in ALERGENOS_MAP.items():
-                                        clave_simple = clave.split(' ')[0]
-                                        if clave in alerg or clave_simple in alerg:
-                                            try:
-                                                p.add_run().add_picture(archivo, width=Inches(0.2))
-                                                p.add_run("  ")
-                                            except:
-                                                pass
-
-                        # 5. Descargar
-                        buffer = io.BytesIO()
-                        doc_final.save(buffer)
-                        buffer.seek(0)
-                        
-                        st.success("✅ ¡CARTA LISTA!")
-                        st.download_button(
-                            label="📥 Descargar Word Final",
-                            data=buffer,
-                            file_name="Carta_Con_Alergenos.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        )
-
-    except Exception as e:
-        st.error(f"❌ Ocurrió un error: {e}")
+                else:
+                    st.error("❌ Google está saturado ahora mismo o la clave falló. Intenta en 1 min.")
