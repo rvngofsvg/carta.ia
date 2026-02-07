@@ -30,7 +30,7 @@ ALERGENOS_MAP = {
 
 def get_gemini_model():
     """Intenta encontrar un modelo que funcione"""
-    modelos_a_probar = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-1.0-pro', 'gemini-pro']
+    modelos_a_probar = [ 'gemini-1.0-pro', 'gemini-pro']
     for nombre_modelo in modelos_a_probar:
         try:
             model = genai.GenerativeModel(nombre_modelo)
