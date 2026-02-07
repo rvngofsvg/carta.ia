@@ -32,7 +32,7 @@ if not api_key:
     st.info("Esperando API Key para activar la IA...")
 else:
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
     uploaded_file = st.file_uploader("Sube el Word con los platos", type=["docx"])
 
