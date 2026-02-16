@@ -1,132 +1,199 @@
 import streamlit as st
-from docx import Document
-from docx.shared import Inches
 import google.generativeai as genai
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.colors import transparent, black
+from pypdf import PdfReader, PdfWriter
 import io
+import PIL.Image
+import json
 import os
 
-# --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Generador Automático", page_icon="⚡", layout="wide")
+# --- 1. CONFIGURACIÓN ---
+# ¡PON TU API KEY AQUÍ!
+GOOGLE_API_KEY = "TU_API_KEY_AQUI"
+genai.configure(api_key=GOOGLE_API_KEY)
 
-st.title("👨‍🍳 Generador de Carta (Auto-Login)")
-
-# --- LÓGICA INTELIGENTE DE LA CLAVE ---
-api_key = None
-
-# 1. Buscamos en la Caja Fuerte de Streamlit (Secrets)
-if "GOOGLE_API_KEY" in st.secrets:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-    st.sidebar.success("✅ Licencia PRO detectada automáticamente.")
-else:
-    # 2. Si no está en secretos, pedimos manual (Plan B)
-    api_key = st.sidebar.text_input("🔑 Introduce tu API Key:", type="password")
-
-# --- MAPA DE IMÁGENES ---
+# Mapeo de iconos (Asegúrate de tener la carpeta 'icons' con estas imágenes)
 ALERGENOS_MAP = {
-    "altramuces": "altramuces.png", "apio": "apio.png", "cacahuetes": "cacahuetes.png",
-    "cereales": "cereales.png", "crustaceos": "crustaceos.png", "frutos de cáscara": "frutos_cascara.png",
-    "huevos": "huevos.png", "lácteos": "lacteos.png", "moluscos": "moluscos.png",
-    "mostaza": "mostaza.png", "pescado": "pescado.png", "sésamo": "sesamo.png",
-    "soja": "soja.png", "sulfitos": "sulfitos.png"
+    "gluten": "icons/gluten.png", "trigo": "icons/gluten.png", "pan": "icons/gluten.png",
+    "lácteos": "icons/lacteos.png", "queso": "icons/lacteos.png", "leche": "icons/lacteos.png", "nata": "icons/lacteos.png",
+    "huevo": "icons/huevo.png", "mayonesa": "icons/huevo.png",
+    "frutos secos": "icons/frutos_secos.png", "nueces": "icons/frutos_secos.png",
+    "pescado": "icons/pescado.png", "bacalao": "icons/pescado.png", "atún": "icons/pescado.png",
+    "crustáceos": "icons/gambas.png", "gambas": "icons/gambas.png"
 }
 
-# --- FUNCIÓN GENERADORA ---
-def intentar_generar(prompt, key):
-    genai.configure(api_key=key)
-    # Tu modelo favorito
+# --- 2. INTELIGENCIA ARTIFICIAL (CLASIFICADOR) ---
+def leer_y_clasificar_imagen(imagen):
+    """Lee la carta y fuerza a la IA a organizar los platos en LAS 4 CATEGORÍAS de la plantilla."""
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # Este prompt es la clave: obliga a la IA a reordenar el menú original
+    prompt = """
+    Analiza esta imagen de menú. Extrae los platos y precios.
+    TU MISIÓN PRINCIPAL es clasificar cada plato en una de estas 4 categorías EXACTAS:
+    1. ENTRANTES (Incluye ensaladas, picoteo, tablas, raciones)
+    2. CARNES (Incluye hamburguesas, pollo, chuleton, sartenes con carne)
+    3. PESCADOS (Incluye bacalao, sepia, calamares)
+    4. POSTRES
+    
+    Devuelve SOLO un objeto JSON válido con esta estructura exacta, sin texto extra:
+    {
+        "ENTRANTES": [ {"nombre": "Plato", "precio": "00.00", "ingredientes": "ingr1, ingr2"} ],
+        "CARNES": [ {"nombre": "Plato", "precio": "00.00", "ingredientes": "ingr1, ingr2"} ],
+        "PESCADOS": [ {"nombre": "Plato", "precio": "00.00", "ingredientes": "ingr1, ingr2"} ],
+        "POSTRES": [ {"nombre": "Plato", "precio": "00.00", "ingredientes": "ingr1, ingr2"} ]
+    }
+    """
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash') # El modelo rápido
-        response = model.generate_content(prompt)
-        return response.text
+        response = model.generate_content([prompt, imagen])
+        # Limpiamos por si la IA mete ```json al principio
+        texto_limpio = response.text.replace("```json", "").replace("```", "")
+        return json.loads(texto_limpio)
     except Exception as e:
+        st.error(f"Error leyendo la IA: {e}")
         return None
 
-# --- INTERFAZ PRINCIPAL ---
-if not api_key:
-    st.warning("🔒 El sistema está bloqueado. Configura la 'Secret Key' en Streamlit o introdúcela manualmente.")
-else:
-    st.info("👋 ¡Hola! El sistema está listo y conectado a Gemini 2.5 Flash.")
+# --- 3. GENERADOR DE PDF ---
+def crear_capa_pdf(datos_clasificados, nombre_restaurante):
+    packet = io.BytesIO()
+    can = canvas.Canvas(packet, pagesize=A4)
     
-    # Opción manual o archivo
-    opcion = st.radio("Método de entrada:", ["Escribir platos", "Subir Word"], horizontal=True)
+    # --- COORDENADAS DE TU PLANTILLA (Ajustadas a ojo para A4) ---
+    # Si ves que el texto sale muy arriba o abajo, cambia el valor 'y_inicio'
+    COORDENADAS = {
+        "HEADER": {"x": 300, "y": 800}, # Donde va el nombre del Restaurante
+        "ENTRANTES": {"x": 50, "y_inicio": 730}, # Debajo del título Entrantes
+        "CARNES":    {"x": 50, "y_inicio": 560}, # Debajo del título Carnes
+        "PESCADOS":  {"x": 50, "y_inicio": 390}, # Debajo del título Pescados
+        "POSTRES":   {"x": 50, "y_inicio": 230}  # Debajo del título Postres
+    }
     
-    texto_para_analizar = ""
+    # 1. Escribir Nombre del Restaurante (Editable)
+    can.setFont("Helvetica-Bold", 18)
+    can.drawCentredString(COORDENADAS["HEADER"]["x"], COORDENADAS["HEADER"]["y"], nombre_restaurante)
+    # Hacemos que sea editable
+    form = can.acroForm
+    form.textfield(
+        name="Header_Restaurante",
+        tooltip="Nombre del Restaurante",
+        x=150, y=COORDENADAS["HEADER"]["y"]-5, width=300, height=25,
+        fontSize=18, value=nombre_restaurante,
+        borderStyle='underlined', borderColor=transparent, fillColor=transparent,
+        textColor=black, forceBorder=False
+    )
 
-    if opcion == "Subir Word":
-        uploaded_file = st.file_uploader("Arrastra tu Word aquí", type=["docx"])
-        if uploaded_file:
-            doc = Document(uploaded_file)
-            texto_para_analizar = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
-    else:
-        texto_para_analizar = st.text_area("Escribe tus platos aquí:", height=150, placeholder="Ej: Bravas 5€, Calamares 10€...")
+    # 2. Rellenar las categorías
+    x_precio_base = 450
+    x_iconos_base = 490
+    
+    for categoria, platos in datos_clasificados.items():
+        if categoria not in COORDINADAS: continue
+        
+        y_actual = COORDINADAS[categoria]["y_inicio"]
+        x_nombre = COORDINADAS[categoria]["x"]
+        
+        for i, plato in enumerate(platos):
+            # Limitar a 6-7 platos por sección para que no se monten
+            if i > 7: break 
+            
+            nombre = plato.get("nombre", "")
+            precio = str(plato.get("precio", "")).replace("€","")
+            ingredientes = plato.get("ingredientes", "").lower()
+            
+            # --- NOMBRE DEL PLATO (Editable) ---
+            can.setFont("Helvetica", 10)
+            form.textfield(
+                name=f"{categoria}_{i}_nombre",
+                x=x_nombre, y=y_actual-2, width=300, height=14,
+                fontSize=10, value=nombre,
+                borderStyle='inset', borderColor=transparent, fillColor=transparent
+            )
+            
+            # --- PRECIO (Editable) ---
+            form.textfield(
+                name=f"{categoria}_{i}_precio",
+                x=x_precio_base, y=y_actual-2, width=40, height=14,
+                fontSize=10, value=f"{precio}€",
+                borderStyle='inset', borderColor=transparent, fillColor=transparent
+            )
+            
+            # --- ICONOS ALÉRGENOS (Automático) ---
+            x_icono = x_iconos_base
+            for clave, ruta in ALERGENOS_MAP.items():
+                if clave in ingredientes:
+                    try:
+                        can.drawImage(ruta, x_icono, y_actual-4, width=12, height=12, mask='auto')
+                        x_icono += 15
+                    except:
+                        pass # Si falta el icono no pasa nada
+            
+            y_actual -= 20 # Espacio entre platos
+            
+    can.save()
+    packet.seek(0)
+    return packet
 
-    # BOTÓN DE ACCIÓN
-    if st.button("🚀 GENERAR CARTA"):
-        if not texto_para_analizar:
-            st.error("Escribe algo primero.")
-        else:
-            with st.spinner("⚡ Procesando con Inteligencia Artificial..."):
+# --- 4. INTERFAZ WEB (STREAMLIT) ---
+st.set_page_config(page_title="Gestor de Cartas IA", layout="wide")
+st.title("👨‍🍳 Editor de Cartas Inteligente")
+
+# Carga de plantilla automática
+if not os.path.exists("Antony PLANTILLA BASE SIN ALERGENOS.pdf"):
+    st.error("⚠️ No encuentro el archivo 'Antony PLANTILLA BASE SIN ALERGENOS.pdf'. Súbelo a la carpeta.")
+    st.stop()
+
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    st.subheader("1. Digitalizar Carta")
+    imagen_subida = st.file_uploader("Sube la foto del menú (JPG/PNG)", type=["jpg", "png", "jpeg"])
+    
+    if "datos_menu" not in st.session_state:
+        st.session_state["datos_menu"] = None
+
+    if imagen_subida and st.button("✨ Leer y Clasificar con IA"):
+        with st.spinner("Leyendo y organizando platos..."):
+            img = PIL.Image.open(imagen_subida)
+            datos = leer_y_clasificar_imagen(img)
+            if datos:
+                st.session_state["datos_menu"] = datos
+                st.success("¡Carta clasificada correctamente!")
+
+with col2:
+    st.subheader("2. Personalización")
+    nombre_rest = st.text_input("Nombre del Restaurante (Editable en PDF)", "LA CERVECERA LOS PINOS")
+    
+    # Editor visual básico (JSON)
+    if st.session_state["datos_menu"]:
+        st.write("Edita los datos aquí si la IA se equivocó:")
+        datos_editados = st.data_editor(st.session_state["datos_menu"])
+        
+        if st.button("🖨️ Generar PDF Final"):
+            try:
+                # Crear capa de texto
+                capa = crear_capa_pdf(datos_editados, nombre_rest)
                 
-                prompt = f"""
-                Analiza: {texto_para_analizar}
-                Detecta 14 Alérgenos UE: Altramuces, Apio, Cacahuetes, Cereales, Crustáceos, Frutos de cáscara, Huevos, Lácteos, Moluscos, Mostaza, Pescado, Sésamo, Soja, Sulfitos.
+                # Fusionar con tu plantilla
+                plantilla = PdfReader("Antony PLANTILLA BASE SIN ALERGENOS.pdf")
+                pagina = plantilla.pages[0] # Usamos la primera página
                 
-                SALIDA OBLIGATORIA:
-                Plato | Precio | Alérgenos
-                """
+                capa_reader = PdfReader(capa)
+                pagina.merge_page(capa_reader.pages[0])
                 
-                resultado_texto = intentar_generar(prompt, api_key)
-
-                if resultado_texto:
-                    st.success("✅ ¡Análisis completado!")
-                    
-                    # VISUALIZACIÓN EN PANTALLA
-                    st.markdown("---")
-                    cols_header = st.columns([3, 1, 4])
-                    cols_header[0].markdown("**PLATO**")
-                    cols_header[1].markdown("**PRECIO**")
-                    cols_header[2].markdown("**ALÉRGENOS**")
-                    
-                    doc_final = Document() # Preparamos Word invisible
-                    
-                    lineas = resultado_texto.split('\n')
-                    for linea in lineas:
-                        if '|' in linea and "Plato" not in linea:
-                            partes = linea.split('|')
-                            if len(partes) >= 2:
-                                nombre = partes[0].strip()
-                                precio = partes[1].strip()
-                                alergenos = partes[2].lower() if len(partes) > 2 else ""
-
-                                # Dibujar en web
-                                c1, c2, c3 = st.columns([3, 1, 4])
-                                c1.write(nombre)
-                                c2.write(precio)
-                                
-                                iconos_encontrados = []
-                                for k, v in ALERGENOS_MAP.items():
-                                    if k in alergenos or k.split(' ')[0] in alergenos:
-                                        iconos_encontrados.append(v)
-                                
-                                if iconos_encontrados:
-                                    c3.image(iconos_encontrados, width=30)
-                                else:
-                                    c3.write("-")
-
-                                # Guardar en Word
-                                p = doc_final.add_paragraph()
-                                p.add_run(f"{nombre} ... {precio}  ").bold = True
-                                for ico in iconos_encontrados:
-                                    try:
-                                        p.add_run().add_picture(ico, width=Inches(0.2))
-                                        p.add_run(" ")
-                                    except: pass
-                    
-                    # DESCARGA
-                    buffer = io.BytesIO()
-                    doc_final.save(buffer)
-                    st.markdown("---")
-                    st.download_button("📥 Descargar Word Final", buffer.getvalue(), "Carta_Lista.docx")
-
-                else:
-                    st.error("Error de conexión. Revisa la API Key.")
+                writer = PdfWriter()
+                writer.add_page(pagina)
+                
+                output = io.BytesIO()
+                writer.write(output)
+                
+                st.success("PDF Generado. Los campos 'Plato' y 'Precio' son editables.")
+                st.download_button(
+                    label="Descargar Carta Lista (.pdf)",
+                    data=output.getvalue(),
+                    file_name="Carta_Clasificada.pdf",
+                    mime="application/pdf"
+                )
+            except Exception as e:
+                st.error(f"Error generando PDF: {e}")
