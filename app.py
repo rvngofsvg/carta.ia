@@ -27,7 +27,7 @@ ALERGENOS_MAP = {
 # --- 2. INTELIGENCIA ARTIFICIAL (CLASIFICADOR) ---
 def leer_y_clasificar_imagen(imagen):
     """Lee la carta y fuerza a la IA a organizar los platos en LAS 4 CATEGORÍAS de la plantilla."""
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     # Este prompt es la clave: obliga a la IA a reordenar el menú original
     prompt = """
