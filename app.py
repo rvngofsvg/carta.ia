@@ -10,7 +10,7 @@ import json
 import os
 
 # --- 1. API KEY ---
-GOOGLE_API_KEY = "TU_API_KEY_AQUI"
+GOOGLE_API_KEY = "AIzaSyA0l07ASmsiBa-g3c7D9wNxZLnEUJ9Bfds"
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # --- 2. ICONOS ---
@@ -26,7 +26,7 @@ ALERGENOS_MAP = {
 }
 
 def leer_y_clasificar_imagen(imagen):
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = """
     Actúa como un camarero experto. Analiza el menú.
     Tu objetivo es llenar estas 4 categorías. Si un plato no encaja, mételo en la más parecida.
