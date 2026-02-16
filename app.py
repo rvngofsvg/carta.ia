@@ -2,19 +2,19 @@ import streamlit as st
 import google.generativeai as genai
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.colors import transparent, black, HexColor
+from reportlab.lib.colors import transparent, black, red, HexColor
 from pypdf import PdfReader, PdfWriter
 import io
 import PIL.Image
 import json
 import os
 
-# --- 1. TU CONFIGURACIÓN (NO TOCAR) ---
+# --- 1. TU CONFIGURACIÓN ---
 GOOGLE_API_KEY = "AIzaSyA0l07ASmsiBa-g3c7D9wNxZLnEUJ9Bfds"
 genai.configure(api_key=GOOGLE_API_KEY)
 MODELO_IA = 'gemini-2.5-flash'
 
-# --- 2. ICONOS (Busca en la misma carpeta) ---
+# --- 2. ICONOS ---
 ALERGENOS_MAP = {
     "gluten": "gluten.png", "trigo": "gluten.png", "harina": "gluten.png", "pan": "gluten.png",
     "lácteos": "lacteos.png", "queso": "lacteos.png", "leche": "lacteos.png", "nata": "lacteos.png",
@@ -29,10 +29,10 @@ ALERGENOS_MAP = {
 def leer_y_clasificar_imagen(imagen):
     model = genai.GenerativeModel(MODELO_IA)
     
+    # Prompt optimizado para evitar errores
     prompt = """
-    Analiza la carta. Extrae platos y PRECIOS.
+    Analiza la carta. Extrae platos y PRECIOS (solo números).
     Clasifica OBLIGATORIAMENTE en: ENTRANTES, CARNES, PESCADOS, POSTRES.
-    Si una sección no tiene platos, déjala vacía.
     
     Responde SOLO JSON válido:
     {
@@ -46,7 +46,6 @@ def leer_y_clasificar_imagen(imagen):
         response = model.generate_content([prompt, imagen])
         texto = response.text.replace("```json", "").replace("```", "").strip()
         
-        # Corrección de seguridad para JSON
         inicio = texto.find("{")
         fin = texto.rfind("}") + 1
         if inicio != -1 and fin != -1:
@@ -54,7 +53,7 @@ def leer_y_clasificar_imagen(imagen):
             
         datos = json.loads(texto)
         
-        # TRUCO: Convertir todas las claves a MAYÚSCULAS para evitar errores
+        # Normalizar a mayúsculas
         datos_normalizados = {}
         for k, v in datos.items():
             datos_normalizados[k.upper()] = v
@@ -69,38 +68,31 @@ def crear_pdf_directo(datos, nombre_restaurante):
     can = canvas.Canvas(packet, pagesize=A4)
     form = can.acroForm
     
-    # --- CONFIGURACIÓN VISUAL ---
-    cursor_y = 750  # Empezamos bien arriba
+    cursor_y = 750  
     margen_izq = 50
     x_precio = 450
     x_iconos = 490
     alto_linea = 20    
     alto_titulo = 40   
     
-    # 1. HEADER (Nombre Restaurante)
+    # HEADER
     can.setFont("Helvetica-Bold", 22)
     can.setFillColor(black)
     can.drawCentredString(297.5, 800, nombre_restaurante)
     
-    # Campo invisible editable para el título
     form.textfield(
         name="Header", x=50, y=790, width=500, height=30, 
         value=nombre_restaurante, borderStyle='solid', borderColor=transparent, textColor=transparent
     )
 
-    # Orden estricto de secciones
     orden = ["ENTRANTES", "CARNES", "PESCADOS", "POSTRES"]
-    
-    hay_contenido = False # Chivato para saber si se escribió algo
+    hay_contenido = False 
 
     for seccion in orden:
-        # Recuperamos los platos (asegurando mayúsculas)
         platos = datos.get(seccion, [])
         
-        # --- SIEMPRE IMPRIMIMOS EL TÍTULO DE LA SECCIÓN ---
-        # (Aunque esté vacía, así vemos que el PDF funciona)
         if cursor_y < 100: 
-            can.showPage() # Nueva página si se acaba el espacio
+            can.showPage()
             cursor_y = 800
             
         can.setStrokeColor(HexColor("#333333"))
@@ -113,31 +105,36 @@ def crear_pdf_directo(datos, nombre_restaurante):
         cursor_y -= alto_titulo
         
         if not platos:
-            # Si no hay platos, dejamos un hueco pequeño y seguimos
             cursor_y += 10 
             continue
 
         hay_contenido = True
         
-        # --- IMPRIMIR PLATOS ---
         for i, plato in enumerate(platos):
             if cursor_y < 50: 
                 can.showPage()
                 cursor_y = 800
             
             nombre = plato.get("nombre", "Plato sin nombre")
-            precio = str(plato.get("precio", "")).replace("€","").strip()
+            # LIMPIEZA DE PRECIO: Quitamos el símbolo € si viene de la IA
+            precio_raw = str(plato.get("precio", "")).replace("€", "").replace("EUR", "").strip()
+            
+            # --- AQUÍ ESTABA EL ERROR 8364 ---
+            # En lugar de f"{precio_raw}€", usamos f"{precio_raw} EUR"
+            # Esto evita el carácter unicode que rompe el PDF
+            texto_precio = f"{precio_raw} EUR"
+            
             ingredientes = plato.get("ingredientes", "").lower()
             
-            # Texto visible (Tinta)
+            # TEXTO VISIBLE
             can.setFont("Helvetica", 10)
             can.setFillColor(black)
             can.drawString(margen_izq, cursor_y, nombre)
             
             can.setFont("Helvetica-Bold", 10)
-            can.drawString(x_precio, cursor_y, f"{precio}€")
+            can.drawString(x_precio, cursor_y, texto_precio)
             
-            # Campos Editables Invisibles (Superpuestos)
+            # CAMPOS EDITABLES
             form.textfield(
                 name=f"{seccion}_{i}_nm",
                 x=margen_izq, y=cursor_y-2, width=330, height=14,
@@ -145,11 +142,11 @@ def crear_pdf_directo(datos, nombre_restaurante):
             )
             form.textfield(
                 name=f"{seccion}_{i}_pr",
-                x=x_precio, y=cursor_y-2, width=40, height=14,
-                value=f"{precio}€", borderStyle='solid', borderColor=transparent, textColor=transparent
+                x=x_precio, y=cursor_y-2, width=50, height=14, # Un poco más ancho para 'EUR'
+                value=texto_precio, borderStyle='solid', borderColor=transparent, textColor=transparent
             )
             
-            # Iconos
+            # ICONOS
             curr_x = x_iconos
             iconos_usados = set()
             for k, v in ALERGENOS_MAP.items():
@@ -167,19 +164,17 @@ def crear_pdf_directo(datos, nombre_restaurante):
         cursor_y -= 15 
 
     if not hay_contenido:
-        # Mensaje de socorro en el PDF si la IA falló
         can.setFont("Helvetica", 12)
         can.setFillColor(red)
-        can.drawString(100, 400, "LA IA NO DETECTÓ PLATOS EN LA IMAGEN.")
-        can.drawString(100, 380, "Prueba con una foto más clara.")
+        can.drawString(100, 400, "NO SE DETECTARON PLATOS. INTENTA OTRA FOTO.")
 
     can.save()
     packet.seek(0)
     return packet
 
-# --- INTERFAZ SIMPLE (SIN TABLAS) ---
+# --- INTERFAZ ---
 st.set_page_config(page_title="Generador Directo")
-st.title("Generador de Cartas (Modo Directo)")
+st.title("Generador de Cartas (Fix Euro)")
 
 plantilla = "Antony PLANTILLA BASE SIN ALERGENOS.pdf"
 
@@ -187,7 +182,6 @@ if not os.path.exists(plantilla):
     st.error(f"⚠️ FALTA LA PLANTILLA: {plantilla}")
     st.stop()
 
-# Entrada
 col1, col2 = st.columns(2)
 with col1:
     img_file = st.file_uploader("1. Sube la foto", type=["jpg", "png", "jpeg"])
@@ -196,14 +190,11 @@ with col1:
 with col2:
     st.write("2. Generar")
     if img_file and st.button("🚀 PROCESAR Y DESCARGAR"):
-        with st.spinner("Leyendo imagen y generando PDF..."):
-            
-            # 1. Leer IA
+        with st.spinner("Generando PDF sin errores..."):
             img = PIL.Image.open(img_file)
             datos = leer_y_clasificar_imagen(img)
             
             if datos:
-                # 2. Crear PDF Directamente
                 try:
                     capa = crear_pdf_directo(datos, nombre_rest)
                     
@@ -219,12 +210,12 @@ with col2:
                     
                     st.success("✅ ¡PDF LISTO!")
                     st.download_button(
-                        label="⬇️ DESCARGAR CARTA AHORA",
+                        label="⬇️ DESCARGAR CARTA",
                         data=out.getvalue(),
                         file_name="Carta_Generada.pdf",
                         mime="application/pdf"
                     )
                 except Exception as e:
-                    st.error(f"Error técnico creando PDF: {e}")
+                    st.error(f"Error técnico: {e}")
             else:
-                st.error("La IA no pudo leer la imagen. Intenta con otra.")
+                st.error("La IA no pudo leer la imagen.")
