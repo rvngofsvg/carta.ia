@@ -11,7 +11,7 @@ import os
 
 # --- 1. CONFIGURACIÓN ---
 # ¡PON TU API KEY AQUÍ!
-GOOGLE_API_KEY = "TU_API_KEY_AQUI"
+GOOGLE_API_KEY = "AIzaSyA0l07ASmsiBa-g3c7D9wNxZLnEUJ9Bfds"
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # Mapeo de iconos (Asegúrate de tener la carpeta 'icons' con estas imágenes)
