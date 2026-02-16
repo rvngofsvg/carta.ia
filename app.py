@@ -42,7 +42,7 @@ ALERGENOS_MAP = {
 
 def leer_y_clasificar_imagen(imagen):
     """Lee la imagen y devuelve JSON estructurado."""
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = """
     Analiza esta carta de restaurante.
     Tu tarea es extraer los platos y clasificarlos OBLIGATORIAMENTE en estas 4 categorías:
