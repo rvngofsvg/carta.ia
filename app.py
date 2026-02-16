@@ -187,7 +187,7 @@ st.set_page_config(page_title="Generador Pro", layout="wide")
 st.title("Generador de Cartas (Plantilla Limpia)")
 
 # Asegúrate de que este nombre coincida con tu archivo nuevo
-plantilla = "Antony PLANTILLA BASE SIN ALERGENOS (1).pdf"
+plantilla = "Antony PLANTILLA BASE SIN ALERGENOS.pdf"
 
 if not os.path.exists(plantilla):
     st.error(f"⚠️ NO ENCUENTRO LA PLANTILLA: {plantilla}")
