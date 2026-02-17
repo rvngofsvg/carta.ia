@@ -34,7 +34,7 @@ ICON_MAP = {
 
 def analyze_image(image):
     """Envía la imagen a Gemini y pide un JSON estructurado"""
-    model = genai.GenerativeModel('gemini-1.5-flash') # Usamos Flash por rapidez
+    model = genai.GenerativeModel('gemini-2.5-flash') # Usamos Flash por rapidez
     
     prompt = """
     Analiza esta imagen del menú. Extrae los datos en formato JSON puro.
