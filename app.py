@@ -8,8 +8,45 @@ from io import BytesIO
 from PIL import Image
 
 # --- 1. CONFIGURACIÓN DE RUTAS EXACTAS (Respetando Mayúsculas) ---
+# --- 1. CONFIGURACIÓN DE RUTAS INTELIGENTE (Autodetecta mayúsculas/minúsculas) ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+def find_file_insensitive(base_path, target_path_components):
+    """Busca una ruta ignorando mayúsculas/minúsculas"""
+    current_path = base_path
+    for component in target_path_components:
+        found = False
+        try:
+            # Lista archivos en el directorio actual
+            with os.scandir(current_path) as entries:
+                for entry in entries:
+                    if entry.name.lower() == component.lower():
+                        current_path = entry.path
+                        found = True
+                        break
+        except OSError:
+            pass # Si no puede leer el directorio
+            
+        if not found:
+            return None
+    return current_path
+
+# Buscamos la plantilla ignorando si pusiste 'Public' o 'public'
+ruta_plantilla_detectada = find_file_insensitive(BASE_DIR, ["public", "plantilla", "plantilla_menu.docx"])
+
+if ruta_plantilla_detectada:
+    PLANTILLA_PATH = ruta_plantilla_detectada
+    st.write(f"✅ Plantilla encontrada en: {PLANTILLA_PATH}") # Esto te saldrá en la web si funciona
+else:
+    st.error(f"❌ ERROR FATAL: No encuentro 'plantilla_menu.docx' dentro de 'public/plantilla' (ni mayúsculas ni minúsculas).")
+    st.stop()
+
+# Lo mismo para los iconos
+ruta_iconos_detectada = find_file_insensitive(BASE_DIR, ["public", "iconos"])
+if ruta_iconos_detectada:
+    ICONOS_DIR = ruta_iconos_detectada
+else:
+    ICONOS_DIR = os.path.join(BASE_DIR, "public", "iconos") # Fallback
 # Rutas corregidas según tu indicación: Public/Plantilla y Public/Iconos
 PLANTILLA_PATH = os.path.join(BASE_DIR, "Public", "Plantilla", "Plantilla_menu.docx")
 ICONOS_DIR = os.path.join(BASE_DIR, "Public", "Iconos")
