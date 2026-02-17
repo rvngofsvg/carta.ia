@@ -9,7 +9,7 @@ from PIL import Image
 
 # --- CONFIGURACIÓN ---
 # AQUÍ PEGA TU API KEY SI NO USAS VARIABLES DE ENTORNO (CUIDADO: NO COMPARTIR)
-API_KEY = "TU_API_KEY_AQUI" 
+API_KEY = "AIzaSyA0l07ASmsiBa-g3c7D9wNxZLnEUJ9Bfds" 
 
 # Configurar Gemini
 genai.configure(api_key=API_KEY)
