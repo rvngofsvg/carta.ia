@@ -1,236 +1,144 @@
 import streamlit as st
 import google.generativeai as genai
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.colors import transparent, black, red, HexColor
-from pypdf import PdfReader, PdfWriter
-import io
-import PIL.Image
-import json
 import os
+import json
+from docx import Document
+from docx.shared import Cm
+from io import BytesIO
+from PIL import Image
 
-# --- 1. CONFIGURACIÓN ---
-# Tu clave y modelo se mantienen intactos
-GOOGLE_API_KEY = "AIzaSyA0l07ASmsiBa-g3c7D9wNxZLnEUJ9Bfds"
-genai.configure(api_key=GOOGLE_API_KEY)
-MODELO_IA = 'gemini-2.5-flash'
+# --- CONFIGURACIÓN ---
+# AQUÍ PEGA TU API KEY SI NO USAS VARIABLES DE ENTORNO (CUIDADO: NO COMPARTIR)
+API_KEY = "TU_API_KEY_AQUI" 
 
-# --- 2. ICONOS ---
-ALERGENOS_MAP = {
-    "gluten": "gluten.png", "trigo": "gluten.png", "harina": "gluten.png", "pan": "gluten.png",
-    "lácteos": "lacteos.png", "queso": "lacteos.png", "leche": "lacteos.png", "nata": "lacteos.png",
-    "huevo": "huevo.png", "mayonesa": "huevo.png",
-    "frutos secos": "frutos_secos.png", "nueces": "frutos_secos.png",
-    "pescado": "pescado.png", "bacalao": "pescado.png", "atún": "pescado.png",
-    "gambas": "gambas.png", "crustáceos": "gambas.png",
-    "soja": "soja.png",
-    "mostaza": "mostaza.png"
+# Configurar Gemini
+genai.configure(api_key=API_KEY)
+
+# Mapeo EXACTO de tus iconos (según tu foto)
+ICON_MAP = {
+    "gluten": "public/iconos/gluten.png",
+    "crustaceos": "public/iconos/gambas.png",
+    "huevos": "public/iconos/huevo.png",
+    "pescado": "public/iconos/pescado.png",
+    "cacahuetes": "public/iconos/cacahuetes.png",
+    "soja": "public/iconos/soja.png",
+    "lacteos": "public/iconos/lacteos.png",
+    "frutos de cascara": "public/iconos/frutos_secos.png",
+    "apio": "public/iconos/apio.png",
+    "mostaza": "public/iconos/mostaza.png",
+    "sesamo": "public/iconos/sesamo.png",
+    "sulfitos": "public/iconos/sulfitos.png",
+    "altramuces": "public/iconos/altramuces.png",
+    "moluscos": "public/iconos/moluscos.png"
 }
 
-def leer_y_clasificar_imagen(imagen):
-    model = genai.GenerativeModel(MODELO_IA)
+def analyze_image(image):
+    """Envía la imagen a Gemini y pide un JSON estructurado"""
+    model = genai.GenerativeModel('gemini-1.5-flash') # Usamos Flash por rapidez
     
     prompt = """
-    Analiza el menú. Extrae platos y PRECIOS (solo números).
-    Clasifica en: ENTRANTES, CARNES, PESCADOS, POSTRES.
-    
-    Responde SOLO JSON válido:
+    Analiza esta imagen del menú. Extrae los datos en formato JSON puro.
+    Estructura requerida:
     {
-        "ENTRANTES": [ {"nombre": "Plato", "precio": "10.50", "ingredientes": "ingredientes"} ],
-        "CARNES": [], "PESCADOS": [], "POSTRES": []
+        "restaurant_name": "Nombre del sitio",
+        "categories": [
+            {
+                "name": "Entrantes",
+                "dishes": [
+                    {
+                        "name": "Nombre plato",
+                        "description": "Descripción ingredientes",
+                        "price": "10.50",
+                        "allergens": ["gluten", "lacteos"] 
+                    }
+                ]
+            }
+        ]
     }
+    IMPORTANTE:
+    1. Mira los ingredientes y DEDUCE los alérgenos probables si no están escritos.
+    2. Los alérgenos permitidos son: gluten, crustaceos, huevos, pescado, cacahuetes, soja, lacteos, frutos de cascara, apio, mostaza, sesamo, sulfitos, altramuces, moluscos.
+    3. Responde SOLO con el JSON, sin markdown.
     """
+    
     try:
-        response = model.generate_content([prompt, imagen])
-        texto = response.text.replace("```json", "").replace("```", "").strip()
-        
-        inicio = texto.find("{")
-        fin = texto.rfind("}") + 1
-        if inicio != -1 and fin != -1:
-            texto = texto[inicio:fin]
-            
-        datos = json.loads(texto)
-        
-        # Normalizar claves a mayúsculas
-        datos_normalizados = {}
-        for k, v in datos.items():
-            datos_normalizados[k.upper()] = v
-        return datos_normalizados
-
+        response = model.generate_content([prompt, image])
+        # Limpiar respuesta por si pone ```json
+        text = response.text.replace('```json', '').replace('```', '')
+        return json.loads(text)
     except Exception as e:
-        st.error(f"Error IA: {e}")
+        st.error(f"Error al analizar la imagen: {e}")
         return None
 
-def crear_capa_contenido(datos, nombre_restaurante):
-    packet = io.BytesIO()
-    can = canvas.Canvas(packet, pagesize=A4)
-    form = can.acroForm
+def create_word(data):
+    """Genera el Word usando la plantilla y poniendo iconos"""
+    plantilla_path = "public/plantilla/plantilla_menu.docx"
     
-    # --- AJUSTES DE DISEÑO ---
-    margen_izq = 50       
-    x_precio = 370        # Alineado para dejar sitio a los iconos
-    x_iconos = 430        # Zona de iconos (Derecha limpia)
-    ancho_nombre = 300    
-    
-    y_inicial = 730       
-    y_limite_footer = 120 # Freno antes de chocar con tu pie de página nuevo
-    alto_linea = 24       
-    alto_titulo = 40      
-    
-    # --- HEADER DINÁMICO (Nombre Restaurante) ---
-    can.setFont("Helvetica-Bold", 22)
-    can.setFillColor(black)
-    can.drawCentredString(297.5, 790, nombre_restaurante)
-    
-    # Campo para editar el título si hace falta
-    form.textfield(
-        name="Header", x=50, y=780, width=500, height=30, 
-        value=nombre_restaurante, borderStyle='solid', borderColor=transparent, textColor=transparent
-    )
+    try:
+        doc = Document(plantilla_path)
+    except:
+        st.error("No se encontró 'public/plantilla/plantilla_menu.docx'. Usando documento en blanco.")
+        doc = Document()
 
-    cursor_y = y_inicial
-    orden = ["ENTRANTES", "CARNES", "PESCADOS", "POSTRES"]
-    hay_platos = False
+    # 1. Título del Bar
+    doc.add_heading(data.get("restaurant_name", "Menú"), 0)
 
-    for seccion in orden:
-        platos = datos.get(seccion, [])
+    # 2. Recorrer categorías
+    for category in data.get("categories", []):
+        doc.add_heading(category["name"], level=1)
         
-        # Si la sección tiene platos, marcamos que hay contenido
-        if platos: hay_platos = True
-
-        # --- TÍTULO DE SECCIÓN ---
-        # Verificamos si cabe el título, si no, nueva página
-        if cursor_y < y_limite_footer + 40: 
-            can.showPage()
-            cursor_y = 780
+        # 3. Recorrer platos
+        for dish in category["dishes"]:
+            p = doc.add_paragraph()
+            runner = p.add_run(f"{dish['name']} ")
+            runner.bold = True
             
-        can.setStrokeColor(HexColor("#333333"))
-        can.line(margen_izq, cursor_y - 5, 500, cursor_y - 5)
-        
-        can.setFont("Helvetica-Bold", 14)
-        can.setFillColor(HexColor("#2C3E50"))
-        can.drawString(margen_izq, cursor_y, seccion)
-        
-        cursor_y -= alto_titulo
-        
-        if not platos:
-            cursor_y += 10 
-            continue
-
-        # --- PLATOS ---
-        for i, plato in enumerate(platos):
-            # Verificamos si cabe el plato, si no, nueva página
-            if cursor_y < y_limite_footer: 
-                can.showPage()
-                cursor_y = 780 
-                # Repetimos título chiquito para guiar
-                can.setFont("Helvetica-Oblique", 10)
-                can.setFillColor(HexColor("#999999"))
-                can.drawString(margen_izq, cursor_y + 10, f"(Cont. {seccion})")
+            p.add_run(f"\n{dish['description']}")
             
-            nombre = plato.get("nombre", "Plato")
-            precio_raw = str(plato.get("precio", "")).replace("€", "").replace("EUR", "").strip()
-            texto_precio = f"{precio_raw} EUR"
-            ingredientes = plato.get("ingredientes", "").lower()
+            # 4. Precio e Iconos
+            p_price = doc.add_paragraph()
+            p_price.add_run(f"{dish['price']}€  ")
             
-            # 1. TEXTO NEGRO (Ya no necesitamos borrar fondo blanco porque tu plantilla es limpia)
-            can.setFont("Helvetica", 10)
-            can.setFillColor(black)
-            
-            # Recortar nombre visualmente si es muy largo
-            nombre_ver = (nombre[:50] + '..') if len(nombre) > 50 else nombre
-            can.drawString(margen_izq, cursor_y, nombre_ver)
-            
-            can.setFont("Helvetica-Bold", 10)
-            can.drawString(x_precio, cursor_y, texto_precio)
-            
-            # 2. CAMPOS EDITABLES (Transparentes y limpios)
-            form.textfield(
-                name=f"{seccion}_{i}_nm",
-                x=margen_izq, y=cursor_y-4, width=ancho_nombre, height=16,
-                value=nombre, borderStyle='solid', borderColor=transparent, fillColor=transparent, textColor=transparent
-            )
-            form.textfield(
-                name=f"{seccion}_{i}_pr",
-                x=x_precio, y=cursor_y-4, width=50, height=16,
-                value=texto_precio, borderStyle='solid', borderColor=transparent, fillColor=transparent, textColor=transparent
-            )
-            
-            # 3. ICONOS ALÉRGENOS
-            curr_x = x_iconos
-            iconos_usados = set()
-            for k, v in ALERGENOS_MAP.items():
-                if k in ingredientes: iconos_usados.add(v)
-            
-            for icono in iconos_usados:
-                if os.path.exists(icono):
+            # Insertar iconos
+            for allergen in dish.get("allergens", []):
+                allergen_key = allergen.lower().strip()
+                if allergen_key in ICON_MAP:
+                    icon_path = ICON_MAP[allergen_key]
                     try:
-                        can.drawImage(icono, curr_x, y=cursor_y-2, width=14, height=14, mask='auto')
-                        curr_x += 18 
-                    except: pass
+                        # Insertar imagen pequeña (0.5 cm)
+                        p_price.add_run().add_picture(icon_path, width=Cm(0.5))
+                        p_price.add_run("  ") # Espacio entre iconos
+                    except FileNotFoundError:
+                        print(f"Falta icono: {icon_path}")
+
+    # Guardar en memoria
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+# --- INTERFAZ STREAMLIT ---
+st.title("Generador de Carta de Alérgenos 🍤")
+
+uploaded_file = st.file_uploader("Sube la foto del menú", type=["jpg", "png", "jpeg"])
+
+if uploaded_file is not None:
+    image = Image.open(uploaded_file)
+    st.image(image, caption="Menú subido", use_column_width=True)
+    
+    if st.button("Generar Word con Alérgenos"):
+        with st.spinner("Gemini está leyendo el menú y detectando alérgenos..."):
+            menu_data = analyze_image(image)
             
-            cursor_y -= alto_linea 
-            
-        cursor_y -= 15
-
-    if not hay_platos:
-        can.setFont("Helvetica", 12)
-        can.setFillColor(red)
-        can.drawString(100, 400, "LA IA NO DETECTÓ PLATOS EN ESTA FOTO.")
-
-    can.save()
-    packet.seek(0)
-    return packet
-
-# --- INTERFAZ WEB ---
-st.set_page_config(page_title="Generador Pro", layout="wide")
-st.title("Generador de Cartas (Plantilla Limpia)")
-
-# Asegúrate de que este nombre coincida con tu archivo nuevo
-plantilla = "Antony PLANTILLA BASE SIN ALERGENOS.pdf"
-
-if not os.path.exists(plantilla):
-    st.error(f"⚠️ NO ENCUENTRO LA PLANTILLA: {plantilla}")
-    st.stop()
-
-col1, col2 = st.columns(2)
-with col1:
-    img_file = st.file_uploader("1. Sube foto del menú", type=["jpg", "png", "jpeg"])
-    # Este nombre es dinámico, cambia según lo que escribas aquí
-    nombre_rest = st.text_input("Nombre del Restaurante", "LA CERVECERA LOS PINOS")
-
-with col2:
-    st.write("2. Generar PDF")
-    if img_file and st.button("🚀 CREAR CARTA"):
-        with st.spinner("Procesando..."):
-            img = PIL.Image.open(img_file)
-            datos = leer_y_clasificar_imagen(img)
-            
-            if datos:
-                try:
-                    # 1. Creamos contenido sobre transparente
-                    packet = crear_capa_contenido(datos, nombre_rest)
-                    lector_capa = PdfReader(packet)
-                    
-                    # 2. Leemos tu plantilla limpia nueva
-                    lector_plantilla = PdfReader(plantilla)
-                    pagina_fondo = lector_plantilla.pages[0]
-
-                    escritor = PdfWriter()
-
-                    # 3. Fusión Inteligente (Si salen 2 páginas, pone fondo en las 2)
-                    for i in range(len(lector_capa.pages)):
-                        escritor.add_blank_page(width=A4[0], height=A4[1])
-                        pagina_nueva = escritor.pages[i]
-                        pagina_nueva.merge_page(pagina_fondo) # Fondo limpio
-                        pagina_nueva.merge_page(lector_capa.pages[i]) # Texto nuevo
-                    
-                    out = io.BytesIO()
-                    escritor.write(out)
-                    
-                    st.success("✅ ¡PDF Creado Perfecto!")
-                    st.download_button("⬇️ DESCARGAR", out.getvalue(), "Carta_Nueva.pdf", "application/pdf")
-                except Exception as e:
-                    st.error(f"Error técnico: {e}")
-            else:
-                st.error("Error de lectura de IA.")
+            if menu_data:
+                st.success("¡Análisis completado!")
+                # Generar Word
+                docx_file = create_word(menu_data)
+                
+                # Botón de descarga
+                st.download_button(
+                    label="📥 Descargar Carta (.docx)",
+                    data=docx_file,
+                    file_name="carta_alergenos.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
