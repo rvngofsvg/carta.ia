@@ -72,7 +72,7 @@ def analyze_image(image):
 
 def create_word(data):
     """Genera el Word usando la plantilla y poniendo iconos"""
-    plantilla_path = "public/plantilla/plantilla_menu.docx"
+    plantilla_path = "Public/Plantilla/Plantilla_menu.docx"
     
     try:
         doc = Document(plantilla_path)
