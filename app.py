@@ -7,109 +7,133 @@ from docx.shared import Cm
 from io import BytesIO
 from PIL import Image
 
-# --- CONFIGURACIÓN ---
-# AQUÍ PEGA TU API KEY SI NO USAS VARIABLES DE ENTORNO (CUIDADO: NO COMPARTIR)
-API_KEY = "AIzaSyAXjWqTko_sdWsGD-amErjoOyxbS82iReI" 
+# --- 1. CONFIGURACIÓN DE RUTAS EXACTAS (Respetando Mayúsculas) ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Configurar Gemini
+# Rutas corregidas según tu indicación: Public/Plantilla y Public/Iconos
+PLANTILLA_PATH = os.path.join(BASE_DIR, "Public", "Plantilla", "Plantilla_menu.docx")
+ICONOS_DIR = os.path.join(BASE_DIR, "Public", "Iconos")
+
+# --- 2. CONFIGURACIÓN API KEY ---
+try:
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+except:
+    API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAXjWqTko_sdWsGD-amErjoOyxbS82iReI")
+
 genai.configure(api_key=API_KEY)
 
-# Mapeo EXACTO de tus iconos (según tu foto)
+# --- 3. MAPEO DE ICONOS ---
+def get_icon_path(icon_name):
+    # Busca el archivo dentro de Public/Iconos
+    return os.path.join(ICONOS_DIR, icon_name)
+
+# Asegúrate de que los nombres de archivo .png sean correctos (minúsculas o mayúsculas tal cual los tengas)
 ICON_MAP = {
-    "gluten": "public/iconos/gluten.png",
-    "crustaceos": "public/iconos/gambas.png",
-    "huevos": "public/iconos/huevo.png",
-    "pescado": "public/iconos/pescado.png",
-    "cacahuetes": "public/iconos/cacahuetes.png",
-    "soja": "public/iconos/soja.png",
-    "lacteos": "public/iconos/lacteos.png",
-    "frutos de cascara": "public/iconos/frutos_secos.png",
-    "apio": "public/iconos/apio.png",
-    "mostaza": "public/iconos/mostaza.png",
-    "sesamo": "public/iconos/sesamo.png",
-    "sulfitos": "public/iconos/sulfitos.png",
-    "altramuces": "public/iconos/altramuces.png",
-    "moluscos": "public/iconos/moluscos.png"
+    "gluten": get_icon_path("gluten.png"),
+    "crustaceos": get_icon_path("gambas.png"),
+    "huevos": get_icon_path("huevo.png"),
+    "pescado": get_icon_path("pescado.png"),
+    "cacahuetes": get_icon_path("cacahuetes.png"),
+    "soja": get_icon_path("soja.png"),
+    "lacteos": get_icon_path("lacteos.png"),
+    "frutos de cascara": get_icon_path("frutos_secos.png"),
+    "apio": get_icon_path("apio.png"),
+    "mostaza": get_icon_path("mostaza.png"),
+    "sesamo": get_icon_path("sesamo.png"),
+    "sulfitos": get_icon_path("sulfitos.png"),
+    "altramuces": get_icon_path("altramuces.png"),
+    "moluscos": get_icon_path("moluscos.png")
 }
 
+# --- 4. FUNCIONES ---
+
 def analyze_image(image):
-    """Envía la imagen a Gemini y pide un JSON estructurado"""
-    model = genai.GenerativeModel('gemini-2.5-flash') # Usamos Flash por rapidez
+    """Envía la imagen a Gemini (Modelo Flash)"""
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     prompt = """
-    Analiza esta imagen del menú. Extrae los datos en formato JSON puro.
-    Estructura requerida:
+    Analiza este menú de restaurante.
+    Tu tarea es:
+    1. Extraer el nombre del restaurante y los platos con sus precios.
+    2. DETECTAR ALÉRGENOS en cada plato basándote en sus ingredientes (ej: queso=lacteos, gambas=crustaceos).
+    
+    Salida OBLIGATORIA en JSON puro (sin markdown):
     {
-        "restaurant_name": "Nombre del sitio",
+        "restaurant_name": "Nombre Restaurante",
         "categories": [
             {
                 "name": "Entrantes",
                 "dishes": [
                     {
-                        "name": "Nombre plato",
-                        "description": "Descripción ingredientes",
-                        "price": "10.50",
+                        "name": "Nombre Plato",
+                        "description": "Ingredientes...",
+                        "price": "10.00",
                         "allergens": ["gluten", "lacteos"] 
                     }
                 ]
             }
         ]
     }
-    IMPORTANTE:
-    1. Mira los ingredientes y DEDUCE los alérgenos probables si no están escritos.
-    2. Los alérgenos permitidos son: gluten, crustaceos, huevos, pescado, cacahuetes, soja, lacteos, frutos de cascara, apio, mostaza, sesamo, sulfitos, altramuces, moluscos.
-    3. Responde SOLO con el JSON, sin markdown.
     """
     
     try:
-        response = model.generate_content([prompt, image])
-        # Limpiar respuesta por si pone ```json
-        text = response.text.replace('```json', '').replace('```', '')
-        return json.loads(text)
+        with st.spinner("Analizando menú con IA..."):
+            response = model.generate_content([prompt, image])
+            text = response.text.replace('```json', '').replace('```', '').strip()
+            return json.loads(text)
     except Exception as e:
-        st.error(f"Error al analizar la imagen: {e}")
+        st.error(f"Error analizando la imagen: {e}")
         return None
 
 def create_word(data):
-    """Genera el Word usando la plantilla y poniendo iconos"""
-    plantilla_path = "Public/Plantilla/Plantilla_menu.docx"
+    """Genera el Word"""
     
+    # Verificación de seguridad para la plantilla
+    if not os.path.exists(PLANTILLA_PATH):
+        st.error(f"⚠️ ERROR: No se encuentra la plantilla en: {PLANTILLA_PATH}")
+        st.stop() # Detiene la ejecución si no hay plantilla
+    
+    doc = Document(PLANTILLA_PATH)
+
+    # Título (intenta ponerlo bonito)
+    restaurant_name = data.get("restaurant_name", "MENÚ")
     try:
-        doc = Document(plantilla_path)
+        doc.add_heading(restaurant_name, 0)
     except:
-        st.error("No se encontró 'public/plantilla/plantilla_menu.docx'. Usando documento en blanco.")
-        doc = Document()
+        doc.add_paragraph(restaurant_name).bold = True
 
-    # 1. Título del Bar
-    doc.add_heading(data.get("restaurant_name", "Menú"), 0)
-
-    # 2. Recorrer categorías
+    # Recorrer datos
     for category in data.get("categories", []):
         doc.add_heading(category["name"], level=1)
         
-        # 3. Recorrer platos
         for dish in category["dishes"]:
             p = doc.add_paragraph()
-            runner = p.add_run(f"{dish['name']} ")
-            runner.bold = True
+            p.add_run(dish['name']).bold = True
+            if dish.get('description'):
+                p.add_run(f"\n{dish['description']}")
             
-            p.add_run(f"\n{dish['description']}")
-            
-            # 4. Precio e Iconos
+            # Línea de Precio + Iconos
             p_price = doc.add_paragraph()
             p_price.add_run(f"{dish['price']}€  ")
             
             # Insertar iconos
             for allergen in dish.get("allergens", []):
-                allergen_key = allergen.lower().strip()
-                if allergen_key in ICON_MAP:
-                    icon_path = ICON_MAP[allergen_key]
-                    try:
-                        # Insertar imagen pequeña (0.5 cm)
-                        p_price.add_run().add_picture(icon_path, width=Cm(0.5))
-                        p_price.add_run("  ") # Espacio entre iconos
-                    except FileNotFoundError:
-                        print(f"Falta icono: {icon_path}")
+                # Normalizar clave (quitar espacios extra)
+                key = allergen.lower().strip()
+                if "frutos secos" in key: key = "frutos de cascara" # Corrección común
+                
+                if key in ICON_MAP:
+                    icon_file = ICON_MAP[key]
+                    if os.path.exists(icon_file):
+                        try:
+                            # Insertar imagen 0.5cm
+                            run = p_price.add_run()
+                            run.add_picture(icon_file, width=Cm(0.5))
+                            p_price.add_run("  ") 
+                        except Exception as e:
+                            print(f"Error insertando imagen: {e}")
+                    else:
+                        print(f"Falta el archivo: {icon_file}")
 
     # Guardar en memoria
     buffer = BytesIO()
@@ -117,28 +141,29 @@ def create_word(data):
     buffer.seek(0)
     return buffer
 
-# --- INTERFAZ STREAMLIT ---
-st.title("Generador de Carta de Alérgenos 🍤")
+# --- 5. INTERFAZ WEB ---
+st.title("Generador de Cartas (Corregido)")
 
-uploaded_file = st.file_uploader("Sube la foto del menú", type=["jpg", "png", "jpeg"])
+uploaded_file = st.file_uploader("Sube tu menú (Foto)", type=["jpg", "png", "jpeg"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="Menú subido", use_column_width=True)
+    st.image(image, caption="Imagen cargada", width=300)
     
-    if st.button("Generar Word con Alérgenos"):
-        with st.spinner("Gemini está leyendo el menú y detectando alérgenos..."):
-            menu_data = analyze_image(image)
+    if st.button("GENERAR CARTA"):
+        data = analyze_image(image)
+        
+        if data:
+            # Muestra los datos para verificar qué detectó la IA
+            with st.expander("Ver qué alérgenos detectó la IA"):
+                st.write(data)
             
-            if menu_data:
-                st.success("¡Análisis completado!")
-                # Generar Word
-                docx_file = create_word(menu_data)
-                
-                # Botón de descarga
-                st.download_button(
-                    label="📥 Descargar Carta (.docx)",
-                    data=docx_file,
-                    file_name="carta_alergenos.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
+            docx = create_word(data)
+            
+            st.success("¡Carta generada!")
+            st.download_button(
+                label="DESCARGAR WORD",
+                data=docx,
+                file_name="Carta_Alergenos.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
