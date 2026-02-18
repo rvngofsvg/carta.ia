@@ -11,7 +11,7 @@ from pypdf import PdfReader
 # --- 1. CONFIGURACIÓN DE MODELO ---
 # AQUÍ ES DONDE ELIGES LA VERSIÓN DE LA IA
 # Opciones válidas: "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"
-MODELO_A_USAR = "gemini-3.0-pro" 
+MODELO_A_USAR = "gemini-2.5-flash" 
 
 # --- 2. RUTAS INTELIGENTES ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
