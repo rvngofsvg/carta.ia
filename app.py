@@ -10,73 +10,28 @@ from PIL import Image
 from pypdf import PdfReader
 
 # --- 1. CONFIGURACIÓN ---
-MODELO_A_USAR = "gemini-2.5-flash" # O "gemini-1.5-flash" si prefieres
+MODELO_A_USAR = "gemini-2.5-flash" 
 
-# --- 2. EL SUPER DICCIONARIO DE SEGURIDAD (La red de seguridad) ---
-# Si Python detecta estas palabras, marca el icono OBLIGATORIAMENTE.
-# Incluye términos culinarios técnicos y salsas complejas.
-
+# --- 2. DICCIONARIO DE SEGURIDAD (BASE) ---
 DICCIONARIO_MAESTRO = {
-    "gluten": [
-        "pan", "trigo", "harina", "pasta", "galleta", "bizcocho", "rebozado", "cerveza", 
-        "espelta", "centeno", "cebada", "crostini", "tostada", "brioche", "burger", "bocadillo", 
-        "sandwich", "tempura", "panko", "gyoza", "focaccia", "pizza", "couscous", "bulgur", 
-        "seitan", "bechamel", "velouté", "croqueta", "empanada", "lasaña", "canelones", "fideos",
-        "udon", "ramen", "salsa de soja", "teriyaki", "hojaldre", "crumble", "croutons", "picatostes"
-    ],
-    "lacteos": [
-        "queso", "nata", "leche", "yogur", "crema", "mantequilla", "bechamel", "burrata", 
-        "mozzarella", "parmesano", "cheddar", "lactosa", "helado", "roquefort", "gorgonzola", 
-        "feta", "mascarpone", "ricotta", "brie", "camembert", "manchego", "cabra", "oveja",
-        "tzatziki", "ghee", "paneer", "dulce de leche", "tiramisu", "cheesecake", "stracciatella",
-        "parmentier", "carbonara", "mousse", "chantilly"
-    ],
-    "huevos": [
-        "huevo", "tortilla", "mayonesa", "mahonesa", "merengue", "yema", "clara", "alioli", 
-        "holandesa", "carbonara", "bizcocho", "quiche", "revuelto", "poché", "frito", "coulant",
-        "brioche", "tiramisu", "crep", "pancake", "tarta", "flan", "natillas"
-    ],
-    "crustaceos": [
-        "gamba", "langostino", "cigala", "bogavante", "cangrejo", "buey de mar", "camaron", 
-        "nécora", "carabinero", "quisquilla", "percebe", "bisque", "paella marinera", "txangurro"
-    ],
-    "moluscos": [
-        "pulpo", "calamar", "sepia", "mejillon", "almeja", "chipiron", "vieira", "ostra", 
-        "navaja", "berberecho", "coquina", "zamburiña", "rabas", "choquitos", "oreja de mar"
-    ],
-    "pescado": [
-        "pescado", "atun", "salmon", "bacalao", "merluza", "anchoa", "boqueron", "sardina", 
-        "lubina", "dorada", "rodaballo", "rape", "lenguado", "tataki", "sashimi", "ceviche", 
-        "dashi", "salsa perrins", "worcestershire", "surimi", "gulas", "caviar", "huevas"
-    ],
-    "cacahuetes": [
-        "cacahuete", "mani", "satay", "crema de cacahuete", "mantequilla de mani"
-    ],
-    "soja": [
-        "soja", "edamame", "tofu", "miso", "salsa de soja", "tamari", "teriyaki", "tempeh", 
-        "yuba", "lecitina de soja", "wakame" # A veces la ensalada wakame lleva sésamo y soja
-    ],
-    "frutos de cascara": [
-        "almendra", "nuez", "nueces", "avellana", "pistacho", "anacardo", "piñon", "praliné", 
-        "macadamia", "pecana", "mazapan", "turron", "pesto", "romesco", "ajoblanco", "baklava", 
-        "nocilla", "nutella", "brownie" # A menudo lleva nueces
-    ],
-    "mostaza": [
-        "mostaza", "dijon", "antigua", "vinagreta de mostaza", "salsa barbacoa" # A veces lleva mostaza
-    ],
-    "sesamo": [
-        "sesamo", "ajonjoli", "tahini", "hummus", "halva", "tataki", "poké", "aceite de sesamo", 
-        "pan de hamburguesa" # A veces lleva sésamo
-    ],
-    "apio": [
-        "apio", "caldo de verduras", "mirepoix", "sofrito", "bloody mary", "waldorf"
-    ],
-    "sulfitos": [
-        "vino", "vinagre", "sulfitos", "reducción", "cava", "champagne", "cerveza", "sidra", 
-        "mostaza" # A veces lleva vinagre con sulfitos
-    ],
-    "altramuces": ["altramuz", "altramuces", "harina de altramuz"],
+    "gluten": ["pan", "trigo", "harina", "pasta", "galleta", "bizcocho", "rebozado", "cerveza", "tempura", "panko", "lasaña", "fideos", "salsa de soja"],
+    "lacteos": ["queso", "nata", "leche", "yogur", "mantequilla", "bechamel", "mozzarella", "parmesano", "cheddar", "helado", "burrata", "carbonara"],
+    "huevos": ["huevo", "tortilla", "mayonesa", "merengue", "alioli", "bizcocho", "quiche", "brioche", "tarta"],
+    "crustaceos": ["gamba", "langostino", "cigala", "bogavante", "cangrejo", "buey de mar", "camaron"],
+    "moluscos": ["pulpo", "calamar", "sepia", "mejillon", "almeja", "chipiron", "vieira", "ostra"],
+    "pescado": ["pescado", "atun", "salmon", "bacalao", "merluza", "anchoa", "sardina", "sushi", "sashimi"],
+    "cacahuetes": ["cacahuete", "mani", "satay"],
+    "soja": ["soja", "edamame", "tofu", "miso", "salsa de soja", "teriyaki", "wakame"],
+    "frutos de cascara": ["almendra", "nuez", "avellana", "pistacho", "anacardo", "pesto", "romesco", "brownie", "nutella"],
+    "mostaza": ["mostaza", "dijon", "salsa barbacoa"],
+    "sesamo": ["sesamo", "ajonjoli", "tahini", "hummus", "pan de hamburguesa"],
+    "apio": ["apio", "caldo"],
+    "sulfitos": ["vino", "vinagre", "sulfitos"],
+    "altramuces": ["altramuz", "altramuces"]
 }
+
+# Lista completa de opciones para el selector
+ALLERGEN_OPTIONS = list(DICCIONARIO_MAESTRO.keys())
 
 # --- 3. RUTAS INTELIGENTES ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -155,27 +110,16 @@ def extract_text_from_docx(file):
         return text
     except: return None
 
-# --- 7. ANÁLISIS BLINDADO (IA + DICCIONARIO) ---
+# --- 7. ANÁLISIS ---
 def analyze_content(content, content_type="image"):
     model = genai.GenerativeModel(MODELO_A_USAR)
     
-    # PROMPT AVANZADO: Instrucciones de "Chef Ejecutivo de Seguridad"
     base_prompt = """
-    Analiza este menú actuando como un AUDITOR DE SEGURIDAD ALIMENTARIA muy estricto.
+    Analiza este menú.
+    1. Extrae Nombre del Restaurante, Categorías, Platos y PRECIO.
+    2. DETECTA ALÉRGENOS basándote en ingredientes y sentido común gastronómico.
     
-    TAREA:
-    1. Extrae Nombre del Restaurante, Categorías, Platos y PRECIOS EXACTOS.
-    2. DETECCIÓN DE ALÉRGENOS (CRÍTICO):
-       - No te limites a los ingredientes obvios. Piensa en la elaboración.
-       - Si ves "Tempura", "Rebozado", "Empanado" -> Marca GLUTEN.
-       - Si ves "Salsa Tartara" o "Mayonesa" -> Marca HUEVOS.
-       - Si ves "Pesto" -> Marca FRUTOS DE CASCARA y LACTEOS.
-       - Si ves "Teriyaki" o "Salsa de Soja" -> Marca SOJA y GLUTEN.
-       - Si ves "Brioche" -> Marca GLUTEN, HUEVOS y LACTEOS.
-       - Si ves "Surimi" -> Marca PESCADO y GLUTEN.
-       - Ante la más mínima duda de contaminación cruzada o ingrediente oculto, MARCALO.
-    
-    FORMATO JSON EXACTO (sin markdown):
+    Salida JSON (sin markdown):
     {
         "restaurant_name": "Nombre",
         "categories": [
@@ -183,10 +127,10 @@ def analyze_content(content, content_type="image"):
                 "name": "Categoría",
                 "dishes": [
                     {
-                        "name": "Nombre del Plato",
-                        "description": "Descripción completa",
+                        "name": "Plato",
+                        "description": "Ingredientes",
                         "price": "10.50",
-                        "allergens": ["gluten", "lacteos", "huevos"] 
+                        "allergens": ["gluten", "lacteos"] 
                     }
                 ]
             }
@@ -195,7 +139,7 @@ def analyze_content(content, content_type="image"):
     """
     
     try:
-        with st.spinner(f"🕵️‍♀️ Analizando menú con protocolo de seguridad máxima..."):
+        with st.spinner(f"🧠 Analizando con IA ({MODELO_A_USAR})..."):
             if content_type == "image":
                 response = model.generate_content([base_prompt, content])
             else:
@@ -208,40 +152,33 @@ def analyze_content(content, content_type="image"):
             
             data = json.loads(text)
 
-            # --- CAPA DE SEGURIDAD 2: EL SUPER DICCIONARIO ---
-            # Python revisa lo que la IA pudo haber pasado por alto
+            # Capa de Seguridad (Diccionario)
             for category in data.get("categories", []):
                 for dish in category["dishes"]:
-                    # Analizamos TODO el texto del plato (nombre + descripción)
                     full_text = (dish.get("name", "") + " " + dish.get("description", "")).lower()
+                    current = [a.lower().strip() for a in dish.get("allergens", [])]
                     
-                    # Lista actual detectada por la IA
-                    current_allergens = [a.lower().strip() for a in dish.get("allergens", [])]
-                    
-                    # Chequeo contra el DICCIONARIO MAESTRO
                     for allergen, keywords in DICCIONARIO_MAESTRO.items():
-                        # Si alguna palabra clave compleja aparece...
-                        if any(keyword in full_text for keyword in keywords):
-                            if allergen not in current_allergens:
-                                current_allergens.append(allergen)
-                                # (Opcional) Debug
-                                # print(f"🛡️ SEGURIDAD ACTIVA: Se detectó '{allergen}' en '{dish['name']}'")
+                        if any(k in full_text for k in keywords):
+                            if allergen not in current: current.append(allergen)
                     
-                    dish["allergens"] = current_allergens
+                    dish["allergens"] = current
             
             return data
 
     except Exception as e:
-        st.error(f"Error en análisis: {e}")
+        st.error(f"Error IA: {e}")
         return None
 
-# --- 8. GENERACIÓN WORD (PROFESIONAL) ---
+# --- 8. GENERACIÓN WORD (ALINEACIÓN PERFECTA) ---
 def create_word(data):
     if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
         st.error(f"❌ Falta plantilla en: {PLANTILLA_PATH}")
         st.stop()
         
     doc = Document(PLANTILLA_PATH)
+    
+    # Título
     try: doc.add_heading(data.get("restaurant_name", "MENÚ"), 0)
     except: doc.add_paragraph(data.get("restaurant_name", "MENÚ")).bold = True
 
@@ -250,14 +187,26 @@ def create_word(data):
         for dish in category["dishes"]:
             p = doc.add_paragraph()
             
-            # Formato: Nombre ......... Precio [Iconos]
+            # --- SISTEMA DE DOBLE TABULACIÓN PARA ALINEAR ---
+            # Tab 1: Precio (Alineado a la derecha, con puntos) -> Posición 15 cm
+            # Tab 2: Iconos (Alineado a la izquierda, sin puntos) -> Posición 15.5 cm
+            
             tab_stops = p.paragraph_format.tab_stops
-            tab_stops.add_tab_stop(Cm(16), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            # Tabulador para el precio (con puntos)
+            tab_stops.add_tab_stop(Cm(14.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            # Tabulador para los iconos (fijo para que empiecen siempre igual)
+            tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.SPACES)
             
+            # 1. Nombre
             p.add_run(dish['name']).bold = True
-            p.add_run(f"\t{dish['price']}€  ")
             
-            # Iconos juntos (sin espacios extra)
+            # 2. Salto al Precio
+            p.add_run(f"\t{dish['price']}€")
+            
+            # 3. Salto a la Columna de Iconos
+            p.add_run("\t") 
+            
+            # 4. Insertar Iconos
             for allergen in dish.get("allergens", []):
                 key = allergen.lower().strip()
                 if "frutos secos" in key: key = "frutos de cascara"
@@ -270,6 +219,7 @@ def create_word(data):
                             run.add_picture(icon_path, width=Cm(0.4))
                         except: pass
             
+            # Descripción
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
                 p_desc.add_run(dish['description']).italic = True
@@ -280,15 +230,18 @@ def create_word(data):
     buffer.seek(0)
     return buffer
 
-# --- 9. INTERFAZ ---
-st.title(f"Generador de Cartas 3.0 🍤")
+# --- 9. INTERFAZ (CON EDITOR MANUAL) ---
+st.title("Generador de Cartas: Edición Pro ✏️")
 
-uploaded_file = st.file_uploader("Sube Menú (Foto/PDF/Word)", type=["jpg", "png", "pdf", "docx"])
+if "menu_data" not in st.session_state:
+    st.session_state.menu_data = None
 
-if uploaded_file is not None:
-    file_type = uploaded_file.name.split('.')[-1].lower()
-    
-    if st.button("GENERAR CARTA"):
+uploaded_file = st.file_uploader("Sube Menú", type=["jpg", "png", "pdf", "docx"])
+
+if uploaded_file:
+    # Botón de análisis inicial
+    if st.button("1. ANALIZAR MENÚ CON IA"):
+        file_type = uploaded_file.name.split('.')[-1].lower()
         data = None
         if file_type in ['jpg', 'png', 'jpeg']:
             data = analyze_content(Image.open(uploaded_file), "image")
@@ -298,12 +251,61 @@ if uploaded_file is not None:
         elif file_type == 'docx':
             text = extract_text_from_docx(uploaded_file)
             if text: data = analyze_content(text, "text")
-
+        
         if data:
-            st.success("✅ Análisis completado con doble verificación.")
-            with st.expander("Ver detalle de detección"):
-                st.write(data)
+            st.session_state.menu_data = data
+            st.rerun()
+
+# --- EDITOR EN PANTALLA ---
+if st.session_state.menu_data:
+    st.markdown("---")
+    st.subheader("🔍 Revisa y Edita los Alérgenos")
+    st.info("La IA no sabe si la comida es congelada o casera. Aquí puedes corregirlo manualmente.")
+    
+    data = st.session_state.menu_data
+    
+    # Nombre Restaurante Editable
+    data["restaurant_name"] = st.text_input("Nombre Restaurante", data.get("restaurant_name", ""))
+    
+    # Iterar categorías y platos para crear el formulario
+    for cat_idx, category in enumerate(data.get("categories", [])):
+        with st.expander(f"📂 {category['name']}", expanded=True):
+            # Editar nombre categoría
+            category["name"] = st.text_input(f"Categoría {cat_idx+1}", category["name"], key=f"cat_{cat_idx}")
             
-            docx = create_word(data)
-            st.download_button("📥 DESCARGAR CARTA SEGURA", docx, "Carta_Alergenos.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-            
+            for dish_idx, dish in enumerate(category["dishes"]):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    # Editar Nombre y Precio
+                    dish["name"] = st.text_input("Plato", dish["name"], key=f"name_{cat_idx}_{dish_idx}")
+                    dish["description"] = st.text_area("Descripción", dish.get("description", ""), key=f"desc_{cat_idx}_{dish_idx}", height=68)
+                
+                with col2:
+                    dish["price"] = st.text_input("Precio", dish["price"], key=f"price_{cat_idx}_{dish_idx}")
+                    # SELECTOR MÚLTIPLE DE ALÉRGENOS
+                    # Aquí es donde ocurre la magia: El usuario marca lo que quiera
+                    current_allergens = [a.lower() for a in dish.get("allergens", [])]
+                    # Limpiamos para que coincida con las opciones
+                    valid_defaults = [a for a in current_allergens if a in ALLERGEN_OPTIONS]
+                    
+                    selected = st.multiselect(
+                        "Alérgenos",
+                        options=ALLERGEN_OPTIONS,
+                        default=valid_defaults,
+                        key=f"all_{cat_idx}_{dish_idx}"
+                    )
+                    dish["allergens"] = selected
+                    
+                st.markdown("---")
+
+    # Botón final
+    st.markdown("### ¿Todo listo?")
+    if st.button("⬇️ 2. DESCARGAR WORD DEFINITIVO"):
+        docx = create_word(st.session_state.menu_data)
+        st.download_button(
+            label="DESCARGAR CARTA.DOCX",
+            data=docx,
+            file_name="Carta_Revisada.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
