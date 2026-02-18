@@ -10,7 +10,7 @@ from PIL import Image
 from pypdf import PdfReader
 
 # --- 1. CONFIGURACIÓN ---
-MODELO_A_USAR = "gemini-3-pro-preview" # O "gemini-1.5-flash" si prefieres
+MODELO_A_USAR = "gemini-2.5-flash" # O "gemini-1.5-flash" si prefieres
 
 # --- 2. EL SUPER DICCIONARIO DE SEGURIDAD (La red de seguridad) ---
 # Si Python detecta estas palabras, marca el icono OBLIGATORIAMENTE.
