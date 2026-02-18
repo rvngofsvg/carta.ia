@@ -70,14 +70,4 @@ if not ICONOS_DIR:
     ICONOS_DIR = os.path.join(BASE_DIR, "Public", "Iconos")
 
 def get_icon_path(icon_name):
-    return os.path.join(ICONOS_DIR, icon_name)
-
-ICON_MAP = {
-    "gluten": get_icon_path("gluten.png"),
-    "crustaceos": get_icon_path("gambas.png"),
-    "huevos": get_icon_path("huevo.png"),
-    "pescado": get_icon_path("pescado.png"),
-    "cacahuetes": get_icon_path("cacahuetes.png"),
-    "soja": get_icon_path("soja.png"),
-    "lacteos": get_icon_path("lacteos.png"),
-    "frutos de cascara": get
+    return os
