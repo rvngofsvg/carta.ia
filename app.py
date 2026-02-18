@@ -12,14 +12,13 @@ from pypdf import PdfReader
 # --- 1. CONFIGURACIÓN ---
 MODELO_A_USAR = "gemini-2.5-flash" 
 
-# --- 2. DICCIONARIO MAESTRO EXPANDIDO (VERSIÓN GASTRO-BAR) ---
-# He añadido términos modernos como Kimchi, Brioche, Gyoza, etc.
+# --- 2. DICCIONARIO MAESTRO (Español) ---
 DICCIONARIO_MAESTRO = {
     "gluten": [
         "pan", "trigo", "harina", "pasta", "galleta", "bizcocho", "rebozado", "cerveza", 
         "tempura", "panko", "lasaña", "fideos", "salsa de soja", "brioche", "burger", 
         "bocadillo", "sandwich", "croutons", "picatostes", "seitan", "couscous", "bulgur",
-        "tostada", "regaña", "pico de gallo" # A veces lleva pan, a veces no (dudoso)
+        "tostada", "regaña", "pico de gallo"
     ],
     "lacteos": [
         "queso", "nata", "leche", "yogur", "mantequilla", "bechamel", "mozzarella", 
@@ -42,7 +41,7 @@ DICCIONARIO_MAESTRO = {
     "pescado": [
         "pescado", "atun", "salmon", "bacalao", "merluza", "anchoa", "sardina", "sushi", 
         "sashimi", "tataki", "ceviche", "ventresca", "bonito", "dorada", "lubina", 
-        "salsa perrins", "worcestershire", "kimchi" # El kimchi tradicional lleva salsa de pescado
+        "salsa perrins", "worcestershire", "kimchi"
     ],
     "cacahuetes": ["cacahuete", "mani", "satay", "crema de cacahuete"],
     "soja": [
@@ -56,7 +55,7 @@ DICCIONARIO_MAESTRO = {
     "mostaza": ["mostaza", "dijon", "salsa barbacoa", "vinagreta"],
     "sesamo": [
         "sesamo", "ajonjoli", "tahini", "hummus", "pan de hamburguesa", "aceite de sesamo",
-        "bagel", "tataki" # Suele llevar sésamo por fuera
+        "bagel", "tataki"
     ],
     "apio": ["apio", "caldo", "sofrito", "bloody mary"],
     "sulfitos": ["vino", "vinagre", "sulfitos", "cava", "champagne", "mostaza antigua"],
@@ -140,30 +139,32 @@ def extract_text_from_docx(file):
         return text
     except: return None
 
-# --- 7. ANÁLISIS ---
+# --- 7. ANÁLISIS (AHORA TRADUCE AL ESPAÑOL) ---
 def analyze_content(content, content_type="image"):
     model = genai.GenerativeModel(MODELO_A_USAR)
     
+    # HE CAMBIADO EL PROMPT PARA QUE TRADUZCA SÍ O SÍ
     base_prompt = """
-    Eres un experto en seguridad alimentaria. Analiza este menú.
+    Analiza este menú. Eres un experto en gastronomía española.
+    
+    TAREA OBLIGATORIA DE IDIOMA:
+    - SI EL MENÚ ESTÁ EN INGLÉS (o catalán, francés, etc.), TRADUCE TODO AL ESPAÑOL.
+    - Ejemplo: "Pineapple" -> "Piña". "Chicken" -> "Pollo".
+    - Los nombres propios de platos famosos (ej: "Bloody Mary", "Steak Tartar") déjalos igual, pero traduce la descripción de ingredientes.
+
     1. Extrae Nombre, Categorías, Platos y PRECIO.
-    2. DETECTA ALÉRGENOS (Crucial):
-       - Busca ingredientes ocultos.
-       - "Brioche" -> Gluten + Huevo + Lacteos.
-       - "Kimchi" -> Pescado (salsa) + Soja.
-       - "Tempura/Rebozado" -> Gluten.
-       - "Salsas" -> Revisa mayonesas (huevo), salsas oscuras (soja/gluten).
+    2. DETECTA ALÉRGENOS (Busca ingredientes ocultos como brioche, kimchi, salsas).
     
     Salida JSON (sin markdown):
     {
         "restaurant_name": "Nombre",
         "categories": [
             {
-                "name": "Categoría",
+                "name": "Categoría (EN ESPAÑOL)",
                 "dishes": [
                     {
-                        "name": "Plato",
-                        "description": "Ingredientes",
+                        "name": "Plato (EN ESPAÑOL)",
+                        "description": "Ingredientes (EN ESPAÑOL)",
                         "price": "10.50",
                         "allergens": ["gluten", "lacteos"] 
                     }
@@ -174,7 +175,7 @@ def analyze_content(content, content_type="image"):
     """
     
     try:
-        with st.spinner(f"🧠 Analizando ({MODELO_A_USAR})..."):
+        with st.spinner(f"🧠 Analizando y Traduciendo al Español..."):
             if content_type == "image":
                 response = model.generate_content([base_prompt, content])
             else:
@@ -195,7 +196,6 @@ def analyze_content(content, content_type="image"):
                     current = [a.lower().strip() for a in dish.get("allergens", [])]
                     
                     for allergen, keywords in DICCIONARIO_MAESTRO.items():
-                        # Busca palabras clave en todo el texto del plato
                         if any(k in full_text for k in keywords):
                             if allergen not in current: 
                                 current.append(allergen)
@@ -205,7 +205,7 @@ def analyze_content(content, content_type="image"):
     except Exception as e:
         st.error(f"Error IA: {e}"); return None
 
-# --- 8. GENERACIÓN WORD (ICONOS JUNTOS) ---
+# --- 8. GENERACIÓN WORD ---
 def create_word(data):
     if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
         st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
@@ -228,10 +228,9 @@ def create_word(data):
             p.add_run(dish.get('name', 'Plato')).bold = True
             price = dish.get('price', '') or ""
             p.add_run(f"\t{price}€")
-            p.add_run("\t") # Salto a la columna de iconos
+            p.add_run("\t") 
             
-            # --- SOLUCIÓN ICONOS PEGADOS ---
-            # Creamos un ÚNICO run para todas las imágenes. 
+            # ICONOS
             run_icons = p.add_run()
             for allergen in dish.get("allergens", []):
                 key = allergen.lower().strip()
@@ -239,7 +238,6 @@ def create_word(data):
                 
                 if key in ICON_MAP and os.path.exists(ICON_MAP[key]):
                     try:
-                        # Tamaño 0.35cm para que entren mejor y se vean pegados
                         run_icons.add_picture(ICON_MAP[key], width=Cm(0.35))
                     except: pass
             
@@ -253,15 +251,15 @@ def create_word(data):
     buffer.seek(0)
     return buffer
 
-# --- 9. INTERFAZ CON EDITOR ---
-st.title("Generador de Cartas V5 🍤")
+# --- 9. INTERFAZ ---
+st.title("Generador de Cartas (Español) 🇪🇸")
 
 if "menu_data" not in st.session_state: st.session_state.menu_data = None
 
-uploaded_file = st.file_uploader("Sube Menú", type=["jpg", "png", "pdf", "docx"])
+uploaded_file = st.file_uploader("Sube el Menú aquí", type=["jpg", "png", "pdf", "docx"])
 
 if uploaded_file:
-    if st.button("1. ANALIZAR (IA + DICCIONARIO)"):
+    if st.button("1. ANALIZAR Y TRADUCIR"):
         ft = uploaded_file.name.split('.')[-1].lower()
         data = None
         if ft in ['jpg','png','jpeg']: data = analyze_content(Image.open(uploaded_file), "image")
@@ -276,8 +274,8 @@ if uploaded_file:
 
 if st.session_state.menu_data:
     st.markdown("---")
-    st.subheader("📝 Revisa los Alérgenos (Importante)")
-    st.warning("Si un plato es congelado/industrial, la IA no puede saberlo. Añade los alérgenos aquí.")
+    st.subheader("📝 Revisa los Alérgenos y Textos")
+    st.warning("Verifica que la traducción sea correcta.")
     
     data = st.session_state.menu_data
     data["restaurant_name"] = st.text_input("Restaurante", data.get("restaurant_name", ""))
@@ -297,5 +295,6 @@ if st.session_state.menu_data:
                     dish["allergens"] = sel
                 st.markdown("---")
 
-    if st.button("⬇️ 2. DESCARGAR WORD FINAL"):
+    if st.button("⬇️ 2. DESCARGAR CARTA EN ESPAÑOL"):
         st.download_button("Descargar .docx", create_word(data), "Carta_Final.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            
