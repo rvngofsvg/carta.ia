@@ -80,37 +80,4 @@ ICON_MAP = {
     "cacahuetes": get_icon_path("cacahuetes.png"),
     "soja": get_icon_path("soja.png"),
     "lacteos": get_icon_path("lacteos.png"),
-    "frutos de cascara": get_icon_path("frutos_secos.png"),
-    "apio": get_icon_path("apio.png"),
-    "mostaza": get_icon_path("mostaza.png"),
-    "sesamo": get_icon_path("sesamo.png"),
-    "sulfitos": get_icon_path("sulfitos.png"),
-    "altramuces": get_icon_path("altramuces.png"),
-    "moluscos": get_icon_path("moluscos.png")
-}
-
-# --- 6. FUNCIONES DE LECTURA (CORREGIDAS) ---
-def extract_text_from_pdf(file):
-    try:
-        reader = PdfReader(file)
-        text = ""
-        for page in reader.pages:
-            # FIX: Evitar error si una página está en blanco
-            page_content = page.extract_text()
-            if page_content:
-                text += page_content + "\n"
-        return text
-    except: return None
-
-def extract_text_from_docx(file):
-    try:
-        doc = Document(file)
-        text = "\n".join([p.text for p in doc.paragraphs])
-        for table in doc.tables:
-            for row in table.rows:
-                text += " | ".join([cell.text for cell in row.cells]) + "\n"
-        return text
-    except: return None
-
-# --- 7. ANÁLISIS (CORREGIDO) ---
-def analyze_content(content, content_type="image"):
+    "frutos de cascara": get
