@@ -175,7 +175,7 @@ def analyze_content(content, content_type="image"):
         st.error(f"Error IA: {e}")
         return None
 
-# --- 8. GENERACIÓN WORD (ALINEACIÓN PERFECTA) ---
+# --- 8. GENERACIÓN WORD (ICONOS PEGADOS) ---
 def create_word(data):
     if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
         st.error(f"❌ Falta plantilla en: {PLANTILLA_PATH}")
@@ -191,18 +191,24 @@ def create_word(data):
         for dish in category["dishes"]:
             p = doc.add_paragraph()
             
-            # Tab 1: Precio (14.5cm) | Tab 2: Iconos (15.0cm)
+            # Tabuladores
             tab_stops = p.paragraph_format.tab_stops
             tab_stops.add_tab_stop(Cm(14.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.SPACES)
             
+            # Nombre y Precio
             p.add_run(dish.get('name', 'Plato')).bold = True
             
             price = dish.get('price', '')
             if price is None: price = ""
             p.add_run(f"\t{price}€")
             
+            # Salto a la columna de iconos
             p.add_run("\t") 
+            
+            # --- CAMBIO IMPORTANTE: UN SOLO RUN PARA TODOS LOS ICONOS ---
+            # Al crear un solo run, las imágenes van pegadas sin espacio de texto
+            run_icons = p.add_run()
             
             for allergen in dish.get("allergens", []):
                 key = allergen.lower().strip()
@@ -212,8 +218,8 @@ def create_word(data):
                     icon_path = ICON_MAP[key]
                     if os.path.exists(icon_path):
                         try:
-                            run = p.add_run()
-                            run.add_picture(icon_path, width=Cm(0.4))
+                            # Añadimos al mismo run (run_icons)
+                            run_icons.add_picture(icon_path, width=Cm(0.45))
                         except: pass
             
             if dish.get('description'):
@@ -297,3 +303,4 @@ if st.session_state.menu_data:
             file_name="Carta_Revisada.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
+        
