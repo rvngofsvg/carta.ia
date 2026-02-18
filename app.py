@@ -30,7 +30,6 @@ DICCIONARIO_MAESTRO = {
     "altramuces": ["altramuz", "altramuces"]
 }
 
-# Lista completa de opciones para el selector
 ALLERGEN_OPTIONS = list(DICCIONARIO_MAESTRO.keys())
 
 # --- 3. RUTAS INTELIGENTES ---
@@ -90,13 +89,16 @@ ICON_MAP = {
     "moluscos": get_icon_path("moluscos.png")
 }
 
-# --- 6. FUNCIONES DE LECTURA ---
+# --- 6. FUNCIONES DE LECTURA (CORREGIDAS) ---
 def extract_text_from_pdf(file):
     try:
         reader = PdfReader(file)
         text = ""
         for page in reader.pages:
-            text += page.extract_text() + "\n"
+            # FIX: Evitar error si una página está en blanco
+            page_content = page.extract_text()
+            if page_content:
+                text += page_content + "\n"
         return text
     except: return None
 
@@ -110,202 +112,5 @@ def extract_text_from_docx(file):
         return text
     except: return None
 
-# --- 7. ANÁLISIS ---
+# --- 7. ANÁLISIS (CORREGIDO) ---
 def analyze_content(content, content_type="image"):
-    model = genai.GenerativeModel(MODELO_A_USAR)
-    
-    base_prompt = """
-    Analiza este menú.
-    1. Extrae Nombre del Restaurante, Categorías, Platos y PRECIO.
-    2. DETECTA ALÉRGENOS basándote en ingredientes y sentido común gastronómico.
-    
-    Salida JSON (sin markdown):
-    {
-        "restaurant_name": "Nombre",
-        "categories": [
-            {
-                "name": "Categoría",
-                "dishes": [
-                    {
-                        "name": "Plato",
-                        "description": "Ingredientes",
-                        "price": "10.50",
-                        "allergens": ["gluten", "lacteos"] 
-                    }
-                ]
-            }
-        ]
-    }
-    """
-    
-    try:
-        with st.spinner(f"🧠 Analizando con IA ({MODELO_A_USAR})..."):
-            if content_type == "image":
-                response = model.generate_content([base_prompt, content])
-            else:
-                response = model.generate_content(base_prompt + "\n\nMENÚ:\n" + content)
-            
-            text = response.text.replace('```json', '').replace('```', '').strip()
-            start = text.find('{')
-            end = text.rfind('}') + 1
-            if start != -1 and end != -1: text = text[start:end]
-            
-            data = json.loads(text)
-
-            # Capa de Seguridad (Diccionario)
-            for category in data.get("categories", []):
-                for dish in category["dishes"]:
-                    full_text = (dish.get("name", "") + " " + dish.get("description", "")).lower()
-                    current = [a.lower().strip() for a in dish.get("allergens", [])]
-                    
-                    for allergen, keywords in DICCIONARIO_MAESTRO.items():
-                        if any(k in full_text for k in keywords):
-                            if allergen not in current: current.append(allergen)
-                    
-                    dish["allergens"] = current
-            
-            return data
-
-    except Exception as e:
-        st.error(f"Error IA: {e}")
-        return None
-
-# --- 8. GENERACIÓN WORD (ALINEACIÓN PERFECTA) ---
-def create_word(data):
-    if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
-        st.error(f"❌ Falta plantilla en: {PLANTILLA_PATH}")
-        st.stop()
-        
-    doc = Document(PLANTILLA_PATH)
-    
-    # Título
-    try: doc.add_heading(data.get("restaurant_name", "MENÚ"), 0)
-    except: doc.add_paragraph(data.get("restaurant_name", "MENÚ")).bold = True
-
-    for category in data.get("categories", []):
-        doc.add_heading(category["name"], level=1)
-        for dish in category["dishes"]:
-            p = doc.add_paragraph()
-            
-            # --- SISTEMA DE DOBLE TABULACIÓN PARA ALINEAR ---
-            # Tab 1: Precio (Alineado a la derecha, con puntos) -> Posición 15 cm
-            # Tab 2: Iconos (Alineado a la izquierda, sin puntos) -> Posición 15.5 cm
-            
-            tab_stops = p.paragraph_format.tab_stops
-            # Tabulador para el precio (con puntos)
-            tab_stops.add_tab_stop(Cm(14.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            # Tabulador para los iconos (fijo para que empiecen siempre igual)
-            tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.SPACES)
-            
-            # 1. Nombre
-            p.add_run(dish['name']).bold = True
-            
-            # 2. Salto al Precio
-            p.add_run(f"\t{dish['price']}€")
-            
-            # 3. Salto a la Columna de Iconos
-            p.add_run("\t") 
-            
-            # 4. Insertar Iconos
-            for allergen in dish.get("allergens", []):
-                key = allergen.lower().strip()
-                if "frutos secos" in key: key = "frutos de cascara"
-                
-                if key in ICON_MAP:
-                    icon_path = ICON_MAP[key]
-                    if os.path.exists(icon_path):
-                        try:
-                            run = p.add_run()
-                            run.add_picture(icon_path, width=Cm(0.4))
-                        except: pass
-            
-            # Descripción
-            if dish.get('description'):
-                p_desc = doc.add_paragraph()
-                p_desc.add_run(dish['description']).italic = True
-                p.paragraph_format.space_after = Pt(2)
-
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
-
-# --- 9. INTERFAZ (CON EDITOR MANUAL) ---
-st.title("Generador de Cartas: Edición Pro ✏️")
-
-if "menu_data" not in st.session_state:
-    st.session_state.menu_data = None
-
-uploaded_file = st.file_uploader("Sube Menú", type=["jpg", "png", "pdf", "docx"])
-
-if uploaded_file:
-    # Botón de análisis inicial
-    if st.button("1. ANALIZAR MENÚ CON IA"):
-        file_type = uploaded_file.name.split('.')[-1].lower()
-        data = None
-        if file_type in ['jpg', 'png', 'jpeg']:
-            data = analyze_content(Image.open(uploaded_file), "image")
-        elif file_type == 'pdf':
-            text = extract_text_from_pdf(uploaded_file)
-            if text: data = analyze_content(text, "text")
-        elif file_type == 'docx':
-            text = extract_text_from_docx(uploaded_file)
-            if text: data = analyze_content(text, "text")
-        
-        if data:
-            st.session_state.menu_data = data
-            st.rerun()
-
-# --- EDITOR EN PANTALLA ---
-if st.session_state.menu_data:
-    st.markdown("---")
-    st.subheader("🔍 Revisa y Edita los Alérgenos")
-    st.info("La IA no sabe si la comida es congelada o casera. Aquí puedes corregirlo manualmente.")
-    
-    data = st.session_state.menu_data
-    
-    # Nombre Restaurante Editable
-    data["restaurant_name"] = st.text_input("Nombre Restaurante", data.get("restaurant_name", ""))
-    
-    # Iterar categorías y platos para crear el formulario
-    for cat_idx, category in enumerate(data.get("categories", [])):
-        with st.expander(f"📂 {category['name']}", expanded=True):
-            # Editar nombre categoría
-            category["name"] = st.text_input(f"Categoría {cat_idx+1}", category["name"], key=f"cat_{cat_idx}")
-            
-            for dish_idx, dish in enumerate(category["dishes"]):
-                col1, col2 = st.columns([3, 1])
-                
-                with col1:
-                    # Editar Nombre y Precio
-                    dish["name"] = st.text_input("Plato", dish["name"], key=f"name_{cat_idx}_{dish_idx}")
-                    dish["description"] = st.text_area("Descripción", dish.get("description", ""), key=f"desc_{cat_idx}_{dish_idx}", height=68)
-                
-                with col2:
-                    dish["price"] = st.text_input("Precio", dish["price"], key=f"price_{cat_idx}_{dish_idx}")
-                    # SELECTOR MÚLTIPLE DE ALÉRGENOS
-                    # Aquí es donde ocurre la magia: El usuario marca lo que quiera
-                    current_allergens = [a.lower() for a in dish.get("allergens", [])]
-                    # Limpiamos para que coincida con las opciones
-                    valid_defaults = [a for a in current_allergens if a in ALLERGEN_OPTIONS]
-                    
-                    selected = st.multiselect(
-                        "Alérgenos",
-                        options=ALLERGEN_OPTIONS,
-                        default=valid_defaults,
-                        key=f"all_{cat_idx}_{dish_idx}"
-                    )
-                    dish["allergens"] = selected
-                    
-                st.markdown("---")
-
-    # Botón final
-    st.markdown("### ¿Todo listo?")
-    if st.button("⬇️ 2. DESCARGAR WORD DEFINITIVO"):
-        docx = create_word(st.session_state.menu_data)
-        st.download_button(
-            label="DESCARGAR CARTA.DOCX",
-            data=docx,
-            file_name="Carta_Revisada.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
