@@ -6,21 +6,40 @@ from docx import Document
 from docx.shared import Cm
 from io import BytesIO
 from PIL import Image
+from pypdf import PdfReader
 
-# --- 1. RUTAS EXACTAS (Confirmadas por el modo detective) ---
+# --- 1. CONFIGURACIÓN DE MODELO ---
+# AQUÍ ES DONDE ELIGES LA VERSIÓN DE LA IA
+# Opciones válidas: "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"
+MODELO_A_USAR = "gemini-3.0-pro" 
+
+# --- 2. RUTAS INTELIGENTES ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# RUTA 1: La plantilla (Corregido: plantilla_menu.docx en minúsculas)
-PLANTILLA_PATH = os.path.join(BASE_DIR, "Public", "Plantilla", "plantilla_menu.docx")
+# Función para buscar carpetas ignorando mayúsculas/minúsculas (Linux friendly)
+def find_path_insensitive(base, components):
+    current = base
+    for part in components:
+        found = False
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    if entry.name.lower() == part.lower():
+                        current = entry.path
+                        found = True
+                        break
+        except: pass
+        if not found: return None
+    return current
 
-# RUTA 2: Los iconos (Asumimos Public/Iconos con mayúsculas iniciales)
-ICONOS_DIR = os.path.join(BASE_DIR, "Public", "Iconos")
+# Buscamos la plantilla y los iconos automáticamente
+PLANTILLA_PATH = find_path_insensitive(BASE_DIR, ["public", "plantilla", "plantilla_menu.docx"])
+ICONOS_DIR = find_path_insensitive(BASE_DIR, ["public", "iconos"])
 
-# --- 2. CONFIGURACIÓN API KEY ---
+# --- 3. API KEY ---
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
 except:
-    # Fallback para local
     API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 if not API_KEY:
@@ -29,11 +48,13 @@ if not API_KEY:
 
 genai.configure(api_key=API_KEY)
 
-# --- 3. MAPEO DE ICONOS ---
+# --- 4. MAPEO DE ICONOS ---
+# Si no encuentra carpeta iconos, usa una ruta por defecto para no romper
+if not ICONOS_DIR: ICONOS_DIR = os.path.join(BASE_DIR, "Public", "Iconos")
+
 def get_icon_path(icon_name):
     return os.path.join(ICONOS_DIR, icon_name)
 
-# Diccionario de archivos (asegúrate de que los .png se llamen así en la carpeta)
 ICON_MAP = {
     "gluten": get_icon_path("gluten.png"),
     "crustaceos": get_icon_path("gambas.png"),
@@ -51,29 +72,57 @@ ICON_MAP = {
     "moluscos": get_icon_path("moluscos.png")
 }
 
-# --- 4. FUNCIONES ---
+# --- 5. FUNCIONES DE LECTURA (PDF/WORD) ---
 
-def analyze_image(image):
-    """Analiza el menú con Gemini 1.5 Flash"""
-    model = genai.GenerativeModel('gemini-1.5-flash')
+def extract_text_from_pdf(file):
+    """Extrae texto de PDF"""
+    try:
+        reader = PdfReader(file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        st.error(f"Error leyendo PDF: {e}")
+        return None
+
+def extract_text_from_docx(file):
+    """Extrae texto de Word"""
+    try:
+        doc = Document(file)
+        text = "\n".join([p.text for p in doc.paragraphs])
+        for table in doc.tables:
+            for row in table.rows:
+                text += " | ".join([cell.text for cell in row.cells]) + "\n"
+        return text
+    except Exception as e:
+        st.error(f"Error leyendo Word: {e}")
+        return None
+
+def analyze_content(content, content_type="image"):
+    """
+    Analiza Imagen o Texto usando el modelo seleccionado
+    """
+    # Usamos la variable MODELO_A_USAR definida arriba
+    model = genai.GenerativeModel(MODELO_A_USAR)
     
-    prompt = """
-    Analiza esta imagen de menú.
-    1. Extrae Nombre del Restaurante.
-    2. Extrae Categorías y Platos con PRECIO.
-    3. DETECTA ALÉRGENOS basándote en ingredientes (ej: queso=lacteos, pan=gluten, gambas=crustaceos).
+    base_prompt = """
+    Analiza este menú. 
+    1. Extrae Nombre Restaurante.
+    2. Extrae Categorías, Platos y PRECIOS.
+    3. DETECTA ALÉRGENOS (gluten, lacteos, crustaceos, etc.) según ingredientes.
     
-    Responde SOLO con este JSON (sin markdown):
+    Salida JSON (sin markdown):
     {
         "restaurant_name": "Nombre",
         "categories": [
             {
-                "name": "Entrantes",
+                "name": "Categoría",
                 "dishes": [
                     {
                         "name": "Plato",
                         "description": "Ingredientes",
-                        "price": "10.50",
+                        "price": "10.00",
                         "allergens": ["gluten", "lacteos"] 
                     }
                 ]
@@ -81,21 +130,25 @@ def analyze_image(image):
         ]
     }
     """
+    
     try:
-        with st.spinner("🧠 Analizando menú e identificando alérgenos..."):
-            response = model.generate_content([prompt, image])
+        with st.spinner(f"🤖 Analizando con {MODELO_A_USAR}..."):
+            if content_type == "image":
+                response = model.generate_content([base_prompt, content])
+            else:
+                # Para texto (PDF/Word)
+                response = model.generate_content(base_prompt + "\n\nMENÚ:\n" + content)
+                
             text = response.text.replace('```json', '').replace('```', '').strip()
             return json.loads(text)
     except Exception as e:
-        st.error(f"Error en la IA: {e}")
+        st.error(f"Error en la IA ({MODELO_A_USAR}): {e}")
         return None
 
 def create_word(data):
-    """Genera el Word final"""
-    
-    # Verificación final de seguridad
-    if not os.path.exists(PLANTILLA_PATH):
-        st.error(f"❌ ERROR: Sigue sin encontrar la plantilla en: {PLANTILLA_PATH}")
+    """Genera el Word Final"""
+    if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
+        st.error("❌ No encuentro la plantilla (plantilla_menu.docx) en Public/Plantilla")
         st.stop()
         
     doc = Document(PLANTILLA_PATH)
@@ -106,10 +159,9 @@ def create_word(data):
     except:
         doc.add_paragraph(data.get("restaurant_name", "MENÚ")).bold = True
 
-    # Iterar categorías y platos
+    # Platos
     for category in data.get("categories", []):
         doc.add_heading(category["name"], level=1)
-        
         for dish in category["dishes"]:
             p = doc.add_paragraph()
             p.add_run(dish['name']).bold = True
@@ -120,7 +172,6 @@ def create_word(data):
             p_price = doc.add_paragraph()
             p_price.add_run(f"{dish['price']}€  ")
             
-            # Insertar iconos
             for allergen in dish.get("allergens", []):
                 key = allergen.lower().strip()
                 if "frutos secos" in key: key = "frutos de cascara"
@@ -129,44 +180,42 @@ def create_word(data):
                     icon_path = ICON_MAP[key]
                     if os.path.exists(icon_path):
                         try:
-                            # Imagen pequeña 0.5cm
                             run = p_price.add_run()
                             run.add_picture(icon_path, width=Cm(0.5))
                             p_price.add_run("  ") 
-                        except:
-                            pass # Si falla una imagen, que siga con la siguiente
-                    else:
-                        print(f"Falta icono: {icon_path}")
+                        except: pass
 
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     return buffer
 
-# --- 5. INTERFAZ ---
-st.title("Generador de Cartas de Alérgenos ✅")
+# --- 6. INTERFAZ ---
+st.title(f"Generador de Cartas ({MODELO_A_USAR}) 🚀")
 
-uploaded_file = st.file_uploader("Sube la foto del menú", type=["jpg", "png", "jpeg"])
+uploaded_file = st.file_uploader("Sube menú (Foto, PDF o Word)", type=["jpg", "png", "jpeg", "pdf", "docx"])
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Menú subido", width=300)
+    file_type = uploaded_file.name.split('.')[-1].lower()
+    data = None
     
-    if st.button("GENERAR WORD"):
-        data = analyze_image(image)
+    if file_type in ['jpg', 'png', 'jpeg']:
+        image = Image.open(uploaded_file)
+        st.image(image, width=300)
+        data = analyze_content(image, "image")
         
-        if data:
-            st.success("¡Análisis completado!")
-            # Mostrar datos para verificar
-            with st.expander("Ver qué ha detectado la IA"):
-                st.write(data)
+    elif file_type == 'pdf':
+        text = extract_text_from_pdf(uploaded_file)
+        if text: data = analyze_content(text, "text")
             
-            docx = create_word(data)
-            
-            st.download_button(
-                label="📥 DESCARGAR CARTA LISTA",
-                data=docx,
-                file_name="Carta_Alergenos.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
-            
+    elif file_type == 'docx':
+        text = extract_text_from_docx(uploaded_file)
+        if text: data = analyze_content(text, "text")
+
+    if data:
+        st.success("¡Análisis completado!")
+        with st.expander("Ver datos detectados"):
+            st.write(data)
+        
+        docx = create_word(data)
+        st.download_button("📥 DESCARGAR CARTA", docx, "Carta_Alergenos.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
