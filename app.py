@@ -4,7 +4,7 @@ import os
 import json
 from docx import Document
 from docx.shared import Cm, Pt
-from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
+from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER, WD_LINE_SPACING
 from io import BytesIO
 from PIL import Image
 from pypdf import PdfReader
@@ -100,18 +100,17 @@ def extract_text_from_docx(file):
 def analyze_content(content, content_type="image"):
     model = genai.GenerativeModel(MODELO_A_USAR)
     
-    # PROMPT CORREGIDO PARA EVITAR RESÚMENES E INVENTOS
     base_prompt = """
     Eres un Transcriptor Profesional y un Nutricionista.
     
     REGLA 1 (TRANSCRIPCIÓN LITERAL):
     - Extrae el Nombre, la Descripción y el Precio EXACTAMENTE como aparecen.
-    - NO RESUMAS NADA. Si hay texto entre paréntesis (ej: "Todos nuestros sandwiches van acompañados..."), cópialo íntegro.
-    - NO AÑADAS TEXTO INVENTADO. Está estrictamente prohibido añadir advertencias como "puede contener trazas de...". Limítate a copiar el texto original.
+    - NO RESUMAS NADA.
+    - NO AÑADAS TEXTO INVENTADO ("puede contener trazas...").
     - Si el texto está en Inglés, tradúcelo al Español literalmente.
     
     REGLA 2 (ALÉRGENOS):
-    - Usa tu conocimiento para listar los alérgenos ocultos en la matriz (ej: Brioche = gluten, lacteos, huevos).
+    - Usa tu conocimiento para listar los alérgenos ocultos.
     
     Salida JSON (sin markdown):
     {
@@ -156,19 +155,31 @@ def analyze_content(content, content_type="image"):
             return data
     except Exception as e: st.error(f"Error IA: {e}"); return None
 
-# --- 8. GENERADOR 1: CARTA CON ALÉRGENOS (WORD EDITABLE) ---
+# --- FUNCION AUXILIAR PARA COMPACTAR ESPACIOS ---
+def set_tight_spacing(paragraph):
+    """Fuerza al párrafo a tener 0 puntos de espacio e interlineado sencillo."""
+    paragraph.paragraph_format.space_before = Pt(0)
+    paragraph.paragraph_format.space_after = Pt(0)
+    paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+
+# --- 8. GENERADOR 1: CARTA CON ALÉRGENOS ---
 def create_word(data):
     if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
         st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
         
     doc = Document(PLANTILLA_PATH)
-    try: doc.add_heading(data.get("restaurant_name", "MENÚ"), 0)
-    except: doc.add_paragraph(data.get("restaurant_name", "MENÚ")).bold = True
+    
+    # NOTA: Ya no imprimimos el "restaurant_name" aquí para respetar el encabezado de la clienta.
 
     for category in data.get("categories", []):
-        doc.add_heading(category["name"], level=1)
+        # Título de Categoría
+        p_cat = doc.add_heading(category["name"], level=1)
+        p_cat.paragraph_format.space_after = Pt(2) # Solo un mini espacio para que respire el título
+        
         for dish in category["dishes"]:
             p = doc.add_paragraph()
+            set_tight_spacing(p) # <-- ESPACIADO CERO APLICADO
+            
             tab_stops = p.paragraph_format.tab_stops
             tab_stops.add_tab_stop(Cm(14.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.SPACES)
@@ -188,8 +199,9 @@ def create_word(data):
             
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
+                set_tight_spacing(p_desc) # <-- ESPACIADO CERO APLICADO
                 p_desc.add_run(dish['description']).italic = True
-                p.paragraph_format.space_after = Pt(2)
+
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
 
 # --- 9. GENERADOR 2: CARTA LIMPIA (SIN ALÉRGENOS) ---
@@ -198,15 +210,15 @@ def create_clean_word(data):
         st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
         
     doc = Document(PLANTILLA_PATH)
-    try: doc.add_heading(data.get("restaurant_name", "MENÚ"), 0)
-    except: doc.add_paragraph(data.get("restaurant_name", "MENÚ")).bold = True
 
     for category in data.get("categories", []):
-        doc.add_heading(category["name"], level=1)
+        p_cat = doc.add_heading(category["name"], level=1)
+        p_cat.paragraph_format.space_after = Pt(2)
+
         for dish in category["dishes"]:
             p = doc.add_paragraph()
+            set_tight_spacing(p) # <-- ESPACIADO CERO APLICADO
             
-            # Solo un tabulador para el precio
             tab_stops = p.paragraph_format.tab_stops
             tab_stops.add_tab_stop(Cm(16.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             
@@ -216,12 +228,13 @@ def create_clean_word(data):
             
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
+                set_tight_spacing(p_desc) # <-- ESPACIADO CERO APLICADO
                 p_desc.add_run(dish['description']).italic = True
-                p.paragraph_format.space_after = Pt(2)
+                
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
 
 # --- 10. INTERFAZ ---
-st.title("Sistema Integral de Cartas 🥘")
+st.title("Sistema Integral de Cartas V8 🥘")
 
 if "menu_data" not in st.session_state: st.session_state.menu_data = None
 
@@ -243,15 +256,13 @@ if uploaded_file:
 
 if st.session_state.menu_data:
     st.markdown("---")
-    
-    # NUEVO: PESTAÑAS PARA SEPARAR EL TRABAJO
     tab1, tab2 = st.tabs(["🍤 Carta con Alérgenos (Final)", "📄 Texto Limpio (Para Nutricionista)"])
-    
     data = st.session_state.menu_data
     
     with tab1:
         st.subheader("Revisión de Alérgenos")
-        data["restaurant_name"] = st.text_input("Restaurante", data.get("restaurant_name", ""))
+        # El nombre del restaurante ya no se imprime en el Word, pero lo dejamos aquí por si sirve para guardar datos
+        data["restaurant_name"] = st.text_input("Restaurante (Solo referencia, no saldrá en el Word)", data.get("restaurant_name", ""))
         
         for c_idx, cat in enumerate(data.get("categories", [])):
             with st.expander(f"📂 {cat['name']}", expanded=True):
@@ -269,14 +280,10 @@ if st.session_state.menu_data:
                         dish["allergens"] = sel
                     st.markdown("---")
 
-        st.download_button("⬇️ DESCARGAR CARTA CON ALÉRGENOS", create_word(data), "Carta_Completa.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        st.download_button("⬇️ DESCARGAR CARTA CON ALÉRGENOS", create_word(data), "Carta_Completa_Compacta.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
     with tab2:
         st.subheader("Volcado de Texto Simple")
-        st.info("Esta opción genera un Word editable solo con los Platos, Descripciones y Precios. Ideal para enviar a revisión sin los iconos.")
+        st.info("Esta opción genera un Word editable solo con los Platos, Descripciones y Precios. Sin iconos y con espaciado sencillo.")
+        st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Compacta.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         
-        # Muestra una pequeña previsualización de cómo se verá
-        st.markdown("**Vista Previa del Formato:**")
-        st.code("Nombre del Plato ............................. 12.50€\nDescripción del plato copiada literalmente.", language="text")
-        
-        st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Nutricionista.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
