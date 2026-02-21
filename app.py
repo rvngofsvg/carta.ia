@@ -12,6 +12,10 @@ from pypdf import PdfReader
 # --- 1. CONFIGURACIÓN ---
 MODELO_A_USAR = "gemini-2.5-flash" 
 
+# --- NUEVO AJUSTE: MÁRGENES INDEPENDIENTES (JERARQUÍA VISUAL) ---
+SANGRIA_CATEGORIA = Cm(0.0)  # Alineado al límite izquierdo (para que cuadre con el pie de página)
+SANGRIA_PLATOS = Cm(0.8)     # Pequeño escalón hacia el interior para que el plato respire
+
 # --- 2. DICCIONARIO MAESTRO ---
 DICCIONARIO_MAESTRO = {
     "gluten": ["pan", "trigo", "harina", "pasta", "galleta", "bizcocho", "rebozado", "cerveza", "tempura", "panko", "lasaña", "fideos", "salsa de soja", "brioche", "burger", "bocadillo", "sandwich", "croutons", "picatostes", "seitan", "couscous", "bulgur", "tostada", "regaña", "focaccia", "gyoza", "bao", "mollete"],
@@ -155,12 +159,13 @@ def analyze_content(content, content_type="image"):
             return data
     except Exception as e: st.error(f"Error IA: {e}"); return None
 
-# --- FUNCION AUXILIAR PARA COMPACTAR ESPACIOS ---
-def set_tight_spacing(paragraph):
-    """Fuerza al párrafo a tener 0 puntos de espacio e interlineado sencillo."""
+# --- FUNCION AUXILIAR PARA COMPACTAR ESPACIOS E INDENTAR PLATOS ---
+def format_dish_paragraph(paragraph):
+    """Aplica espaciado cero y la sangría específica para los platos."""
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = Pt(0)
     paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    paragraph.paragraph_format.left_indent = SANGRIA_PLATOS
 
 # --- 8. GENERADOR 1: CARTA CON ALÉRGENOS ---
 def create_word(data):
@@ -168,18 +173,18 @@ def create_word(data):
         st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
         
     doc = Document(PLANTILLA_PATH)
-    
-    # NOTA: Ya no imprimimos el "restaurant_name" aquí para respetar el encabezado de la clienta.
 
     for category in data.get("categories", []):
-        # Título de Categoría
+        # Título de Categoría (Alineado a la izquierda, sin sangría extra)
         p_cat = doc.add_heading(category["name"], level=1)
-        p_cat.paragraph_format.space_after = Pt(2) # Solo un mini espacio para que respire el título
+        p_cat.paragraph_format.space_after = Pt(2) 
+        p_cat.paragraph_format.left_indent = SANGRIA_CATEGORIA 
         
         for dish in category["dishes"]:
             p = doc.add_paragraph()
-            set_tight_spacing(p) # <-- ESPACIADO CERO APLICADO
+            format_dish_paragraph(p) # Sangría interior para hacer el escalón
             
+            # Tabuladores de precio e iconos intactos
             tab_stops = p.paragraph_format.tab_stops
             tab_stops.add_tab_stop(Cm(14.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.SPACES)
@@ -199,7 +204,7 @@ def create_word(data):
             
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
-                set_tight_spacing(p_desc) # <-- ESPACIADO CERO APLICADO
+                format_dish_paragraph(p_desc)
                 p_desc.add_run(dish['description']).italic = True
 
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
@@ -214,10 +219,11 @@ def create_clean_word(data):
     for category in data.get("categories", []):
         p_cat = doc.add_heading(category["name"], level=1)
         p_cat.paragraph_format.space_after = Pt(2)
+        p_cat.paragraph_format.left_indent = SANGRIA_CATEGORIA
 
         for dish in category["dishes"]:
             p = doc.add_paragraph()
-            set_tight_spacing(p) # <-- ESPACIADO CERO APLICADO
+            format_dish_paragraph(p)
             
             tab_stops = p.paragraph_format.tab_stops
             tab_stops.add_tab_stop(Cm(16.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
@@ -228,13 +234,13 @@ def create_clean_word(data):
             
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
-                set_tight_spacing(p_desc) # <-- ESPACIADO CERO APLICADO
+                format_dish_paragraph(p_desc)
                 p_desc.add_run(dish['description']).italic = True
                 
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
 
 # --- 10. INTERFAZ ---
-st.title("Sistema Integral de Cartas V8 🥘")
+st.title("Sistema Integral de Cartas V10 🥘")
 
 if "menu_data" not in st.session_state: st.session_state.menu_data = None
 
@@ -261,7 +267,6 @@ if st.session_state.menu_data:
     
     with tab1:
         st.subheader("Revisión de Alérgenos")
-        # El nombre del restaurante ya no se imprime en el Word, pero lo dejamos aquí por si sirve para guardar datos
         data["restaurant_name"] = st.text_input("Restaurante (Solo referencia, no saldrá en el Word)", data.get("restaurant_name", ""))
         
         for c_idx, cat in enumerate(data.get("categories", [])):
