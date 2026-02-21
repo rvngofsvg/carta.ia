@@ -12,9 +12,9 @@ from pypdf import PdfReader
 # --- 1. CONFIGURACIÓN ---
 MODELO_A_USAR = "gemini-2.5-flash" 
 
-# --- NUEVO AJUSTE: MÁRGENES INDEPENDIENTES (JERARQUÍA VISUAL) ---
-SANGRIA_CATEGORIA = Cm(0.0)  # Alineado al límite izquierdo (para que cuadre con el pie de página)
-SANGRIA_PLATOS = Cm(0.8)     # Pequeño escalón hacia el interior para que el plato respire
+# --- AJUSTE: MÁRGENES UNIFICADOS (Bloque sólido) ---
+SANGRIA_CATEGORIA = Cm(0.8)  # Títulos de categoría a 0.8cm
+SANGRIA_PLATOS = Cm(0.8)     # Platos a 0.8cm (todo en la misma línea imaginaria)
 
 # --- 2. DICCIONARIO MAESTRO ---
 DICCIONARIO_MAESTRO = {
@@ -174,15 +174,25 @@ def create_word(data):
         
     doc = Document(PLANTILLA_PATH)
 
+    # --- RESTAURADO EL NOMBRE DEL BAR ---
+    rest_name = data.get("restaurant_name", "MENÚ")
+    try: 
+        p_title = doc.add_heading(rest_name, 0)
+        p_title.paragraph_format.left_indent = SANGRIA_CATEGORIA
+    except: 
+        p_title = doc.add_paragraph(rest_name)
+        p_title.bold = True
+        p_title.paragraph_format.left_indent = SANGRIA_CATEGORIA
+
     for category in data.get("categories", []):
-        # Título de Categoría (Alineado a la izquierda, sin sangría extra)
+        # Título de Categoría
         p_cat = doc.add_heading(category["name"], level=1)
         p_cat.paragraph_format.space_after = Pt(2) 
         p_cat.paragraph_format.left_indent = SANGRIA_CATEGORIA 
         
         for dish in category["dishes"]:
             p = doc.add_paragraph()
-            format_dish_paragraph(p) # Sangría interior para hacer el escalón
+            format_dish_paragraph(p) 
             
             # Tabuladores de precio e iconos intactos
             tab_stops = p.paragraph_format.tab_stops
@@ -216,6 +226,16 @@ def create_clean_word(data):
         
     doc = Document(PLANTILLA_PATH)
 
+    # --- RESTAURADO EL NOMBRE DEL BAR ---
+    rest_name = data.get("restaurant_name", "MENÚ")
+    try: 
+        p_title = doc.add_heading(rest_name, 0)
+        p_title.paragraph_format.left_indent = SANGRIA_CATEGORIA
+    except: 
+        p_title = doc.add_paragraph(rest_name)
+        p_title.bold = True
+        p_title.paragraph_format.left_indent = SANGRIA_CATEGORIA
+
     for category in data.get("categories", []):
         p_cat = doc.add_heading(category["name"], level=1)
         p_cat.paragraph_format.space_after = Pt(2)
@@ -240,7 +260,7 @@ def create_clean_word(data):
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
 
 # --- 10. INTERFAZ ---
-st.title("Sistema Integral de Cartas V10 🥘")
+st.title("Sistema Integral de Cartas V12 🥘")
 
 if "menu_data" not in st.session_state: st.session_state.menu_data = None
 
@@ -267,7 +287,7 @@ if st.session_state.menu_data:
     
     with tab1:
         st.subheader("Revisión de Alérgenos")
-        data["restaurant_name"] = st.text_input("Restaurante (Solo referencia, no saldrá en el Word)", data.get("restaurant_name", ""))
+        data["restaurant_name"] = st.text_input("Restaurante", data.get("restaurant_name", ""))
         
         for c_idx, cat in enumerate(data.get("categories", [])):
             with st.expander(f"📂 {cat['name']}", expanded=True):
@@ -291,4 +311,4 @@ if st.session_state.menu_data:
         st.subheader("Volcado de Texto Simple")
         st.info("Esta opción genera un Word editable solo con los Platos, Descripciones y Precios. Sin iconos y con espaciado sencillo.")
         st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Compacta.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-            
+        
