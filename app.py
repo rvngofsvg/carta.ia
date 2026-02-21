@@ -11,9 +11,7 @@ from pypdf import PdfReader
 
 # --- 1. CONFIGURACIÓN ---
 MODELO_A_USAR = "gemini-2.5-flash" 
-
-# --- NUEVO AJUSTE: SANGRÍA ÚNICA PARA TODO EL BLOQUE ---
-SANGRIA_GENERAL = Cm(0.8) # Mueve TODO el texto (títulos, categorías y platos) 0.8 cm a la derecha
+SANGRIA_GENERAL = Cm(0.8) # Sangría unificada para todo el bloque
 
 # --- 2. DICCIONARIO MAESTRO ---
 DICCIONARIO_MAESTRO = {
@@ -48,7 +46,8 @@ def find_path_insensitive(base, components):
                         current = entry.path
                         found = True
                         break
-        except: pass
+        except Exception:
+            pass
         if not found: return None
     return current
 
@@ -56,8 +55,10 @@ PLANTILLA_PATH = find_path_insensitive(BASE_DIR, ["public", "plantilla", "planti
 ICONOS_DIR = find_path_insensitive(BASE_DIR, ["public", "iconos"])
 
 # --- 4. API KEY ---
-try: API_KEY = st.secrets["GEMINI_API_KEY"]
-except: API_KEY = os.getenv("GEMINI_API_KEY", "")
+try: 
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+except Exception: 
+    API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 if not API_KEY:
     st.error("❌ Falta la GEMINI_API_KEY en los Secrets.")
@@ -66,8 +67,11 @@ if not API_KEY:
 genai.configure(api_key=API_KEY)
 
 # --- 5. MAPEO ICONOS ---
-if not ICONOS_DIR: ICONOS_DIR = os.path.join(BASE_DIR, "Public", "Iconos")
-def get_icon_path(icon_name): return os.path.join(ICONOS_DIR, icon_name)
+if not ICONOS_DIR: 
+    ICONOS_DIR = os.path.join(BASE_DIR, "Public", "Iconos")
+
+def get_icon_path(icon_name): 
+    return os.path.join(ICONOS_DIR, icon_name)
 
 ICON_MAP = {
     "gluten": get_icon_path("gluten.png"), "crustaceos": get_icon_path("gambas.png"),
@@ -88,16 +92,19 @@ def extract_text_from_pdf(file):
             t = page.extract_text()
             if t: text += t + "\n"
         return text
-    except: return None
+    except Exception: 
+        return None
 
 def extract_text_from_docx(file):
     try:
         doc = Document(file)
         text = "\n".join([p.text for p in doc.paragraphs])
         for table in doc.tables:
-            for row in table.rows: text += " | ".join([cell.text for cell in row.cells]) + "\n"
+            for row in table.rows: 
+                text += " | ".join([cell.text for cell in row.cells]) + "\n"
         return text
-    except: return None
+    except Exception: 
+        return None
 
 # --- 7. ANÁLISIS ---
 def analyze_content(content, content_type="image"):
@@ -135,14 +142,17 @@ def analyze_content(content, content_type="image"):
     """
     try:
         with st.spinner(f"🧠 Transcribiendo y Analizando ({MODELO_A_USAR})..."):
-            if content_type == "image": response = model.generate_content([base_prompt, content])
+            if content_type == "image": 
+                response = model.generate_content([base_prompt, content])
             else:
                 if not content: content = ""
                 response = model.generate_content(base_prompt + "\n\nMENÚ:\n" + str(content))
             
             text = response.text.replace('```json', '').replace('```', '').strip()
-            s, e = text.find('{'), text.rfind('}') + 1
-            if s != -1 and e != -1: text = text[s:e]
+            s = text.find('{')
+            e = text.rfind('}') + 1
+            if s != -1 and e != -1: 
+                text = text[s:e]
             data = json.loads(text)
 
             for category in data.get("categories", []):
@@ -153,14 +163,16 @@ def analyze_content(content, content_type="image"):
                     current = [a.lower().strip() for a in dish.get("allergens", [])]
                     for allergen, keywords in DICCIONARIO_MAESTRO.items():
                         if any(k in full_text for k in keywords):
-                            if allergen not in current: current.append(allergen)
+                            if allergen not in current: 
+                                current.append(allergen)
                     dish["allergens"] = current
             return data
-    except Exception as e: st.error(f"Error IA: {e}"); return None
+    except Exception as e: 
+        st.error(f"Error IA: {e}")
+        return None
 
-# --- FUNCION AUXILIAR PARA COMPACTAR ESPACIOS E INDENTAR TODO ---
+# --- FUNCION AUXILIAR PARA COMPACTAR Y SANGRAR ---
 def format_paragraph(paragraph):
-    """Aplica espaciado cero y la sangría general para crear el bloque sólido."""
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = Pt(0)
     paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
@@ -169,22 +181,21 @@ def format_paragraph(paragraph):
 # --- 8. GENERADOR 1: CARTA CON ALÉRGENOS ---
 def create_word(data):
     if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
-        st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
+        st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}")
+        st.stop()
         
     doc = Document(PLANTILLA_PATH)
     
-    # VOLVEMOS A PONER EL NOMBRE DEL RESTAURANTE (CON SANGRÍA)
     rest_name = data.get("restaurant_name", "MENÚ")
     try: 
         p_title = doc.add_heading(rest_name, 0)
         p_title.paragraph_format.left_indent = SANGRIA_GENERAL
-    except: 
+    except Exception: 
         p_title = doc.add_paragraph(rest_name)
         p_title.bold = True
         p_title.paragraph_format.left_indent = SANGRIA_GENERAL
 
     for category in data.get("categories", []):
-        # Título de Categoría alineado al bloque sólido
         p_cat = doc.add_heading(category["name"], level=1)
         p_cat.paragraph_format.space_after = Pt(2) 
         p_cat.paragraph_format.left_indent = SANGRIA_GENERAL
@@ -193,33 +204,6 @@ def create_word(data):
             p = doc.add_paragraph()
             format_paragraph(p) 
             
-            # Tabuladores de precio e iconos intactos a la derecha
             tab_stops = p.paragraph_format.tab_stops
-            tab_stops.add_tab_stop(Cm(14.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.SPACES)
-            
-            p.add_run(dish.get('name', 'Plato')).bold = True
-            price = dish.get('price', '') or ""
-            p.add_run(f"\t{price}€")
-            p.add_run("\t") 
-            
-            run_icons = p.add_run()
-            for allergen in dish.get("allergens", []):
-                key = allergen.lower().strip()
-                if "frutos secos" in key: key = "frutos de cascara"
-                if key in ICON_MAP and os.path.exists(ICON_MAP[key]):
-                    try: run_icons.add_picture(ICON_MAP[key], width=Cm(0.38))
-                    except: pass
-            
-            if dish.get('description'):
-                p_desc = doc.add_paragraph()
-                format_paragraph(p_desc)
-                p_desc.add_run(dish['description']).italic = True
-
-    buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
-
-# --- 9. GENERADOR 2: CARTA LIMPIA (SIN ALÉRGENOS) ---
-def create_clean_word(data):
-    if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
-        st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
+            tab_stops.add_tab_stop
         
