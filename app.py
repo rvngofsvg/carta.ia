@@ -14,11 +14,11 @@ MODELO_A_USAR = "gemini-2.5-flash"
 
 SANGRIA_CATEGORIA = Cm(0.8)  
 SANGRIA_PLATOS = Cm(0.8)     
-ESPACIO_PLATOS = Pt(3) # <--- Da un pequeño respiro entre platos para que no sea un bloque de cemento
-MARGEN_INFERIOR_FORZADO = Cm(1.0) # <--- Obliga al texto a acercarse al límite inferior de la hoja
+ESPACIO_PLATOS = Pt(3) 
+MARGEN_INFERIOR_FORZADO = Cm(1.0) 
 
-# --- 2. DICCIONARIO MAESTRO ---
-DICCIONARIO_MAESTRO = {
+# --- 2. DICCIONARIOS MAESTROS (NORMAL Y EXTREMO) ---
+DICCIONARIO_NORMAL = {
     "gluten": ["pan", "trigo", "harina", "pasta", "galleta", "bizcocho", "rebozado", "cerveza", "tempura", "panko", "lasaña", "fideos", "salsa de soja", "brioche", "burger", "bocadillo", "sandwich", "croutons", "picatostes", "seitan", "couscous", "bulgur", "tostada", "regaña", "focaccia", "gyoza", "bao", "mollete"],
     "lacteos": ["queso", "nata", "leche", "yogur", "mantequilla", "bechamel", "mozzarella", "parmesano", "cheddar", "helado", "burrata", "carbonara", "feta", "crema", "lactosa", "mascarpone", "tiramisu", "cheesecake", "stracciatella", "tzatziki", "gorgonzola", "brioche", "chocolate blanco", "creme brulee"],
     "huevos": ["huevo", "tortilla", "mayonesa", "mahonesa", "merengue", "alioli", "bizcocho", "quiche", "brioche", "tarta", "revuelto", "poché", "yema", "clara", "carbonara", "salsa holandesa", "salsa tartara", "rebozado", "empanado", "crema catalana"],
@@ -34,7 +34,26 @@ DICCIONARIO_MAESTRO = {
     "sulfitos": ["vino", "vinagre", "sulfitos", "cava", "champagne", "mostaza antigua", "martini", "vermut", "cerveza"],
     "altramuces": ["altramuz", "altramuces"]
 }
-ALLERGEN_OPTIONS = list(DICCIONARIO_MAESTRO.keys())
+
+# El diccionario extremo le añade la contaminación cruzada a los fritos y salsas de bote
+DICCIONARIO_EXTREMO = {
+    "gluten": DICCIONARIO_NORMAL["gluten"] + ["croqueta", "raba", "calamar", "alita", "natxo", "nacho", "morcilla", "chistorra", "torrezno", "cachopo", "codillo", "hamburguesa", "perrito"],
+    "lacteos": DICCIONARIO_NORMAL["lacteos"] + ["croqueta", "raba", "calamar", "alita", "natxo", "nacho", "morcilla", "cachopo", "alioli", "ali-oli", "codillo", "hamburguesa", "perrito"],
+    "huevos": DICCIONARIO_NORMAL["huevos"] + ["croqueta", "raba", "calamar", "alita", "morcilla", "chistorra", "cachopo", "codillo", "hamburguesa", "perrito", "ali-oli"],
+    "crustaceos": DICCIONARIO_NORMAL["crustaceos"] + ["croqueta", "raba", "calamar", "alita"],
+    "moluscos": DICCIONARIO_NORMAL["moluscos"] + ["croqueta", "raba", "alita"],
+    "pescado": DICCIONARIO_NORMAL["pescado"] + ["croqueta", "raba", "calamar", "alita"],
+    "cacahuetes": DICCIONARIO_NORMAL["cacahuetes"],
+    "soja": DICCIONARIO_NORMAL["soja"] + ["croqueta", "raba", "calamar", "alita", "morcilla", "chistorra", "torrezno", "codillo", "hamburguesa", "perrito"],
+    "frutos de cascara": DICCIONARIO_NORMAL["frutos de cascara"] + ["morcilla"],
+    "mostaza": DICCIONARIO_NORMAL["mostaza"] + ["croqueta", "raba", "calamar", "alita", "morcilla", "torrezno", "alioli", "ali-oli", "hamburguesa", "perrito"],
+    "sesamo": DICCIONARIO_NORMAL["sesamo"] + ["croqueta", "raba", "calamar", "alita", "morcilla", "hamburguesa", "perrito"],
+    "apio": DICCIONARIO_NORMAL["apio"] + ["croqueta", "raba", "calamar", "alita", "morcilla", "alioli", "ali-oli", "codillo"],
+    "sulfitos": DICCIONARIO_NORMAL["sulfitos"] + ["morcilla", "carrillera"],
+    "altramuces": DICCIONARIO_NORMAL["altramuces"]
+}
+
+ALLERGEN_OPTIONS = list(DICCIONARIO_NORMAL.keys())
 
 # --- 3. RUTAS ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -102,32 +121,51 @@ def extract_text_from_docx(file):
     except: return None
 
 # --- 7. ANÁLISIS ---
-def analyze_content(content, content_type="image"):
+def analyze_content(content, content_type="image", modo="Normal"):
     model = genai.GenerativeModel(MODELO_A_USAR)
-    base_prompt = """
+    
+    if modo == "Extremo":
+        diccionario_activo = DICCIONARIO_EXTREMO
+        regla_2 = """
+        REGLA 2 (CONTAMINACIÓN CRUZADA Y ALÉRGENOS AL MÁXIMO): 
+        - Asume SIEMPRE el peor escenario para proteger al cliente de demandas.
+        - Si es un frito de bar (croquetas, rabas, calamares, alitas, torreznos, cachopo), asume freidora compartida y producto industrial. Añade trazas de pescado, moluscos, crustaceos, soja, lacteos, mostaza, apio, sesamo y gluten.
+        - Salsas (alioli, brava, mayo): asume que son industriales. Añade mostaza, lacteos, apio, huevo y soja.
+        - Procesados (morcilla, salchicha, chistorra): asume sulfitos, soja, mostaza, lacteos, apio y frutos de cascara.
+        """
+    else:
+        diccionario_activo = DICCIONARIO_NORMAL
+        regla_2 = """
+        REGLA 2 (ALÉRGENOS - MODO ESTÁNDAR): 
+        - Usa tu conocimiento para listar los alérgenos propios de la receta tradicional.
+        - NO asumas contaminación cruzada por freidora a menos que sea evidente.
+        """
+
+    base_prompt = f"""
     Eres un Transcriptor Profesional y un Nutricionista.
     REGLA 1 (TRANSCRIPCIÓN LITERAL):
     - Extrae Nombre, Descripción y Precio EXACTAMENTE como aparecen. NO RESUMAS NADA.
-    - NO AÑADAS TEXTO INVENTADO ("puede contener trazas...").
     - Si está en Inglés, tradúcelo al Español literalmente.
-    REGLA 2 (ALÉRGENOS): Usa tu conocimiento para listar los alérgenos ocultos.
+    
+    {regla_2}
+    
     Salida JSON (sin markdown):
-    {
+    {{
         "restaurant_name": "Nombre",
         "categories": [
-            {
+            {{
                 "name": "Categoría",
                 "dishes": [
-                    {
+                    {{
                         "name": "Plato",
                         "description": "Texto literal",
                         "price": "10.50",
                         "allergens": ["gluten", "lacteos"] 
-                    }
+                    }}
                 ]
-            }
+            }}
         ]
-    }
+    }}
     """
     try:
         with st.spinner(f"🧠 Transcribiendo y Analizando ({MODELO_A_USAR})..."):
@@ -147,7 +185,7 @@ def analyze_content(content, content_type="image"):
                     d_desc = dish.get("description") or ""
                     full_text = (d_name + " " + d_desc).lower()
                     current = [a.lower().strip() for a in dish.get("allergens", [])]
-                    for allergen, keywords in DICCIONARIO_MAESTRO.items():
+                    for allergen, keywords in diccionario_activo.items():
                         if any(k in full_text for k in keywords):
                             if allergen not in current: current.append(allergen)
                     dish["allergens"] = current
@@ -156,7 +194,6 @@ def analyze_content(content, content_type="image"):
 
 # --- FUNCIONES AUXILIARES ---
 def release_paragraph_constraints(paragraph, indent, is_dish=False):
-    """Elimina restricciones, y ajusta espaciado dependiendo de si es plato o categoría."""
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = ESPACIO_PLATOS if is_dish else Pt(0)
     paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
@@ -172,7 +209,6 @@ def create_word(data):
         
     doc = Document(PLANTILLA_PATH)
     
-    # FORZAMOS EL MARGEN INFERIOR DE TODAS LAS SECCIONES AL MÍNIMO
     for section in doc.sections:
         section.bottom_margin = MARGEN_INFERIOR_FORZADO
     
@@ -188,7 +224,7 @@ def create_word(data):
     for category in data.get("categories", []):
         p_cat = doc.add_heading(category["name"], level=1)
         release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
-        p_cat.paragraph_format.space_before = Pt(6) # Un pelín de aire antes de la categoría nueva
+        p_cat.paragraph_format.space_before = Pt(6) 
         
         for dish in category["dishes"]:
             p = doc.add_paragraph()
@@ -225,7 +261,6 @@ def create_clean_word(data):
         
     doc = Document(PLANTILLA_PATH)
     
-    # FORZAMOS EL MARGEN INFERIOR DE TODAS LAS SECCIONES AL MÍNIMO
     for section in doc.sections:
         section.bottom_margin = MARGEN_INFERIOR_FORZADO
     
@@ -262,7 +297,18 @@ def create_clean_word(data):
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
 
 # --- 10. INTERFAZ ---
-st.title("Sistema Integral de Cartas 🥘")
+st.title("Sistema Integral de Cartas V17 🥘")
+
+st.markdown("### ⚙️ Nivel de Seguridad de Alérgenos")
+modo_seguridad = st.radio(
+    "Selecciona el perfil de la cocina antes de analizar la carta:",
+    [
+        "🟢 Normal (Receta tradicional, freidoras separadas, menos riesgo)", 
+        "🔴 Extremo (Freidora compartida, contaminación cruzada, productos de bote)"
+    ]
+)
+# Extraemos la palabra clave (Normal o Extremo)
+modo_param = "Extremo" if "Extremo" in modo_seguridad else "Normal"
 
 if "menu_data" not in st.session_state: st.session_state.menu_data = None
 
@@ -272,13 +318,13 @@ if uploaded_file:
     if st.button("1. ANALIZAR MENÚ"):
         ft = uploaded_file.name.split('.')[-1].lower()
         data = None
-        if ft in ['jpg','png','jpeg']: data = analyze_content(Image.open(uploaded_file), "image")
+        if ft in ['jpg','png','jpeg']: data = analyze_content(Image.open(uploaded_file), "image", modo_param)
         elif ft == 'pdf': 
             t = extract_text_from_pdf(uploaded_file)
-            if t: data = analyze_content(t, "text")
+            if t: data = analyze_content(t, "text", modo_param)
         elif ft == 'docx': 
             t = extract_text_from_docx(uploaded_file)
-            if t: data = analyze_content(t, "text")
+            if t: data = analyze_content(t, "text", modo_param)
         
         if data: st.session_state.menu_data = data; st.rerun()
 
@@ -307,8 +353,8 @@ if st.session_state.menu_data:
                         dish["allergens"] = sel
                     st.markdown("---")
 
-        st.download_button("⬇️ DESCARGAR CARTA CON ALÉRGENOS", create_word(data), "Carta_Completa_Libre_v15.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        st.download_button("⬇️ DESCARGAR CARTA CON ALÉRGENOS", create_word(data), "Carta_Completa_Final.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
     with tab2:
         st.subheader("Volcado de Texto Simple")
-        st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Libre_v15.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Final.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
