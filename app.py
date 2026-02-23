@@ -1,7 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 import os
-import jsonz
+import json
 from docx import Document
 from docx.shared import Cm, Pt
 from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER, WD_LINE_SPACING
