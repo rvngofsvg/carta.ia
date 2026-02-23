@@ -14,6 +14,8 @@ MODELO_A_USAR = "gemini-2.5-flash"
 
 SANGRIA_CATEGORIA = Cm(0.8)  
 SANGRIA_PLATOS = Cm(0.8)     
+ESPACIO_PLATOS = Pt(3) # <--- Da un pequeño respiro entre platos para que no sea un bloque de cemento
+MARGEN_INFERIOR_FORZADO = Cm(1.0) # <--- Obliga al texto a acercarse al límite inferior de la hoja
 
 # --- 2. DICCIONARIO MAESTRO ---
 DICCIONARIO_MAESTRO = {
@@ -152,11 +154,11 @@ def analyze_content(content, content_type="image"):
             return data
     except Exception as e: st.error(f"Error IA: {e}"); return None
 
-# --- FUNCIONES AUXILIARES PARA LIBERAR EL FORMATO (CERO ESPACIOS) ---
-def release_paragraph_constraints(paragraph, indent):
-    """Elimina restricciones, establece espaciado a 0 absoluto e interlineado sencillo."""
+# --- FUNCIONES AUXILIARES ---
+def release_paragraph_constraints(paragraph, indent, is_dish=False):
+    """Elimina restricciones, y ajusta espaciado dependiendo de si es plato o categoría."""
     paragraph.paragraph_format.space_before = Pt(0)
-    paragraph.paragraph_format.space_after = Pt(0)
+    paragraph.paragraph_format.space_after = ESPACIO_PLATOS if is_dish else Pt(0)
     paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
     paragraph.paragraph_format.left_indent = indent
     paragraph.paragraph_format.widow_control = False
@@ -170,6 +172,10 @@ def create_word(data):
         
     doc = Document(PLANTILLA_PATH)
     
+    # FORZAMOS EL MARGEN INFERIOR DE TODAS LAS SECCIONES AL MÍNIMO
+    for section in doc.sections:
+        section.bottom_margin = MARGEN_INFERIOR_FORZADO
+    
     rest_name = data.get("restaurant_name", "MENÚ")
     try: 
         p_title = doc.add_heading(rest_name, 0)
@@ -181,12 +187,12 @@ def create_word(data):
 
     for category in data.get("categories", []):
         p_cat = doc.add_heading(category["name"], level=1)
-        # Aplicamos la liberación total de restricciones al título para que no deje espacio debajo
         release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
+        p_cat.paragraph_format.space_before = Pt(6) # Un pelín de aire antes de la categoría nueva
         
         for dish in category["dishes"]:
             p = doc.add_paragraph()
-            release_paragraph_constraints(p, SANGRIA_PLATOS)
+            release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
             
             tab_stops = p.paragraph_format.tab_stops
             tab_stops.add_tab_stop(Cm(14.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
@@ -207,7 +213,7 @@ def create_word(data):
             
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
-                release_paragraph_constraints(p_desc, SANGRIA_PLATOS)
+                release_paragraph_constraints(p_desc, SANGRIA_PLATOS, is_dish=True)
                 p_desc.add_run(dish['description']).italic = True
 
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
@@ -218,6 +224,10 @@ def create_clean_word(data):
         st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
         
     doc = Document(PLANTILLA_PATH)
+    
+    # FORZAMOS EL MARGEN INFERIOR DE TODAS LAS SECCIONES AL MÍNIMO
+    for section in doc.sections:
+        section.bottom_margin = MARGEN_INFERIOR_FORZADO
     
     rest_name = data.get("restaurant_name", "MENÚ")
     try: 
@@ -231,10 +241,11 @@ def create_clean_word(data):
     for category in data.get("categories", []):
         p_cat = doc.add_heading(category["name"], level=1)
         release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
+        p_cat.paragraph_format.space_before = Pt(6)
 
         for dish in category["dishes"]:
             p = doc.add_paragraph()
-            release_paragraph_constraints(p, SANGRIA_PLATOS)
+            release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
             
             tab_stops = p.paragraph_format.tab_stops
             tab_stops.add_tab_stop(Cm(16.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
@@ -245,7 +256,7 @@ def create_clean_word(data):
             
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
-                release_paragraph_constraints(p_desc, SANGRIA_PLATOS)
+                release_paragraph_constraints(p_desc, SANGRIA_PLATOS, is_dish=True)
                 p_desc.add_run(dish['description']).italic = True
                 
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
@@ -296,8 +307,8 @@ if st.session_state.menu_data:
                         dish["allergens"] = sel
                     st.markdown("---")
 
-        st.download_button("⬇️ DESCARGAR CARTA CON ALÉRGENOS", create_word(data), "Carta_Completa_Libre.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        st.download_button("⬇️ DESCARGAR CARTA CON ALÉRGENOS", create_word(data), "Carta_Completa_Libre_v15.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
     with tab2:
         st.subheader("Volcado de Texto Simple")
-        st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Libre.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Libre_v15.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
