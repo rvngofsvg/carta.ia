@@ -1,7 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 import os
-import json
+import jsonz
 from docx import Document
 from docx.shared import Cm, Pt
 from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER, WD_LINE_SPACING
@@ -12,9 +12,8 @@ from pypdf import PdfReader
 # --- 1. CONFIGURACIÓN ---
 MODELO_A_USAR = "gemini-2.5-flash" 
 
-# --- AJUSTE: MÁRGENES UNIFICADOS (Bloque sólido) ---
-SANGRIA_CATEGORIA = Cm(0.8)  # Títulos de categoría a 0.8cm
-SANGRIA_PLATOS = Cm(0.8)     # Platos a 0.8cm (todo en la misma línea imaginaria)
+SANGRIA_CATEGORIA = Cm(0.8)  
+SANGRIA_PLATOS = Cm(0.8)     
 
 # --- 2. DICCIONARIO MAESTRO ---
 DICCIONARIO_MAESTRO = {
@@ -103,19 +102,13 @@ def extract_text_from_docx(file):
 # --- 7. ANÁLISIS ---
 def analyze_content(content, content_type="image"):
     model = genai.GenerativeModel(MODELO_A_USAR)
-    
     base_prompt = """
     Eres un Transcriptor Profesional y un Nutricionista.
-    
     REGLA 1 (TRANSCRIPCIÓN LITERAL):
-    - Extrae el Nombre, la Descripción y el Precio EXACTAMENTE como aparecen.
-    - NO RESUMAS NADA.
+    - Extrae Nombre, Descripción y Precio EXACTAMENTE como aparecen. NO RESUMAS NADA.
     - NO AÑADAS TEXTO INVENTADO ("puede contener trazas...").
-    - Si el texto está en Inglés, tradúcelo al Español literalmente.
-    
-    REGLA 2 (ALÉRGENOS):
-    - Usa tu conocimiento para listar los alérgenos ocultos.
-    
+    - Si está en Inglés, tradúcelo al Español literalmente.
+    REGLA 2 (ALÉRGENOS): Usa tu conocimiento para listar los alérgenos ocultos.
     Salida JSON (sin markdown):
     {
         "restaurant_name": "Nombre",
@@ -125,7 +118,7 @@ def analyze_content(content, content_type="image"):
                 "dishes": [
                     {
                         "name": "Plato",
-                        "description": "Texto literal sin inventar ni omitir nada",
+                        "description": "Texto literal",
                         "price": "10.50",
                         "allergens": ["gluten", "lacteos"] 
                     }
@@ -159,13 +152,16 @@ def analyze_content(content, content_type="image"):
             return data
     except Exception as e: st.error(f"Error IA: {e}"); return None
 
-# --- FUNCION AUXILIAR PARA COMPACTAR ESPACIOS E INDENTAR PLATOS ---
-def format_dish_paragraph(paragraph):
-    """Aplica espaciado cero y la sangría específica para los platos."""
+# --- FUNCIONES AUXILIARES PARA LIBERAR EL FORMATO (CERO ESPACIOS) ---
+def release_paragraph_constraints(paragraph, indent):
+    """Elimina restricciones, establece espaciado a 0 absoluto e interlineado sencillo."""
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = Pt(0)
     paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
-    paragraph.paragraph_format.left_indent = SANGRIA_PLATOS
+    paragraph.paragraph_format.left_indent = indent
+    paragraph.paragraph_format.widow_control = False
+    paragraph.paragraph_format.keep_together = False
+    paragraph.paragraph_format.keep_with_next = False
 
 # --- 8. GENERADOR 1: CARTA CON ALÉRGENOS ---
 def create_word(data):
@@ -173,28 +169,25 @@ def create_word(data):
         st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
         
     doc = Document(PLANTILLA_PATH)
-
-    # --- RESTAURADO EL NOMBRE DEL BAR ---
+    
     rest_name = data.get("restaurant_name", "MENÚ")
     try: 
         p_title = doc.add_heading(rest_name, 0)
-        p_title.paragraph_format.left_indent = SANGRIA_CATEGORIA
+        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
     except: 
         p_title = doc.add_paragraph(rest_name)
         p_title.bold = True
-        p_title.paragraph_format.left_indent = SANGRIA_CATEGORIA
+        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
 
     for category in data.get("categories", []):
-        # Título de Categoría
         p_cat = doc.add_heading(category["name"], level=1)
-        p_cat.paragraph_format.space_after = Pt(2) 
-        p_cat.paragraph_format.left_indent = SANGRIA_CATEGORIA 
+        # Aplicamos la liberación total de restricciones al título para que no deje espacio debajo
+        release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
         
         for dish in category["dishes"]:
             p = doc.add_paragraph()
-            format_dish_paragraph(p) 
+            release_paragraph_constraints(p, SANGRIA_PLATOS)
             
-            # Tabuladores de precio e iconos intactos
             tab_stops = p.paragraph_format.tab_stops
             tab_stops.add_tab_stop(Cm(14.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.SPACES)
@@ -214,7 +207,7 @@ def create_word(data):
             
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
-                format_dish_paragraph(p_desc)
+                release_paragraph_constraints(p_desc, SANGRIA_PLATOS)
                 p_desc.add_run(dish['description']).italic = True
 
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
@@ -225,25 +218,23 @@ def create_clean_word(data):
         st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
         
     doc = Document(PLANTILLA_PATH)
-
-    # --- RESTAURADO EL NOMBRE DEL BAR ---
+    
     rest_name = data.get("restaurant_name", "MENÚ")
     try: 
         p_title = doc.add_heading(rest_name, 0)
-        p_title.paragraph_format.left_indent = SANGRIA_CATEGORIA
+        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
     except: 
         p_title = doc.add_paragraph(rest_name)
         p_title.bold = True
-        p_title.paragraph_format.left_indent = SANGRIA_CATEGORIA
+        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
 
     for category in data.get("categories", []):
         p_cat = doc.add_heading(category["name"], level=1)
-        p_cat.paragraph_format.space_after = Pt(2)
-        p_cat.paragraph_format.left_indent = SANGRIA_CATEGORIA
+        release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
 
         for dish in category["dishes"]:
             p = doc.add_paragraph()
-            format_dish_paragraph(p)
+            release_paragraph_constraints(p, SANGRIA_PLATOS)
             
             tab_stops = p.paragraph_format.tab_stops
             tab_stops.add_tab_stop(Cm(16.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
@@ -254,13 +245,13 @@ def create_clean_word(data):
             
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
-                format_dish_paragraph(p_desc)
+                release_paragraph_constraints(p_desc, SANGRIA_PLATOS)
                 p_desc.add_run(dish['description']).italic = True
                 
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
 
 # --- 10. INTERFAZ ---
-st.title("Sistema Integral de Cartas V12 🥘")
+st.title("Sistema Integral de Cartas 🥘")
 
 if "menu_data" not in st.session_state: st.session_state.menu_data = None
 
@@ -282,7 +273,7 @@ if uploaded_file:
 
 if st.session_state.menu_data:
     st.markdown("---")
-    tab1, tab2 = st.tabs(["🍤 Carta con Alérgenos (Final)", "📄 Texto Limpio (Para Nutricionista)"])
+    tab1, tab2 = st.tabs(["🍤 Carta con Alérgenos", "📄 Texto Limpio"])
     data = st.session_state.menu_data
     
     with tab1:
@@ -305,10 +296,8 @@ if st.session_state.menu_data:
                         dish["allergens"] = sel
                     st.markdown("---")
 
-        st.download_button("⬇️ DESCARGAR CARTA CON ALÉRGENOS", create_word(data), "Carta_Completa_Compacta.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        st.download_button("⬇️ DESCARGAR CARTA CON ALÉRGENOS", create_word(data), "Carta_Completa_Libre.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
     with tab2:
         st.subheader("Volcado de Texto Simple")
-        st.info("Esta opción genera un Word editable solo con los Platos, Descripciones y Precios. Sin iconos y con espaciado sencillo.")
-        st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Compacta.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-        
+        st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Libre.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
