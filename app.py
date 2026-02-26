@@ -9,6 +9,16 @@ from io import BytesIO
 from PIL import Image
 from pypdf import PdfReader
 
+# --- INTENTO DE IMPORTAR EL BUSCADOR (RADAR) ---
+try:
+    from duckduckgo_search import DDGS
+    BUSCADOR_DISPONIBLE = True
+except ImportError:
+    BUSCADOR_DISPONIBLE = False
+
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Sistema Integral", layout="wide")
+
 # --- 1. CONFIGURACIÓN ---
 MODELO_A_USAR = "gemini-2.5-flash" 
 
@@ -202,7 +212,7 @@ def release_paragraph_constraints(paragraph, indent, is_dish=False):
     paragraph.paragraph_format.keep_together = False
     paragraph.paragraph_format.keep_with_next = False
 
-# --- 8. GENERADOR 1: CARTA CON ALÉRGENOS ---
+# --- 8. GENERADORES DE WORD ---
 def create_word(data):
     if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
         st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
@@ -254,7 +264,6 @@ def create_word(data):
 
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
 
-# --- 9. GENERADOR 2: CARTA LIMPIA (SIN ALÉRGENOS) ---
 def create_clean_word(data):
     if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
         st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
@@ -296,65 +305,113 @@ def create_clean_word(data):
                 
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
 
-# --- 10. INTERFAZ ---
-st.title("Sistema Integral de Cartas V17 🥘")
 
-st.markdown("### ⚙️ Nivel de Seguridad de Alérgenos")
-modo_seguridad = st.radio(
-    "Selecciona el perfil de la cocina antes de analizar la carta:",
-    [
-        "🟢 Normal (Receta tradicional, freidoras separadas, menos riesgo)", 
-        "🔴 Extremo (Freidora compartida, contaminación cruzada, productos de bote)"
-    ]
-)
-# Extraemos la palabra clave (Normal o Extremo)
-modo_param = "Extremo" if "Extremo" in modo_seguridad else "Normal"
+# ==========================================
+# MENÚ LATERAL Y NAVEGACIÓN
+# ==========================================
+st.sidebar.title("Menú Principal 🚀")
+app_mode = st.sidebar.radio("Navegación", ["📝 Generador de Cartas", "📡 Radar de Clientes"])
 
-if "menu_data" not in st.session_state: st.session_state.menu_data = None
+# ==========================================
+# MÓDULO 1: GENERADOR DE CARTAS
+# ==========================================
+if app_mode == "📝 Generador de Cartas":
+    st.title("Sistema Integral de Cartas 🥘")
 
-uploaded_file = st.file_uploader("Sube el Menú (Foto/PDF)", type=["jpg", "png", "pdf", "docx"])
+    st.markdown("### ⚙️ Nivel de Seguridad de Alérgenos")
+    modo_seguridad = st.radio(
+        "Selecciona el perfil de la cocina antes de analizar la carta:",
+        [
+            "🟢 Normal (Receta tradicional, freidoras separadas, menos riesgo)", 
+            "🔴 Extremo (Freidora compartida, contaminación cruzada, productos de bote)"
+        ]
+    )
+    modo_param = "Extremo" if "Extremo" in modo_seguridad else "Normal"
 
-if uploaded_file:
-    if st.button("1. ANALIZAR MENÚ"):
-        ft = uploaded_file.name.split('.')[-1].lower()
-        data = None
-        if ft in ['jpg','png','jpeg']: data = analyze_content(Image.open(uploaded_file), "image", modo_param)
-        elif ft == 'pdf': 
-            t = extract_text_from_pdf(uploaded_file)
-            if t: data = analyze_content(t, "text", modo_param)
-        elif ft == 'docx': 
-            t = extract_text_from_docx(uploaded_file)
-            if t: data = analyze_content(t, "text", modo_param)
+    if "menu_data" not in st.session_state: st.session_state.menu_data = None
+
+    uploaded_file = st.file_uploader("Sube el Menú (Foto/PDF/Word)", type=["jpg", "png", "pdf", "docx"])
+
+    if uploaded_file:
+        if st.button("1. ANALIZAR MENÚ"):
+            ft = uploaded_file.name.split('.')[-1].lower()
+            data = None
+            if ft in ['jpg','png','jpeg']: data = analyze_content(Image.open(uploaded_file), "image", modo_param)
+            elif ft == 'pdf': 
+                t = extract_text_from_pdf(uploaded_file)
+                if t: data = analyze_content(t, "text", modo_param)
+            elif ft == 'docx': 
+                t = extract_text_from_docx(uploaded_file)
+                if t: data = analyze_content(t, "text", modo_param)
+            
+            if data: st.session_state.menu_data = data; st.rerun()
+
+    if st.session_state.menu_data:
+        st.markdown("---")
+        tab1, tab2 = st.tabs(["🍤 Carta con Alérgenos", "📄 Texto Limpio"])
+        data = st.session_state.menu_data
         
-        if data: st.session_state.menu_data = data; st.rerun()
+        with tab1:
+            st.subheader("Revisión de Alérgenos")
+            data["restaurant_name"] = st.text_input("Restaurante", data.get("restaurant_name", ""))
+            
+            for c_idx, cat in enumerate(data.get("categories", [])):
+                with st.expander(f"📂 {cat['name']}", expanded=True):
+                    cat["name"] = st.text_input(f"Categoría", cat["name"], key=f"c_{c_idx}")
+                    for d_idx, dish in enumerate(cat["dishes"]):
+                        c1, c2 = st.columns([3, 1])
+                        with c1:
+                            dish["name"] = st.text_input("Plato", dish.get("name",""), key=f"n_{c_idx}_{d_idx}")
+                            dish["description"] = st.text_area("Desc", dish.get("description",""), key=f"d_{c_idx}_{d_idx}", height=68)
+                        with c2:
+                            dish["price"] = st.text_input("Precio", dish.get("price",""), key=f"p_{c_idx}_{d_idx}")
+                            cur = [a.lower() for a in dish.get("allergens", [])]
+                            valid_opts = [x for x in cur if x in ALLERGEN_OPTIONS]
+                            sel = st.multiselect("Alérgenos", ALLERGEN_OPTIONS, default=valid_opts, key=f"a_{c_idx}_{d_idx}")
+                            dish["allergens"] = sel
+                        st.markdown("---")
 
-if st.session_state.menu_data:
-    st.markdown("---")
-    tab1, tab2 = st.tabs(["🍤 Carta con Alérgenos", "📄 Texto Limpio"])
-    data = st.session_state.menu_data
+            st.download_button("⬇️ DESCARGAR CARTA CON ALÉRGENOS", create_word(data), "Carta_Completa_Final.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+        with tab2:
+            st.subheader("Volcado de Texto Simple")
+            st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Final.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+# ==========================================
+# MÓDULO 2: RADAR DE CLIENTES (BETA)
+# ==========================================
+elif app_mode == "📡 Radar de Clientes":
+    st.title("Radar de Prospección Comercial 📡")
+    st.write("Encuentra la presencia digital de cualquier restaurante en segundos para analizar si tienen la carta publicada.")
     
-    with tab1:
-        st.subheader("Revisión de Alérgenos")
-        data["restaurant_name"] = st.text_input("Restaurante", data.get("restaurant_name", ""))
+    if not BUSCADOR_DISPONIBLE:
+        st.error("⚠️ Falta la librería del buscador. Por favor, añade 'duckduckgo-search' en tu archivo requirements.txt y reinicia la app.")
+        st.stop()
         
-        for c_idx, cat in enumerate(data.get("categories", [])):
-            with st.expander(f"📂 {cat['name']}", expanded=True):
-                cat["name"] = st.text_input(f"Categoría", cat["name"], key=f"c_{c_idx}")
-                for d_idx, dish in enumerate(cat["dishes"]):
-                    c1, c2 = st.columns([3, 1])
-                    with c1:
-                        dish["name"] = st.text_input("Plato", dish.get("name",""), key=f"n_{c_idx}_{d_idx}")
-                        dish["description"] = st.text_area("Desc", dish.get("description",""), key=f"d_{c_idx}_{d_idx}", height=68)
-                    with c2:
-                        dish["price"] = st.text_input("Precio", dish.get("price",""), key=f"p_{c_idx}_{d_idx}")
-                        cur = [a.lower() for a in dish.get("allergens", [])]
-                        valid_opts = [x for x in cur if x in ALLERGEN_OPTIONS]
-                        sel = st.multiselect("Alérgenos", ALLERGEN_OPTIONS, default=valid_opts, key=f"a_{c_idx}_{d_idx}")
-                        dish["allergens"] = sel
-                    st.markdown("---")
-
-        st.download_button("⬇️ DESCARGAR CARTA CON ALÉRGENOS", create_word(data), "Carta_Completa_Final.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-
-    with tab2:
-        st.subheader("Volcado de Texto Simple")
-        st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Final.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    col1, col2 = st.columns(2)
+    with col1:
+        radar_nombre = st.text_input("Nombre del Establecimiento", placeholder="Ej: Bar Manolo")
+    with col2:
+        radar_provincia = st.text_input("Provincia / Ciudad", placeholder="Ej: Madrid")
+        
+    if st.button("🔍 Rastrear Cliente"):
+        if radar_nombre and radar_provincia:
+            with st.spinner("Rastreando internet..."):
+                query = f"{radar_nombre} {radar_provincia} restaurante carta facebook instagram tripadvisor"
+                try:
+                    with DDGS() as ddgs:
+                        resultados = list(ddgs.text(query, max_results=8))
+                    
+                    if resultados:
+                        st.success(f"¡Resultados encontrados para {radar_nombre} en {radar_provincia}!")
+                        for res in resultados:
+                            st.markdown(f"**[{res['title']}]({res['href']})**")
+                            st.caption(res['body'])
+                            st.markdown("---")
+                    else:
+                        st.warning("No se ha encontrado mucha información en internet sobre este local.")
+                except Exception as e:
+                    st.error(f"Error al buscar: Asegúrate de tener buena conexión. Detalles: {e}")
+        else:
+            st.warning("Por favor, introduce el nombre y la provincia.")
