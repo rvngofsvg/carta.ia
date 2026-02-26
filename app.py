@@ -383,7 +383,7 @@ if app_mode == "📝 Generador de Cartas":
 # ==========================================
 elif app_mode == "📡 Radar de Clientes":
     st.title("Radar de Redes y Mapas 📡")
-    st.write("Encuentra directamente el Google Maps, Facebook, Instagram o TripAdvisor de un local en España.")
+    st.write("Encuentra la presencia digital de un local en España para ver su carta.")
     
     if not BUSCADOR_DISPONIBLE:
         st.error("⚠️ Falta la librería. Añade 'duckduckgo-search' en tu requirements.txt y reinicia.")
@@ -391,44 +391,51 @@ elif app_mode == "📡 Radar de Clientes":
         
     col1, col2 = st.columns(2)
     with col1:
-        radar_nombre = st.text_input("Nombre del Establecimiento", placeholder="Ej: Bar Manolo")
+        radar_nombre = st.text_input("Nombre del Establecimiento", placeholder="Ej: Restaurante Castellvi")
     with col2:
-        radar_provincia = st.text_input("Provincia / Ciudad (España)", placeholder="Ej: Madrid")
+        radar_provincia = st.text_input("Provincia / Ciudad (España)", placeholder="Ej: Barcelona")
         
     if st.button("🔍 Buscar Perfiles y Mapa"):
         if radar_nombre and radar_provincia:
-            with st.spinner("Rastreando mapas y redes sociales en España..."):
-                # 1. Búsqueda súper natural para no saturar al buscador
-                query = f"{radar_nombre} {radar_provincia} restaurante"
+            with st.spinner("Rastreando internet..."):
+                # Búsqueda súper directa
+                query = f"{radar_nombre} {radar_provincia}"
                 
                 try:
                     with DDGS() as ddgs:
-                        # Pedimos 15 resultados de golpe en España
-                        resultados_brutos = list(ddgs.text(query, region='es-es', max_results=15))
+                        # Traemos 20 resultados para tener mucho donde rascar
+                        resultados_brutos = list(ddgs.text(query, region='es-es', max_results=20))
                     
-                    # 2. Usamos Python como un colador (Filtro)
-                    resultados_limpios = []
-                    # Solo dejamos pasar estos dominios web (Añadimos TheFork y Guru que siempre tienen fotos de cartas)
-                    dominios_clave = ["facebook.com", "instagram.com", "tripadvisor.es", "maps.google.com", "google.com/maps", "google.es/maps", "thefork.es", "restaurantguru.com"]
-                    
-                    for res in resultados_brutos:
-                        url = res['href'].lower()
-                        # Si la URL contiene alguno de nuestros dominios clave, la guardamos
-                        if any(dominio in url for dominio in dominios_clave):
-                            if res not in resultados_limpios:
-                                resultados_limpios.append(res)
-                    
-                    # 3. Mostramos los resultados ya filtrados
-                    if resultados_limpios:
-                        st.success(f"¡Resultados clave encontrados para {radar_nombre} en {radar_provincia}!")
-                        for res in resultados_limpios[:6]: # Mostramos los 6 mejores
-                            st.markdown(f"📍 **[{res['title']}]({res['href']})**")
-                            st.caption(res['href']) # Mostramos el enlace verde debajo
-                            st.markdown("---")
+                    if not resultados_brutos:
+                        st.warning("El buscador no arrojó absolutamente nada. Prueba con otro nombre.")
                     else:
-                        st.warning("El local existe, pero no hemos encontrado perfiles oficiales de Instagram, Facebook, Maps ni TripAdvisor.")
+                        resultados_limpios = []
+                        # Filtro inteligente y flexible
+                        palabras_clave = ["facebook", "instagram", "tripadvisor", "maps.app", "google.com/maps", "google.es/maps", "thefork", "restaurantguru", "eltenedor"]
+                        
+                        for res in resultados_brutos:
+                            url = res['href'].lower()
+                            if any(palabra in url for palabra in palabras_clave):
+                                if res not in resultados_limpios:
+                                    resultados_limpios.append(res)
+                        
+                        # Si encuentra Redes / Mapas, las muestra (Max 6)
+                        if resultados_limpios:
+                            st.success(f"¡Resultados clave encontrados para {radar_nombre} en {radar_provincia}!")
+                            for res in resultados_limpios[:6]:
+                                st.markdown(f"📍 **[{res['title']}]({res['href']})**")
+                                st.caption(res['href'])
+                                st.markdown("---")
+                        # PLAN B: Si no pasa el filtro de redes, muestra los 3 primeros resultados genéricos
+                        else:
+                            st.warning("⚠️ No hemos detectado redes sociales claras, pero aquí tienes lo más relevante que hemos encontrado en internet:")
+                            for res in resultados_brutos[:3]:
+                                st.markdown(f"🌐 **[{res['title']}]({res['href']})**")
+                                st.caption(res['href'])
+                                st.markdown("---")
+                                
                 except Exception as e:
-                    st.error(f"El buscador está bloqueado temporalmente. Prueba en unos minutos. Error: {e}")
+                    st.error(f"El buscador está bloqueado temporalmente por exceso de uso. Prueba en unos minutos. Detalles: {e}")
         else:
             st.warning("Por favor, introduce el nombre y la provincia.")
             
