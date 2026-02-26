@@ -9,13 +9,6 @@ from io import BytesIO
 from PIL import Image
 from pypdf import PdfReader
 
-# --- INTENTO DE IMPORTAR EL BUSCADOR (RADAR) ---
-try:
-    from duckduckgo_search import DDGS
-    BUSCADOR_DISPONIBLE = True
-except ImportError:
-    BUSCADOR_DISPONIBLE = False
-
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Sistema Integral", layout="wide")
 
