@@ -379,39 +379,43 @@ if app_mode == "📝 Generador de Cartas":
 
 
 # ==========================================
-# MÓDULO 2: RADAR DE CLIENTES (BETA)
+# MÓDULO 2: RADAR DE REDES SOCIALES (BETA)
 # ==========================================
 elif app_mode == "📡 Radar de Clientes":
-    st.title("Radar de Prospección Comercial 📡")
-    st.write("Encuentra la presencia digital de cualquier restaurante en segundos para analizar si tienen la carta publicada.")
+    st.title("Radar de Redes y Mapas 📡")
+    st.write("Encuentra directamente el Google Maps, Facebook, Instagram o TripAdvisor de un local en España para ver su carta.")
     
     if not BUSCADOR_DISPONIBLE:
-        st.error("⚠️ Falta la librería del buscador. Por favor, añade 'duckduckgo-search' en tu archivo requirements.txt y reinicia la app.")
+        st.error("⚠️ Falta la librería. Añade 'duckduckgo-search' en tu requirements.txt y reinicia.")
         st.stop()
         
     col1, col2 = st.columns(2)
     with col1:
         radar_nombre = st.text_input("Nombre del Establecimiento", placeholder="Ej: Bar Manolo")
     with col2:
-        radar_provincia = st.text_input("Provincia / Ciudad", placeholder="Ej: Madrid")
+        radar_provincia = st.text_input("Provincia / Ciudad (España)", placeholder="Ej: Madrid")
         
-    if st.button("🔍 Rastrear Cliente"):
+    if st.button("🔍 Buscar Perfiles y Mapa"):
         if radar_nombre and radar_provincia:
-            with st.spinner("Rastreando internet..."):
-                query = f"{radar_nombre} {radar_provincia} restaurante carta facebook instagram tripadvisor"
+            with st.spinner("Rastreando mapas y redes sociales en España..."):
+                # TRUCO: Buscamos solo en Insta, Face, TripAdvisor y Google Maps
+                query = f"{radar_nombre} {radar_provincia} restaurante site:instagram.com OR site:facebook.com OR site:tripadvisor.es OR site:google.com/maps OR site:google.es/maps"
+                
                 try:
                     with DDGS() as ddgs:
-                        resultados = list(ddgs.text(query, max_results=8))
+                        resultados = list(ddgs.text(query, region='es-es', max_results=6))
                     
                     if resultados:
                         st.success(f"¡Resultados encontrados para {radar_nombre} en {radar_provincia}!")
                         for res in resultados:
-                            st.markdown(f"**[{res['title']}]({res['href']})**")
-                            st.caption(res['body'])
+                            # Mostramos el enlace con un diseño limpio
+                            st.markdown(f"📍 **[{res['title']}]({res['href']})**")
+                            st.caption(res['href']) # Así Eider ve rápido si es el enlace de Maps, Insta, etc.
                             st.markdown("---")
                     else:
-                        st.warning("No se ha encontrado mucha información en internet sobre este local.")
+                        st.warning("No hemos encontrado perfiles oficiales ni ubicación en Maps de este local.")
                 except Exception as e:
-                    st.error(f"Error al buscar: Asegúrate de tener buena conexión. Detalles: {e}")
+                    st.error(f"El buscador está bloqueado temporalmente. Prueba en unos minutos. Error: {e}")
         else:
             st.warning("Por favor, introduce el nombre y la provincia.")
+            
