@@ -379,63 +379,52 @@ if app_mode == "📝 Generador de Cartas":
 
 
 # ==========================================
-# MÓDULO 2: RADAR DE CLIENTES (BETA)
+# MÓDULO 2: RADAR DE CLIENTES (ENLACES INTELIGENTES)
 # ==========================================
 elif app_mode == "📡 Radar de Clientes":
     st.title("Radar de Redes y Mapas 📡")
-    st.write("Encuentra la presencia digital de un local en España para ver su carta.")
+    st.write("Genera accesos directos infalibles a la presencia digital del local. Haz clic en los enlaces para ir directo al grano.")
     
-    if not BUSCADOR_DISPONIBLE:
-        st.error("⚠️ Falta la librería. Añade 'duckduckgo-search' en tu requirements.txt y reinicia.")
-        st.stop()
+    import urllib.parse
         
     col1, col2 = st.columns(2)
     with col1:
         radar_nombre = st.text_input("Nombre del Establecimiento", placeholder="Ej: Restaurante Castellvi")
     with col2:
-        radar_provincia = st.text_input("Provincia / Ciudad (España)", placeholder="Ej: Barcelona")
+        radar_provincia = st.text_input("Provincia / Ciudad (España)", placeholder="Ej: Molins de Rei")
         
-    if st.button("🔍 Buscar Perfiles y Mapa"):
+    if st.button("🚀 Generar Accesos Directos"):
         if radar_nombre and radar_provincia:
-            with st.spinner("Rastreando internet..."):
-                # Búsqueda súper directa
-                query = f"{radar_nombre} {radar_provincia}"
-                
-                try:
-                    with DDGS() as ddgs:
-                        # Traemos 20 resultados para tener mucho donde rascar
-                        resultados_brutos = list(ddgs.text(query, region='es-es', max_results=20))
-                    
-                    if not resultados_brutos:
-                        st.warning("El buscador no arrojó absolutamente nada. Prueba con otro nombre.")
-                    else:
-                        resultados_limpios = []
-                        # Filtro inteligente y flexible
-                        palabras_clave = ["facebook", "instagram", "tripadvisor", "maps.app", "google.com/maps", "google.es/maps", "thefork", "restaurantguru", "eltenedor"]
-                        
-                        for res in resultados_brutos:
-                            url = res['href'].lower()
-                            if any(palabra in url for palabra in palabras_clave):
-                                if res not in resultados_limpios:
-                                    resultados_limpios.append(res)
-                        
-                        # Si encuentra Redes / Mapas, las muestra (Max 6)
-                        if resultados_limpios:
-                            st.success(f"¡Resultados clave encontrados para {radar_nombre} en {radar_provincia}!")
-                            for res in resultados_limpios[:6]:
-                                st.markdown(f"📍 **[{res['title']}]({res['href']})**")
-                                st.caption(res['href'])
-                                st.markdown("---")
-                        # PLAN B: Si no pasa el filtro de redes, muestra los 3 primeros resultados genéricos
-                        else:
-                            st.warning("⚠️ No hemos detectado redes sociales claras, pero aquí tienes lo más relevante que hemos encontrado en internet:")
-                            for res in resultados_brutos[:3]:
-                                st.markdown(f"🌐 **[{res['title']}]({res['href']})**")
-                                st.caption(res['href'])
-                                st.markdown("---")
-                                
-                except Exception as e:
-                    st.error(f"El buscador está bloqueado temporalmente por exceso de uso. Prueba en unos minutos. Detalles: {e}")
+            # 1. Unimos y codificamos el texto para que las URLs sean perfectas
+            query_base = f"{radar_nombre} {radar_provincia}"
+            query_encoded = urllib.parse.quote_plus(query_base)
+            
+            # 2. Creamos los "Enlaces Inteligentes" (Fuerzan a Google a ir donde queremos)
+            link_maps = f"https://www.google.com/maps/search/?api=1&query={query_encoded}"
+            link_ig = f"https://www.google.com/search?q=site%3Ainstagram.com+{query_encoded}"
+            link_fb = f"https://www.google.com/search?q=site%3Afacebook.com+{query_encoded}"
+            link_trip = f"https://www.google.com/search?q=site%3Atripadvisor.es+{query_encoded}"
+            link_carta = f"https://www.google.com/search?q={query_encoded}+carta+menu+restaurante"
+
+            st.success(f"¡Radares configurados para {radar_nombre}! Selecciona dónde quieres investigar:")
+            
+            # 3. Los mostramos como botones/enlaces limpios
+            st.markdown(f"### 📍 [Abrir en **Google Maps**]({link_maps})")
+            st.caption("Ideal para ver fotos de la carta subidas por clientes.")
+            st.markdown("---")
+            
+            st.markdown(f"### 📸 [Buscar en **Instagram**]({link_ig})")
+            st.markdown("---")
+            
+            st.markdown(f"### 📘 [Buscar en **Facebook**]({link_fb})")
+            st.markdown("---")
+            
+            st.markdown(f"### 🦉 [Buscar en **TripAdvisor**]({link_trip})")
+            st.markdown("---")
+            
+            st.markdown(f"### 🌐 [Búsqueda General de **Carta / Menú**]({link_carta})")
+            st.caption("Busca en toda la web cualquier rastro de su menú.")
+            
         else:
             st.warning("Por favor, introduce el nombre y la provincia.")
             
