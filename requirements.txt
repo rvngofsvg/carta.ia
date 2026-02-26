@@ -3,4 +3,4 @@ google-generativeai
 python-docx
 pypdf
 Pillow
-duckduckgo-search
+
