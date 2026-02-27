@@ -376,7 +376,7 @@ if app_mode == "📝 Generador de Cartas":
 # ==========================================
 elif app_mode == "📡 Radar de Clientes":
     st.title("Radar de Redes y Mapas 📡")
-    st.write("Genera accesos directos infalibles a la presencia digital del local. Haz clic en los enlaces para ir directo al grano.")
+    st.write("Genera accesos directos buscando presencia digital del local. Haz clic en los enlaces para más información.")
     
     import urllib.parse
         
