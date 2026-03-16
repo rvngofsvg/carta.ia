@@ -428,6 +428,7 @@ elif app_mode == "📄 Convertidor PDF a Word":
     st.title("Convertidor Directo: PDF a Word 📄➡️📝")
     st.write("Sube cualquier PDF y descárgalo como un documento de Word editable. Ideal para extraer texto de menús o documentos.")
     
+    import os
     import tempfile
     try:
         from pdf2docx import Converter
@@ -439,7 +440,6 @@ elif app_mode == "📄 Convertidor PDF a Word":
         st.error("⚠️ Falta la librería 'pdf2docx'. Añádela a tu archivo requirements.txt y reinicia la app.")
         st.stop()
 
-    # Inicializamos la memoria para el PDF si no existe
     if "word_bytes" not in st.session_state:
         st.session_state.word_bytes = None
     if "ultimo_pdf" not in st.session_state:
@@ -447,7 +447,6 @@ elif app_mode == "📄 Convertidor PDF a Word":
 
     uploaded_pdf = st.file_uploader("Sube tu archivo PDF aquí", type=["pdf"], key="pdf_converter")
 
-    # Si suben un archivo nuevo, limpiamos la memoria anterior
     if uploaded_pdf and uploaded_pdf.name != st.session_state.ultimo_pdf:
         st.session_state.word_bytes = None
         st.session_state.ultimo_pdf = uploaded_pdf.name
@@ -456,39 +455,41 @@ elif app_mode == "📄 Convertidor PDF a Word":
         if st.button("🔄 Convertir a Word Editable"):
             with st.spinner("🤖 Convirtiendo a Word... Esto puede tardar unos segundos."):
                 try:
-                    # Guardamos el PDF temporalmente
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-                        tmp_pdf.write(uploaded_pdf.getvalue())
-                        tmp_pdf_path = tmp_pdf.name
+                    # 1. Generamos rutas temporales SEGURAS (sin bloquear el archivo)
+                    tmp_pdf_path = os.path.join(tempfile.gettempdir(), "temp_input.pdf")
+                    tmp_docx_path = os.path.join(tempfile.gettempdir(), "temp_output.docx")
 
-                    # Preparamos la salida del Word temporal
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_docx:
-                        tmp_docx_path = tmp_docx.name
+                    # 2. Guardamos el PDF que ha subido Eider
+                    with open(tmp_pdf_path, "wb") as f:
+                        f.write(uploaded_pdf.getvalue())
 
-                    # Convertimos
+                    # 3. Convertimos (ahora el convertidor tiene vía libre)
                     cv = Converter(tmp_pdf_path)
                     cv.convert(tmp_docx_path)
                     cv.close()
 
-                    # Leemos el resultado y LO GUARDAMOS EN LA MEMORIA
+                    # 4. Leemos el Word resultante y lo guardamos en memoria
                     with open(tmp_docx_path, "rb") as f:
                         st.session_state.word_bytes = f.read()
 
-                    # Limpiamos los archivos temporales
-                    os.remove(tmp_pdf_path)
-                    os.remove(tmp_docx_path)
+                    # 5. Limpiamos la basura del servidor
+                    if os.path.exists(tmp_pdf_path): os.remove(tmp_pdf_path)
+                    if os.path.exists(tmp_docx_path): os.remove(tmp_docx_path)
                     
                     st.success("✅ ¡Conversión completada con éxito!")
 
                 except Exception as e:
-                    st.error(f"Ocurrió un error al convertir. El PDF puede ser una imagen escaneada o estar protegido. Detalles: {e}")
+                    st.error(f"Ocurrió un error al convertir. Detalles: {e}")
 
-        # El botón de descarga está FUERA de la condición del primer botón,
-        # así que no desaparecerá cuando hagas clic en él.
+        # Botón de descarga fuera de la condición de carga
         if st.session_state.word_bytes:
+            # 6. Truco infalible: Extraemos el nombre base y le pegamos .docx por la fuerza
+            nombre_base = os.path.splitext(uploaded_pdf.name)[0]
+            nuevo_nombre = f"{nombre_base}.docx"
+
             st.download_button(
                 label="⬇️ Descargar Documento Word",
                 data=st.session_state.word_bytes,
-                file_name=uploaded_pdf.name.replace(".pdf", ".docx"),
+                file_name=nuevo_nombre,
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
