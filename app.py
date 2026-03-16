@@ -303,7 +303,7 @@ def create_clean_word(data):
 # MENÚ LATERAL Y NAVEGACIÓN
 # ==========================================
 st.sidebar.title("Menú Principal 🚀")
-app_mode = st.sidebar.radio("Navegación", ["📝 Generador de Cartas", "📡 Radar de Clientes"])
+app_mode = st.sidebar.radio("Navegación", ["📝 Generador de Cartas", "📡 Radar de Clientes", "📄 Convertidor PDF a Word"])
 
 # ==========================================
 # MÓDULO 1: GENERADOR DE CARTAS
@@ -420,4 +420,63 @@ elif app_mode == "📡 Radar de Clientes":
             
         else:
             st.warning("Por favor, introduce el nombre y la provincia.")
-            
+
+# ==========================================
+# MÓDULO 3: CONVERTIDOR PDF A WORD
+# ==========================================
+elif app_mode == "📄 Convertidor PDF a Word":
+    st.title("Convertidor Directo: PDF a Word 📄➡️📝")
+    st.write("Sube cualquier PDF y descárgalo como un documento de Word editable. Ideal para extraer texto de menús o documentos.")
+    
+    # Importamos las herramientas necesarias para este módulo
+    import tempfile
+    try:
+        from pdf2docx import Converter
+        CONVERTIDOR_DISPONIBLE = True
+    except ImportError:
+        CONVERTIDOR_DISPONIBLE = False
+
+    if not CONVERTIDOR_DISPONIBLE:
+        st.error("⚠️ Falta la librería 'pdf2docx'. Añádela a tu archivo requirements.txt y reinicia la app.")
+        st.stop()
+
+    uploaded_pdf = st.file_uploader("Sube tu archivo PDF aquí", type=["pdf"], key="pdf_converter")
+
+    if uploaded_pdf:
+        if st.button("🔄 Convertir a Word Editable"):
+            with st.spinner("🤖 Convirtiendo a Word... Esto puede tardar unos segundos dependiendo de las imágenes del PDF."):
+                try:
+                    # 1. Guardar el PDF subido en un archivo temporal
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+                        tmp_pdf.write(uploaded_pdf.getvalue())
+                        tmp_pdf_path = tmp_pdf.name
+
+                    # 2. Crear una ruta para el Word de salida temporal
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_docx:
+                        tmp_docx_path = tmp_docx.name
+
+                    # 3. Hacer la conversión con pdf2docx
+                    cv = Converter(tmp_pdf_path)
+                    cv.convert(tmp_docx_path)
+                    cv.close()
+
+                    # 4. Leer el Word resultante para poder descargarlo
+                    with open(tmp_docx_path, "rb") as f:
+                        docx_bytes = f.read()
+
+                    st.success("✅ ¡Conversión completada con éxito!")
+                    
+                    # 5. Botón de descarga
+                    st.download_button(
+                        label="⬇️ Descargar Documento Word",
+                        data=docx_bytes,
+                        file_name=uploaded_pdf.name.replace(".pdf", ".docx"),
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+
+                    # 6. Limpiar la basura (borrar los archivos temporales del servidor)
+                    os.remove(tmp_pdf_path)
+                    os.remove(tmp_docx_path)
+
+                except Exception as e:
+                    st.error(f"Ocurrió un error al intentar convertir el PDF. Puede que el archivo esté protegido. Detalles: {e}")
