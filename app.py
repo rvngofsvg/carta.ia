@@ -10,10 +10,10 @@ from PIL import Image
 from pypdf import PdfReader
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Sistema Integral", layout="wide")
+st.set_page_config(page_title="Sistema Integral - Serval TECH", layout="wide")
 
 # --- 1. CONFIGURACIÓN ---
-MODELO_A_USAR = "gemini-2.5-flash" 
+MODELO_A_USAR = "gemini-1.5-flash" 
 
 SANGRIA_CATEGORIA = Cm(0.8)  
 SANGRIA_PLATOS = Cm(0.8)     
@@ -38,7 +38,6 @@ DICCIONARIO_NORMAL = {
     "altramuces": ["altramuz", "altramuces"]
 }
 
-# El diccionario extremo le añade la contaminación cruzada a los fritos y salsas de bote
 DICCIONARIO_EXTREMO = {
     "gluten": DICCIONARIO_NORMAL["gluten"] + ["croqueta", "raba", "calamar", "alita", "natxo", "nacho", "morcilla", "chistorra", "torrezno", "cachopo", "codillo", "hamburguesa", "perrito"],
     "lacteos": DICCIONARIO_NORMAL["lacteos"] + ["croqueta", "raba", "calamar", "alita", "natxo", "nacho", "morcilla", "cachopo", "alioli", "ali-oli", "codillo", "hamburguesa", "perrito"],
@@ -133,35 +132,39 @@ def analyze_content(content, content_type="image", modo="Normal"):
         REGLA 2 (CONTAMINACIÓN CRUZADA Y ALÉRGENOS AL MÁXIMO): 
         - Asume SIEMPRE el peor escenario para proteger al cliente de demandas.
         - Si es un frito de bar (croquetas, rabas, calamares, alitas, torreznos, cachopo), asume freidora compartida y producto industrial. Añade trazas de pescado, moluscos, crustaceos, soja, lacteos, mostaza, apio, sesamo y gluten.
-        - Salsas (alioli, brava, mayo): asume que son industriales. Añade mostaza, lacteos, apio, huevo y soja.
-        - Procesados (morcilla, salchicha, chistorra): asume sulfitos, soja, mostaza, lacteos, apio y frutos de cascara.
         """
     else:
         diccionario_activo = DICCIONARIO_NORMAL
         regla_2 = """
         REGLA 2 (ALÉRGENOS - MODO ESTÁNDAR): 
         - Usa tu conocimiento para listar los alérgenos propios de la receta tradicional.
-        - NO asumas contaminación cruzada por freidora a menos que sea evidente.
         """
 
     base_prompt = f"""
     Eres un Transcriptor Profesional y un Nutricionista.
-    REGLA 1 (TRANSCRIPCIÓN LITERAL):
-    - Extrae Nombre, Descripción y Precio EXACTAMENTE como aparecen. NO RESUMAS NADA.
-    - Si está en Inglés, tradúcelo al Español literalmente.
+    
+    REGLA 1 (TRANSCRIPCIÓN LITERAL E IDIOMA ORIGINAL):
+    - Extrae Nombre, Descripción y Precio EXACTAMENTE como aparecen en la imagen. NO RESUMAS NADA.
+    - PROHIBIDO TRADUCIR. Mantén el idioma original de la carta (ej. si dice "Smash Burger", "Bacon", "Pulled Pork", cópialo exactamente así).
+    - ANÁLISIS MENTAL DE ALÉRGENOS: Aunque escribas el plato en su idioma original, debes usar tu conocimiento para identificar los alérgenos de esas palabras extranjeras. Por ejemplo: si lees "Cheese" o "Peanut", mantén esa palabra intacta, pero incluye 'lacteos' o 'cacahuetes' en la lista de alérgenos.
+    
+    ⚠️ REGLA 3 CRÍTICA (TODO EL TEXTO RESTANTE):
+    - Extrae literalmente cualquier otro texto, párrafo o frase que aparezca en la imagen y que no sean platos ni categorías.
+    - Copia todo este texto tal cual está escrito y ponlo en el campo "texto_extra". No lo clasifiques, solo cópialo.
     
     {regla_2}
     
     Salida JSON (sin markdown):
     {{
         "restaurant_name": "Nombre",
+        "texto_extra": "Copia aquí literalmente todo el texto sobrante de la imagen",
         "categories": [
             {{
                 "name": "Categoría",
                 "dishes": [
                     {{
                         "name": "Plato",
-                        "description": "Texto literal",
+                        "description": "Texto literal en idioma original",
                         "price": "10.50",
                         "allergens": ["gluten", "lacteos"] 
                     }}
@@ -171,11 +174,9 @@ def analyze_content(content, content_type="image", modo="Normal"):
     }}
     """
     try:
-        with st.spinner(f"🧠 Transcribiendo y Analizando ({MODELO_A_USAR})..."):
+        with st.spinner(f"🧠 Analizando ({MODELO_A_USAR})..."):
             if content_type == "image": response = model.generate_content([base_prompt, content])
-            else:
-                if not content: content = ""
-                response = model.generate_content(base_prompt + "\n\nMENÚ:\n" + str(content))
+            else: response = model.generate_content(base_prompt + "\n\nMENÚ:\n" + str(content))
             
             text = response.text.replace('```json', '').replace('```', '').strip()
             s, e = text.find('{'), text.rfind('}') + 1
@@ -201,46 +202,24 @@ def release_paragraph_constraints(paragraph, indent, is_dish=False):
     paragraph.paragraph_format.space_after = ESPACIO_PLATOS if is_dish else Pt(0)
     paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
     paragraph.paragraph_format.left_indent = indent
-    paragraph.paragraph_format.widow_control = False
-    paragraph.paragraph_format.keep_together = False
-    paragraph.paragraph_format.keep_with_next = False
 
 # --- 8. GENERADORES DE WORD ---
 def create_word(data):
-    if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
-        st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
-        
     doc = Document(PLANTILLA_PATH)
-    
-    for section in doc.sections:
-        section.bottom_margin = MARGEN_INFERIOR_FORZADO
+    for section in doc.sections: section.bottom_margin = MARGEN_INFERIOR_FORZADO
     
     rest_name = data.get("restaurant_name", "MENÚ")
-    try: 
-        p_title = doc.add_heading(rest_name, 0)
-        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
-    except: 
-        p_title = doc.add_paragraph(rest_name)
-        p_title.bold = True
-        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
+    try: p_title = doc.add_heading(rest_name, 0); release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
+    except: p_title = doc.add_paragraph(rest_name); p_title.bold = True; release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
 
     for category in data.get("categories", []):
-        p_cat = doc.add_heading(category["name"], level=1)
-        release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
+        p_cat = doc.add_heading(category["name"], level=1); release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
         p_cat.paragraph_format.space_before = Pt(6) 
-        
         for dish in category["dishes"]:
-            p = doc.add_paragraph()
-            release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
-            
-            tab_stops = p.paragraph_format.tab_stops
-            tab_stops.add_tab_stop(Cm(14.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.SPACES)
-            
+            p = doc.add_paragraph(); release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(14.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             p.add_run(dish.get('name', 'Plato')).bold = True
-            price = dish.get('price', '') or ""
-            p.add_run(f"\t{price}€")
-            p.add_run("\t") 
+            p.add_run(f"\t{dish.get('price', '')}€\t")
             
             run_icons = p.add_run()
             for allergen in dish.get("allergens", []):
@@ -251,53 +230,42 @@ def create_word(data):
                     except: pass
             
             if dish.get('description'):
-                p_desc = doc.add_paragraph()
-                release_paragraph_constraints(p_desc, SANGRIA_PLATOS, is_dish=True)
+                p_desc = doc.add_paragraph(); release_paragraph_constraints(p_desc, SANGRIA_PLATOS, is_dish=True)
                 p_desc.add_run(dish['description']).italic = True
+
+    if data.get("texto_extra"):
+        doc.add_paragraph()
+        p_extra = doc.add_paragraph(); release_paragraph_constraints(p_extra, SANGRIA_CATEGORIA)
+        p_extra.add_run(data["texto_extra"]).italic = True
 
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
 
 def create_clean_word(data):
-    if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
-        st.error(f"❌ Falta plantilla: {PLANTILLA_PATH}"); st.stop()
-        
     doc = Document(PLANTILLA_PATH)
-    
-    for section in doc.sections:
-        section.bottom_margin = MARGEN_INFERIOR_FORZADO
+    for section in doc.sections: section.bottom_margin = MARGEN_INFERIOR_FORZADO
     
     rest_name = data.get("restaurant_name", "MENÚ")
-    try: 
-        p_title = doc.add_heading(rest_name, 0)
-        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
-    except: 
-        p_title = doc.add_paragraph(rest_name)
-        p_title.bold = True
-        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
+    try: p_title = doc.add_heading(rest_name, 0); release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
+    except: p_title = doc.add_paragraph(rest_name); p_title.bold = True; release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
 
     for category in data.get("categories", []):
-        p_cat = doc.add_heading(category["name"], level=1)
-        release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
+        p_cat = doc.add_heading(category["name"], level=1); release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
         p_cat.paragraph_format.space_before = Pt(6)
-
         for dish in category["dishes"]:
-            p = doc.add_paragraph()
-            release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
-            
-            tab_stops = p.paragraph_format.tab_stops
-            tab_stops.add_tab_stop(Cm(16.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            
+            p = doc.add_paragraph(); release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(16.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             p.add_run(dish.get('name', 'Plato')).bold = True
-            price = dish.get('price', '') or ""
-            p.add_run(f"\t{price}€")
-            
+            p.add_run(f"\t{dish.get('price', '')}€")
             if dish.get('description'):
-                p_desc = doc.add_paragraph()
-                release_paragraph_constraints(p_desc, SANGRIA_PLATOS, is_dish=True)
+                p_desc = doc.add_paragraph(); release_paragraph_constraints(p_desc, SANGRIA_PLATOS, is_dish=True)
                 p_desc.add_run(dish['description']).italic = True
                 
-    buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
+    if data.get("texto_extra"):
+        doc.add_paragraph()
+        p_extra = doc.add_paragraph(); release_paragraph_constraints(p_extra, SANGRIA_CATEGORIA)
+        p_extra.add_run(data["texto_extra"]).italic = True
 
+    buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
 
 # ==========================================
 # MENÚ LATERAL Y NAVEGACIÓN
@@ -310,44 +278,28 @@ app_mode = st.sidebar.radio("Navegación", ["📝 Generador de Cartas", "📡 Ra
 # ==========================================
 if app_mode == "📝 Generador de Cartas":
     st.title("Sistema Integral de Cartas 🥘")
-
-    st.markdown("### ⚙️ Nivel de Seguridad de Alérgenos")
-    modo_seguridad = st.radio(
-        "Selecciona el perfil de la cocina antes de analizar la carta:",
-        [
-            "🟢 Normal (Receta tradicional, freidoras separadas, menos riesgo)", 
-            "🔴 Extremo (Freidora compartida, contaminación cruzada, productos de bote)"
-        ]
-    )
+    modo_seguridad = st.radio("Perfil de cocina:", ["🟢 Normal", "🔴 Extremo"])
     modo_param = "Extremo" if "Extremo" in modo_seguridad else "Normal"
 
     if "menu_data" not in st.session_state: st.session_state.menu_data = None
+    uploaded_file = st.file_uploader("Sube el Menú", type=["jpg", "png", "pdf", "docx"])
 
-    uploaded_file = st.file_uploader("Sube el Menú (Foto/PDF/Word)", type=["jpg", "png", "pdf", "docx"])
-
-    if uploaded_file:
-        if st.button("1. ANALIZAR MENÚ"):
-            ft = uploaded_file.name.split('.')[-1].lower()
-            data = None
-            if ft in ['jpg','png','jpeg']: data = analyze_content(Image.open(uploaded_file), "image", modo_param)
-            elif ft == 'pdf': 
-                t = extract_text_from_pdf(uploaded_file)
-                if t: data = analyze_content(t, "text", modo_param)
-            elif ft == 'docx': 
-                t = extract_text_from_docx(uploaded_file)
-                if t: data = analyze_content(t, "text", modo_param)
-            
-            if data: st.session_state.menu_data = data; st.rerun()
+    if uploaded_file and st.button("1. ANALIZAR MENÚ"):
+        ft = uploaded_file.name.split('.')[-1].lower()
+        data = None
+        if ft in ['jpg','png','jpeg']: data = analyze_content(Image.open(uploaded_file), "image", modo_param)
+        elif ft == 'pdf': data = analyze_content(extract_text_from_pdf(uploaded_file), "text", modo_param)
+        elif ft == 'docx': data = analyze_content(extract_text_from_docx(uploaded_file), "text", modo_param)
+        if data: st.session_state.menu_data = data; st.rerun()
 
     if st.session_state.menu_data:
         st.markdown("---")
-        tab1, tab2 = st.tabs(["🍤 Carta con Alérgenos", "📄 Texto Limpio"])
+        tab1, tab2 = st.tabs(["🍤 Con Alérgenos", "📄 Texto Limpio"])
         data = st.session_state.menu_data
         
         with tab1:
-            st.subheader("Revisión de Alérgenos")
             data["restaurant_name"] = st.text_input("Restaurante", data.get("restaurant_name", ""))
-            
+            data["texto_extra"] = st.text_area("📝 Texto suelto detectado", data.get("texto_extra", ""), height=100)
             for c_idx, cat in enumerate(data.get("categories", [])):
                 with st.expander(f"📂 {cat['name']}", expanded=True):
                     cat["name"] = st.text_input(f"Categoría", cat["name"], key=f"c_{c_idx}")
@@ -358,138 +310,48 @@ if app_mode == "📝 Generador de Cartas":
                             dish["description"] = st.text_area("Desc", dish.get("description",""), key=f"d_{c_idx}_{d_idx}", height=68)
                         with c2:
                             dish["price"] = st.text_input("Precio", dish.get("price",""), key=f"p_{c_idx}_{d_idx}")
-                            cur = [a.lower() for a in dish.get("allergens", [])]
-                            valid_opts = [x for x in cur if x in ALLERGEN_OPTIONS]
-                            sel = st.multiselect("Alérgenos", ALLERGEN_OPTIONS, default=valid_opts, key=f"a_{c_idx}_{d_idx}")
+                            sel = st.multiselect("Alérgenos", ALLERGEN_OPTIONS, default=[x for x in dish.get("allergens", []) if x in ALLERGEN_OPTIONS], key=f"a_{c_idx}_{d_idx}")
                             dish["allergens"] = sel
-                        st.markdown("---")
-
-            st.download_button("⬇️ DESCARGAR CARTA CON ALÉRGENOS", create_word(data), "Carta_Completa_Final.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            st.download_button("⬇️ DESCARGAR CARTA COMPLETA", create_word(data), "Carta_Alérgenos.docx")
 
         with tab2:
-            st.subheader("Volcado de Texto Simple")
-            st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia_Final.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-
+            st.download_button("⬇️ DESCARGAR TEXTO LIMPIO", create_clean_word(data), "Carta_Limpia.docx")
 
 # ==========================================
-# MÓDULO 2: RADAR DE CLIENTES (ENLACES INTELIGENTES)
+# MÓDULO 2: RADAR DE CLIENTES
 # ==========================================
 elif app_mode == "📡 Radar de Clientes":
     st.title("Radar de Redes y Mapas 📡")
-    st.write("Genera accesos directos buscando presencia digital del local. Haz clic en los enlaces para más información.")
-    
     import urllib.parse
-        
-    col1, col2 = st.columns(2)
-    with col1:
-        radar_nombre = st.text_input("Nombre del Establecimiento", placeholder="Ej: Restaurante Castellvi")
-    with col2:
-        radar_provincia = st.text_input("Provincia / Ciudad (España)", placeholder="Ej: Molins de Rei")
-        
-    if st.button("🚀 Generar Accesos Directos"):
-        if radar_nombre and radar_provincia:
-            # 1. Unimos y codificamos el texto para que las URLs sean perfectas
-            query_base = f"{radar_nombre} {radar_provincia}"
-            query_encoded = urllib.parse.quote_plus(query_base)
-            
-            # 2. Creamos los "Enlaces Inteligentes" (Fuerzan a Google a ir donde queremos)
-            link_maps = f"https://www.google.com/maps/search/?api=1&query={query_encoded}"
-            link_ig = f"https://www.google.com/search?q=site%3Ainstagram.com+{query_encoded}"
-            link_fb = f"https://www.google.com/search?q=site%3Afacebook.com+{query_encoded}"
-            link_trip = f"https://www.google.com/search?q=site%3Atripadvisor.es+{query_encoded}"
-            link_carta = f"https://www.google.com/search?q={query_encoded}+carta+menu+restaurante"
-
-            st.success(f"¡Radares configurados para {radar_nombre}! Selecciona dónde quieres investigar:")
-            
-            # 3. Los mostramos como botones/enlaces limpios
-            st.markdown(f"### 📍 [Abrir en **Google Maps**]({link_maps})")
-            st.caption("Ideal para ver fotos de la carta subidas por clientes.")
-            st.markdown("---")
-            
-            st.markdown(f"### 📸 [Buscar en **Instagram**]({link_ig})")
-            st.markdown("---")
-            
-            st.markdown(f"### 📘 [Buscar en **Facebook**]({link_fb})")
-            st.markdown("---")
-            
-            st.markdown(f"### 🦉 [Buscar en **TripAdvisor**]({link_trip})")
-            st.markdown("---")
-            
-            st.markdown(f"### 🌐 [Búsqueda General de **Carta / Menú**]({link_carta})")
-            st.caption("Busca en toda la web cualquier rastro de su menú.")
-            
-        else:
-            st.warning("Por favor, introduce el nombre y la provincia.")
+    c1, c2 = st.columns(2)
+    with c1: r_nombre = st.text_input("Nombre local")
+    with c2: r_prov = st.text_input("Provincia")
+    if st.button("🚀 Buscar"):
+        if r_nombre and r_prov:
+            q = urllib.parse.quote_plus(f"{r_nombre} {r_prov}")
+            st.markdown(f"### 📍 [Google Maps](https://www.google.com/maps/search/?api=1&query={q})")
+            st.markdown(f"### 📸 [Instagram](https://www.google.com/search?q=site%3Ainstagram.com+{q})")
+            st.markdown(f"### 📘 [Facebook](https://www.google.com/search?q=site%3Afacebook.com+{q})")
+            st.markdown(f"### 🦉 [TripAdvisor](https://www.google.com/search?q=site%3Atripadvisor.es+{q})")
+            st.markdown(f"### 🌐 [Búsqueda General Carta](https://www.google.com/search?q={q}+carta+menu)")
 
 # ==========================================
 # MÓDULO 3: CONVERTIDOR PDF A WORD
 # ==========================================
 elif app_mode == "📄 Convertidor PDF a Word":
-    st.title("Convertidor Directo: PDF a Word 📄➡️📝")
-    st.write("Sube cualquier PDF y descárgalo como un documento de Word editable. Ideal para extraer texto de menús o documentos.")
-    
-    import os
+    st.title("Convertidor Directo 📄➡️📝")
     import tempfile
-    try:
-        from pdf2docx import Converter
-        CONVERTIDOR_DISPONIBLE = True
-    except ImportError:
-        CONVERTIDOR_DISPONIBLE = False
-
-    if not CONVERTIDOR_DISPONIBLE:
-        st.error("⚠️ Falta la librería 'pdf2docx'. Añádela a tu archivo requirements.txt y reinicia la app.")
-        st.stop()
-
-    if "word_bytes" not in st.session_state:
-        st.session_state.word_bytes = None
-    if "ultimo_pdf" not in st.session_state:
-        st.session_state.ultimo_pdf = None
-
-    uploaded_pdf = st.file_uploader("Sube tu archivo PDF aquí", type=["pdf"], key="pdf_converter")
-
-    if uploaded_pdf and uploaded_pdf.name != st.session_state.ultimo_pdf:
-        st.session_state.word_bytes = None
-        st.session_state.ultimo_pdf = uploaded_pdf.name
-
-    if uploaded_pdf:
-        if st.button("🔄 Convertir a Word Editable"):
-            with st.spinner("🤖 Convirtiendo a Word... Esto puede tardar unos segundos."):
-                try:
-                    # 1. Generamos rutas temporales SEGURAS (sin bloquear el archivo)
-                    tmp_pdf_path = os.path.join(tempfile.gettempdir(), "temp_input.pdf")
-                    tmp_docx_path = os.path.join(tempfile.gettempdir(), "temp_output.docx")
-
-                    # 2. Guardamos el PDF que ha subido Eider
-                    with open(tmp_pdf_path, "wb") as f:
-                        f.write(uploaded_pdf.getvalue())
-
-                    # 3. Convertimos (ahora el convertidor tiene vía libre)
-                    cv = Converter(tmp_pdf_path)
-                    cv.convert(tmp_docx_path)
-                    cv.close()
-
-                    # 4. Leemos el Word resultante y lo guardamos en memoria
-                    with open(tmp_docx_path, "rb") as f:
-                        st.session_state.word_bytes = f.read()
-
-                    # 5. Limpiamos la basura del servidor
-                    if os.path.exists(tmp_pdf_path): os.remove(tmp_pdf_path)
-                    if os.path.exists(tmp_docx_path): os.remove(tmp_docx_path)
-                    
-                    st.success("✅ ¡Conversión completada con éxito!")
-
-                except Exception as e:
-                    st.error(f"Ocurrió un error al convertir. Detalles: {e}")
-
-        # Botón de descarga fuera de la condición de carga
-        if st.session_state.word_bytes:
-            # 6. Truco infalible: Extraemos el nombre base y le pegamos .docx por la fuerza
-            nombre_base = os.path.splitext(uploaded_pdf.name)[0]
-            nuevo_nombre = f"{nombre_base}.docx"
-
-            st.download_button(
-                label="⬇️ Descargar Documento Word",
-                data=st.session_state.word_bytes,
-                file_name=nuevo_nombre,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+    from pdf2docx import Converter
+    if "w_bytes" not in st.session_state: st.session_state.w_bytes = None
+    up_pdf = st.file_uploader("Sube PDF", type=["pdf"])
+    if up_pdf:
+        if st.button("🔄 Convertir"):
+            with st.spinner("Convirtiendo..."):
+                t_in = os.path.join(tempfile.gettempdir(), "in.pdf")
+                t_out = os.path.join(tempfile.gettempdir(), "out.docx")
+                with open(t_in, "wb") as f: f.write(up_pdf.getvalue())
+                cv = Converter(t_in); cv.convert(t_out); cv.close()
+                with open(t_out, "rb") as f: st.session_state.w_bytes = f.read()
+        if st.session_state.w_bytes:
+            st.download_button("⬇️ Descargar Word", st.session_state.w_bytes, f"{up_pdf.name.split('.')[0]}.docx")
+            
