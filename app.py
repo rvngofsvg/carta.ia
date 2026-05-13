@@ -13,7 +13,7 @@ from pypdf import PdfReader
 st.set_page_config(page_title="Sistema Integral - Serval TECH", layout="wide")
 
 # --- 1. CONFIGURACIÓN ---
-MODELO_A_USAR = "gemini-1.5-flash" 
+MODELO_A_USAR = "gemini-2.5-flash" 
 
 SANGRIA_CATEGORIA = Cm(0.8)  
 SANGRIA_PLATOS = Cm(0.8)     
