@@ -217,7 +217,7 @@ def create_word(data):
         p_cat.paragraph_format.space_before = Pt(6) 
         for dish in category["dishes"]:
             p = doc.add_paragraph(); release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
-            p.paragraph_format.tab_stops.add_tab_stop(Cm(14.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(13.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             p.add_run(dish.get('name', 'Plato')).bold = True
             p.add_run(f"\t{dish.get('price', '')}€\t")
             
@@ -253,7 +253,7 @@ def create_clean_word(data):
         p_cat.paragraph_format.space_before = Pt(6)
         for dish in category["dishes"]:
             p = doc.add_paragraph(); release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
-            p.paragraph_format.tab_stops.add_tab_stop(Cm(16.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             p.add_run(dish.get('name', 'Plato')).bold = True
             p.add_run(f"\t{dish.get('price', '')}€")
             if dish.get('description'):
