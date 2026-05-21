@@ -344,7 +344,8 @@ elif app_mode == "📄 Extractor de Texto Universal":
     st.title("Extractor de Texto Plano 📄➡️📝")
     st.caption("Sube cualquier archivo (Imagen, PDF nativo/escaneado, Documento o TXT) para volcar todo su texto de forma literal a un Word limpio.")
     
-    if "universal_bytes" not in st.session_state: st.session_state.universal_bytes = None
+    if "universal_bytes" not in st.session_state: 
+        st.session_state.universal_bytes = None
     
     # Acepta absolutamente cualquier extensión común
     up_any = st.file_uploader("Sube tu archivo (Imagen, PDF, TXT, DOCX)", type=["pdf", "jpg", "jpeg", "png", "txt", "docx"])
@@ -361,4 +362,52 @@ elif app_mode == "📄 Extractor de Texto Universal":
                     
                 # Caso 2: Documentos Word (.docx)
                 elif ext == "docx":
-       
+                    texto_extraido = extract_text_from_docx(up_any)
+                    
+                # Caso 3: PDFs nativos o escaneados
+                elif ext == "pdf":
+                    texto_nativo = extract_text_from_pdf(up_any)
+                    # Si tiene texto digitalizable, lo usamos. Si viene vacío (es escaneado), tiramos de la IA
+                    if texto_nativo and len(texto_nativo.strip()) > 50:
+                        texto_extraido = texto_nativo
+                    else:
+                        model = genai.GenerativeModel(MODELO_A_USAR)
+                        response = model.generate_content(f"Transcribe literalmente todo el texto que encuentres en este documento adjunto, palabra por palabra, sin añadir resúmenes ni explicaciones:\n\n{texto_nativo}")
+                        texto_extraido = response.text
+                        
+                # Caso 4: Imágenes de cualquier tipo (.jpg, .png, etc)
+                elif ext in ["jpg", "jpeg", "png"]:
+                    model = genai.GenerativeModel(MODELO_A_USAR)
+                    imagen = Image.open(up_any)
+                    response = model.generate_content(["Transcribe literalmente de arriba a abajo todo el texto que veas en esta imagen, de forma exacta, palabra por palabra. No inventes nada ni estructures en JSON, solo texto plano legible.", imagen])
+                    texto_extraido = response.text
+                
+                # Guardamos el resultado crudo en un documento Word respetando la plantilla de Eider
+                if texto_extraido:
+                    doc_out = Document(PLANTILLA_PATH)
+                    for section in doc_out.sections: 
+                        section.bottom_margin = MARGEN_INFERIOR_FORZADO
+                    
+                    # Añadir título genérico
+                    p_t = doc_out.add_paragraph()
+                    p_t.add_run(f"Texto Extraído de: {up_any.name}").bold = True
+                    p_t.paragraph_format.space_after = Pt(12)
+                    
+                    # Volcar el contenido por párrafos para evitar bugs de formato
+                    for linea in texto_extraido.split('\n'):
+                        if linea.strip():
+                            p_linea = doc_out.add_paragraph()
+                            release_paragraph_constraints(p_linea, SANGRIA_CATEGORIA)
+                            p_linea.add_run(linea)
+                    
+                    buffer_universal = BytesIO()
+                    doc_out.save(buffer_universal)
+                    buffer_universal.seek(0)
+                    st.session_state.universal_bytes = buffer_universal.getvalue()
+                    st.success("✅ ¡Texto extraído correctamente!")
+                else:
+                    st.error("No se pudo extraer texto del archivo.")
+                    
+        if st.session_state.universal_bytes:
+            nombre_descarga = f"Texto_Extraido_{up_any.name.split('.')[0]}.docx"
+            st.download_button("⬇️ Descargar Word con Texto Literal", st.session_state.universal_bytes, nombre_descarga)
