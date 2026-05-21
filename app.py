@@ -13,7 +13,7 @@ from pypdf import PdfReader
 st.set_page_config(page_title="Sistema Integral - Serval TECH", layout="wide")
 
 # --- 1. CONFIGURACIÓN ---
-MODELO_A_USAR = "gemini-2.5-flash" 
+MODELO_A_USAR = "gemini-2.5-flash"  # Corregido a la versión 2.5 funcional
 
 SANGRIA_CATEGORIA = Cm(0.8)  
 SANGRIA_PLATOS = Cm(0.8)     
@@ -217,6 +217,7 @@ def create_word(data):
         p_cat.paragraph_format.space_before = Pt(6) 
         for dish in category["dishes"]:
             p = doc.add_paragraph(); release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
+            # 🛠️ AJUSTE DE MARGEN PEDIDO POR EIDER: De Cm(14.5) bajado a Cm(13.5) para dar más espacio a los iconos
             p.paragraph_format.tab_stops.add_tab_stop(Cm(13.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             p.add_run(dish.get('name', 'Plato')).bold = True
             p.add_run(f"\t{dish.get('price', '')}€\t")
@@ -253,6 +254,7 @@ def create_clean_word(data):
         p_cat.paragraph_format.space_before = Pt(6)
         for dish in category["dishes"]:
             p = doc.add_paragraph(); release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
+            # 🛠️ AJUSTE DE MARGEN PEDIDO POR EIDER: De Cm(16.0) bajado a Cm(15.0) 
             p.paragraph_format.tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             p.add_run(dish.get('name', 'Plato')).bold = True
             p.add_run(f"\t{dish.get('price', '')}€")
@@ -271,7 +273,7 @@ def create_clean_word(data):
 # MENÚ LATERAL Y NAVEGACIÓN
 # ==========================================
 st.sidebar.title("Menú Principal 🚀")
-app_mode = st.sidebar.radio("Navegación", ["📝 Generador de Cartas", "📡 Radar de Clientes", "📄 Convertidor PDF a Word"])
+app_mode = st.sidebar.radio("Navegación", ["📝 Generador de Cartas", "📡 Radar de Clientes", "📄 Extractor de Texto Universal"])
 
 # ==========================================
 # MÓDULO 1: GENERADOR DE CARTAS
@@ -282,7 +284,7 @@ if app_mode == "📝 Generador de Cartas":
     modo_param = "Extremo" if "Extremo" in modo_seguridad else "Normal"
 
     if "menu_data" not in st.session_state: st.session_state.menu_data = None
-    uploaded_file = st.file_uploader("Sube el Menú", type=["jpg", "png", "pdf", "docx"])
+    uploaded_file = st.file_uploader("Sube el Menú", type=["jpg", "png", "jpeg", "pdf", "docx"])
 
     if uploaded_file and st.button("1. ANALIZAR MENÚ"):
         ft = uploaded_file.name.split('.')[-1].lower()
@@ -336,22 +338,27 @@ elif app_mode == "📡 Radar de Clientes":
             st.markdown(f"### 🌐 [Búsqueda General Carta](https://www.google.com/search?q={q}+carta+menu)")
 
 # ==========================================
-# MÓDULO 3: CONVERTIDOR PDF A WORD
+# MÓDULO 3: EXTRACTOR DE TEXTO UNIVERSAL (Soporta JPG, PNG, PDF, TXT)
 # ==========================================
-elif app_mode == "📄 Convertidor PDF a Word":
-    st.title("Convertidor Directo 📄➡️📝")
-    import tempfile
-    from pdf2docx import Converter
-    if "w_bytes" not in st.session_state: st.session_state.w_bytes = None
-    up_pdf = st.file_uploader("Sube PDF", type=["pdf"])
-    if up_pdf:
-        if st.button("🔄 Convertir"):
-            with st.spinner("Convirtiendo..."):
-                t_in = os.path.join(tempfile.gettempdir(), "in.pdf")
-                t_out = os.path.join(tempfile.gettempdir(), "out.docx")
-                with open(t_in, "wb") as f: f.write(up_pdf.getvalue())
-                cv = Converter(t_in); cv.convert(t_out); cv.close()
-                with open(t_out, "rb") as f: st.session_state.w_bytes = f.read()
-        if st.session_state.w_bytes:
-            st.download_button("⬇️ Descargar Word", st.session_state.w_bytes, f"{up_pdf.name.split('.')[0]}.docx")
-            
+elif app_mode == "📄 Extractor de Texto Universal":
+    st.title("Extractor de Texto Plano 📄➡️📝")
+    st.caption("Sube cualquier archivo (Imagen, PDF nativo/escaneado, Documento o TXT) para volcar todo su texto de forma literal a un Word limpio.")
+    
+    if "universal_bytes" not in st.session_state: st.session_state.universal_bytes = None
+    
+    # Acepta absolutamente cualquier extensión común
+    up_any = st.file_uploader("Sube tu archivo (Imagen, PDF, TXT, DOCX)", type=["pdf", "jpg", "jpeg", "png", "txt", "docx"])
+    
+    if up_any:
+        if st.button("🔄 Extraer Todo el Texto"):
+            with st.spinner("Leyendo y procesando el archivo con Gemini..."):
+                ext = up_any.name.split('.')[-1].lower()
+                texto_extraido = ""
+                
+                # Caso 1: Archivos de Texto Puro (.txt)
+                if ext == "txt":
+                    texto_extraido = up_any.getvalue().decode("utf-8")
+                    
+                # Caso 2: Documentos Word (.docx)
+                elif ext == "docx":
+       
