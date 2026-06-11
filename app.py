@@ -22,7 +22,7 @@ from docx.oxml.ns import qn
 # ======================================================
 # CONFIGURACIÓN GENERAL
 # ======================================================
-st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v5", layout="wide")
+st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v6", layout="wide")
 
 MODELO_A_USAR = "gemini-2.5-flash"
 
@@ -1504,6 +1504,435 @@ def render_visual_downloads(data):
     with st.expander("👀 Vista previa", expanded=True):
         st.components.v1.html(html_code, height=840, scrolling=True)
 
+
+
+# ======================================================
+# V6 - FAMILIA PREMIUM CON SKINS VISUALES DISTINTAS
+# ======================================================
+PREMIUM_V6_THEMES = {
+    "cafe": {
+        "name": "Premium Café Editorial",
+        "label": "Carta premium café · alérgenos",
+        "body_bg": "#eadbc5",
+        "page_bg": "linear-gradient(145deg,#fff9ed 0%,#f1dfc4 100%)",
+        "page_border": "#2a2119",
+        "inner_border": "#c49a59",
+        "panel_bg": "rgba(255,255,255,.76)",
+        "panel_bg_alt": "#fff7e8",
+        "panel_border": "#dcc299",
+        "text": "#211a14",
+        "muted": "#5d5146",
+        "accent": "#86531f",
+        "accent_2": "#c49a59",
+        "title": "#2a2119",
+        "header_bg": "transparent",
+        "shadow": "0 8px 18px rgba(47,32,15,.08)",
+        "decor": "radial-gradient(circle at 92% 6%, rgba(196,154,89,.16), transparent 20%), radial-gradient(circle at 8% 94%, rgba(123,76,32,.08), transparent 22%)",
+        "guide_theme": "light",
+    },
+    "noir": {
+        "name": "Premium Noir",
+        "label": "Carta premium noir · alérgenos",
+        "body_bg": "#090807",
+        "page_bg": "linear-gradient(145deg,#171411 0%,#0d0b0a 55%,#050505 100%)",
+        "page_border": "#d2aa5c",
+        "inner_border": "rgba(255,255,255,.16)",
+        "panel_bg": "rgba(255,255,255,.055)",
+        "panel_bg_alt": "rgba(210,170,92,.08)",
+        "panel_border": "rgba(210,170,92,.42)",
+        "text": "#f7efd9",
+        "muted": "#cdbf9d",
+        "accent": "#d2aa5c",
+        "accent_2": "#8e6b32",
+        "title": "#fff8e6",
+        "header_bg": "rgba(0,0,0,.16)",
+        "shadow": "0 10px 22px rgba(0,0,0,.28)",
+        "decor": "radial-gradient(circle at 15% 10%, rgba(255,255,255,.08), transparent 23%), radial-gradient(circle at 80% 8%, rgba(210,170,92,.18), transparent 20%), repeating-linear-gradient(0deg, rgba(255,255,255,.018), rgba(255,255,255,.018) 1px, transparent 1px, transparent 4px)",
+        "guide_theme": "dark",
+    },
+    "oliva": {
+        "name": "Premium Oliva Natural",
+        "label": "Carta premium oliva · alérgenos",
+        "body_bg": "#dfe5d5",
+        "page_bg": "linear-gradient(145deg,#fbfbef 0%,#e4ead7 100%)",
+        "page_border": "#3f4a33",
+        "inner_border": "#9aac7c",
+        "panel_bg": "rgba(255,255,250,.78)",
+        "panel_bg_alt": "#f3f5e9",
+        "panel_border": "#c8d2b3",
+        "text": "#202416",
+        "muted": "#58604a",
+        "accent": "#566b35",
+        "accent_2": "#9aac7c",
+        "title": "#2b351f",
+        "header_bg": "rgba(86,107,53,.06)",
+        "shadow": "0 8px 18px rgba(63,74,51,.10)",
+        "decor": "radial-gradient(circle at 90% 8%, rgba(86,107,53,.13), transparent 21%), radial-gradient(circle at 4% 86%, rgba(154,172,124,.18), transparent 24%)",
+        "guide_theme": "light",
+    },
+    "burdeos": {
+        "name": "Premium Burdeos Gastrobar",
+        "label": "Carta premium burdeos · alérgenos",
+        "body_bg": "#2b0f15",
+        "page_bg": "linear-gradient(150deg,#fff7ec 0%,#f4dccb 64%,#ead0bd 100%)",
+        "page_border": "#5a1824",
+        "inner_border": "#b98455",
+        "panel_bg": "rgba(255,250,244,.84)",
+        "panel_bg_alt": "#fff1e4",
+        "panel_border": "#d9b896",
+        "text": "#261516",
+        "muted": "#654d45",
+        "accent": "#7b1e2e",
+        "accent_2": "#b98455",
+        "title": "#4b121d",
+        "header_bg": "linear-gradient(90deg, rgba(123,30,46,.12), transparent)",
+        "shadow": "0 8px 20px rgba(75,18,29,.12)",
+        "decor": "radial-gradient(circle at 88% 10%, rgba(123,30,46,.12), transparent 22%), radial-gradient(circle at 9% 88%, rgba(185,132,85,.16), transparent 24%)",
+        "guide_theme": "light",
+    },
+    "azul": {
+        "name": "Premium Azul Noche",
+        "label": "Carta premium azul noche · alérgenos",
+        "body_bg": "#071521",
+        "page_bg": "linear-gradient(145deg,#0f2a3a 0%,#0a1a26 58%,#06101a 100%)",
+        "page_border": "#d8c08a",
+        "inner_border": "rgba(216,192,138,.44)",
+        "panel_bg": "rgba(255,255,255,.075)",
+        "panel_bg_alt": "rgba(216,192,138,.08)",
+        "panel_border": "rgba(216,192,138,.38)",
+        "text": "#f3efe2",
+        "muted": "#c4d0d5",
+        "accent": "#d8c08a",
+        "accent_2": "#7fb0c8",
+        "title": "#fff7dd",
+        "header_bg": "rgba(255,255,255,.035)",
+        "shadow": "0 10px 22px rgba(0,0,0,.30)",
+        "decor": "radial-gradient(circle at 86% 8%, rgba(127,176,200,.20), transparent 22%), radial-gradient(circle at 10% 92%, rgba(216,192,138,.14), transparent 26%)",
+        "guide_theme": "dark",
+    },
+}
+
+
+def premium_v6_theme(theme_key="cafe", custom=None):
+    theme = dict(PREMIUM_V6_THEMES.get(theme_key, PREMIUM_V6_THEMES["cafe"]))
+    if custom:
+        theme.update({k: v for k, v in custom.items() if v})
+        theme["name"] = custom.get("name", "Premium Personalizado")
+        theme["label"] = custom.get("label", "Carta premium personalizada · alérgenos")
+        theme.setdefault("guide_theme", "light")
+    return theme
+
+
+def allergen_guide_panel_v6(theme, notice=""):
+    dark = theme.get("guide_theme") == "dark"
+    bg = "linear-gradient(135deg, rgba(0,0,0,.22), rgba(255,255,255,.045))" if dark else f"linear-gradient(135deg,{theme['panel_bg_alt']},rgba(255,255,255,.72))"
+    title_color = theme["accent"]
+    text_color = theme["text"]
+    muted = theme["muted"]
+    border = theme["panel_border"]
+    item_bg = "rgba(255,255,255,.06)" if dark else "rgba(255,255,255,.68)"
+    icon_filter = "drop-shadow(0 1px 2px rgba(0,0,0,.65))" if dark else "drop-shadow(0 1px 1px rgba(80,50,20,.18))"
+    items = []
+    for allergen in ALLERGEN_ORDER:
+        icon = icon_img_html_inline(allergen, f"width:8mm; height:8mm; object-fit:contain; filter:{icon_filter};")
+        items.append(
+            f'<div class="guide-item">{icon}<span>{html_escape(ALLERGEN_LABELS[allergen])}</span></div>'
+        )
+    return f'''
+    <section class="v6-guide">
+        <h3>Guía de alérgenos</h3>
+        <div class="v6-guide-grid">{"".join(items)}</div>
+        <div class="v6-notice">{notice}</div>
+    </section>
+    <style>
+    .v6-guide {{ margin-top:5.5mm; padding:4.8mm; border:1px solid {border}; border-radius:12px; background:{bg}; box-shadow:{theme['shadow']}; }}
+    .v6-guide h3 {{ margin:0 0 3.4mm; text-align:center; color:{title_color}; font-family:Georgia,'Times New Roman',serif; font-size:15px; letter-spacing:2.2px; text-transform:uppercase; }}
+    .v6-guide-grid {{ display:grid; grid-template-columns:repeat(7,1fr); gap:2mm 2.4mm; align-items:start; }}
+    .guide-item {{ min-height:15mm; padding:1.5mm .8mm; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:1mm; color:{text_color}; text-align:center; font-size:7.1px; line-height:1.08; border:1px solid {border}; border-radius:8px; background:{item_bg}; }}
+    .v6-notice {{ margin-top:3.1mm; color:{muted}; font-size:6.9px; line-height:1.3; text-align:center; }}
+    </style>
+    '''
+
+
+def _premium_v6_header(data, theme, logo_src=None, qr_src=None, label=None, qr_large=False):
+    label = label or theme.get("label", "Carta premium · alérgenos")
+    brand = brand_html(data, logo_src)
+    qr = qr_html(qr_src)
+    if qr_large and not qr:
+        qr = '<div class="qr-wrap qr-empty"><div class="qr-placeholder">QR</div><span>Añade QR o URL</span></div>'
+    return f'''
+    <header class="header">
+        <div class="head-main"><div class="label">{html_escape(label)}</div><div class="brandline">{brand}</div></div>
+        {qr}
+    </header>
+    '''
+
+
+def _build_cards_sections(data, variant="cards"):
+    sections = []
+    for cat in data.get("categories", []):
+        dishes = []
+        for dish in cat.get("dishes", []):
+            desc = html_escape(dish.get("description", ""))
+            desc_html = f'<p class="dish-desc">{desc}</p>' if desc else ""
+            icons = allergen_icons_html(dish.get("allergens", []), small=(variant != "cards"))
+            price = html_escape(format_price(dish.get("price", "")))
+            dishes.append(f'''
+            <article class="dish {variant}">
+                <div class="dish-line"><h3>{html_escape(dish.get('name','Plato'))}</h3><strong>{price}</strong></div>
+                {desc_html}
+                <div class="icon-line">{icons}</div>
+            </article>
+            ''')
+        sections.append(f'''
+        <section class="category {variant}">
+            <h2>{html_escape(cat.get('name','Categoría'))}</h2>
+            {''.join(dishes)}
+        </section>
+        ''')
+    return "".join(sections)
+
+
+def _build_table_sections(data):
+    blocks = []
+    for cat in data.get("categories", []):
+        rows = []
+        for dish in cat.get("dishes", []):
+            desc = html_escape(dish.get("description", ""))
+            desc_html = f'<div class="table-desc">{desc}</div>' if desc else ""
+            icons = allergen_icons_html(dish.get("allergens", []), small=True)
+            price = html_escape(format_price(dish.get("price", "")))
+            rows.append(f'''
+            <div class="table-row">
+                <div class="table-product"><strong>{html_escape(dish.get('name','Plato'))}</strong>{desc_html}</div>
+                <div class="table-icons">{icons}</div>
+                <div class="table-price">{price}</div>
+            </div>
+            ''')
+        blocks.append(f'''
+        <section class="table-category">
+            <h2>{html_escape(cat.get('name','Categoría'))}</h2>
+            {''.join(rows)}
+        </section>
+        ''')
+    return "".join(blocks)
+
+
+def create_premium_v6_html(data, logo_src=None, qr_src=None, theme_key="cafe", variant="cards", custom_theme=None):
+    theme = premium_v6_theme(theme_key, custom=custom_theme)
+    notice = html_escape(build_notice(data))
+    extra = html_escape(data.get("texto_extra", ""))
+    extra_html = f'<div class="extra-box"><strong>Notas de carta:</strong> {extra}</div>' if extra else ""
+
+    if variant == "table":
+        content = _build_table_sections(data)
+        label = theme.get("label", "Carta premium técnica · alérgenos")
+    else:
+        content = _build_cards_sections(data, variant=variant)
+        label = theme.get("label", "Carta premium · alérgenos")
+
+    intro = ""
+    qr_large = False
+    if variant == "mesa":
+        qr_large = True
+        intro = f'''
+        <section class="intro-box">
+            <div><strong>Consulta rápida en mesa o barra.</strong><br>Los iconos junto a cada producto indican alérgenos detectados o de revisión recomendada.</div>
+            <div class="intro-badge">2 columnas · QR</div>
+        </section>
+        '''
+
+    page_classes = f"page variant-{variant} theme-{theme_key}"
+    return f'''<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>{html_escape(theme['name'])} - {html_escape(data.get('restaurant_name','Menú'))}</title>
+<style>
+@page {{ size:A4 portrait; margin:8mm; }}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; background:{theme['body_bg']}; color:{theme['text']}; font-family:'Trebuchet MS', Verdana, Arial, sans-serif; }}
+.page {{ min-height:281mm; padding:9.5mm; position:relative; overflow:hidden; background:{theme['decor']}, {theme['page_bg']}; border:1.25mm solid {theme['page_border']}; box-shadow:inset 0 0 0 .55mm {theme['inner_border']}; }}
+.header {{ position:relative; z-index:1; display:grid; grid-template-columns:1fr auto; gap:8mm; align-items:center; margin-bottom:7mm; padding:4mm 0 5mm; border-bottom:1px solid {theme['accent_2']}; background:{theme['header_bg']}; }}
+.head-main {{ min-width:0; }}
+.label {{ color:{theme['accent']}; text-transform:uppercase; letter-spacing:3px; font-size:9px; font-weight:900; margin-bottom:1.8mm; }}
+.brandline {{ display:flex; align-items:center; gap:5mm; min-width:0; }}
+.brand-wrap {{ display:flex; align-items:center; gap:4mm; }}
+.restaurant-logo {{ max-width:34mm; max-height:22mm; object-fit:contain; }}
+.brand-name.mini {{ color:{theme['muted']}; font-size:8.8px; text-transform:uppercase; letter-spacing:1px; font-weight:900; }}
+.brand-wordmark {{ font-family:Georgia,'Times New Roman',serif; font-size:28px; line-height:1; color:{theme['title']}; font-weight:900; letter-spacing:.5px; text-transform:uppercase; }}
+.qr-wrap {{ width:30mm; text-align:center; color:{theme['muted']}; font-size:7.3px; text-transform:uppercase; letter-spacing:.55px; }}
+.qr-img {{ width:27mm; height:27mm; object-fit:contain; background:#fff; padding:1.1mm; border:1px solid {theme['accent_2']}; border-radius:4px; }}
+.qr-placeholder {{ width:27mm; height:27mm; display:flex; align-items:center; justify-content:center; border:1px dashed {theme['accent_2']}; color:{theme['accent']}; font-size:14px; font-weight:900; margin:0 auto 1mm; background:rgba(255,255,255,.35); }}
+.intro-box {{ position:relative; z-index:1; margin:0 0 5mm; display:grid; grid-template-columns:1fr auto; gap:4mm; align-items:center; padding:3mm 4mm; border:1px solid {theme['panel_border']}; border-left:4px solid {theme['accent']}; border-radius:10px; background:{theme['panel_bg_alt']}; color:{theme['muted']}; font-size:9px; line-height:1.32; }}
+.intro-badge {{ color:{theme['accent']}; font-weight:900; text-transform:uppercase; letter-spacing:.8px; white-space:nowrap; }}
+.layout {{ position:relative; z-index:1; column-count:2; column-gap:7mm; }}
+.category {{ break-inside:avoid; margin-bottom:5mm; padding:4mm; border:1px solid {theme['panel_border']}; border-radius:10px; background:{theme['panel_bg']}; box-shadow:{theme['shadow']}; }}
+.category h2 {{ margin:0 0 3mm; padding-bottom:2mm; color:{theme['accent']}; border-bottom:1px solid {theme['accent_2']}; font-family:Georgia,'Times New Roman',serif; font-size:20px; line-height:1; }}
+.dish {{ padding:1.9mm 0; border-bottom:1px solid {theme['panel_border']}; }}
+.dish:last-child {{ border-bottom:none; }}
+.dish-line {{ display:flex; justify-content:space-between; gap:4mm; align-items:baseline; }}
+.dish-line h3 {{ margin:0; color:{theme['text']}; font-size:11.4px; text-transform:uppercase; letter-spacing:.18px; }}
+.dish-line strong {{ color:{theme['accent']}; font-size:11.2px; white-space:nowrap; }}
+.dish-desc {{ margin:1mm 0 1.1mm; color:{theme['muted']}; font-size:8.8px; line-height:1.28; }}
+.icon-line {{ display:flex; flex-wrap:wrap; gap:1mm; min-height:4mm; align-items:center; }}
+.allergen-icon {{ width:4.9mm; height:4.9mm; object-fit:contain; }}
+.allergen-icon.small {{ width:4mm; height:4mm; object-fit:contain; vertical-align:middle; }}
+.missing-icon {{ display:inline-flex; align-items:center; justify-content:center; width:4.5mm; height:4.5mm; border:1px solid {theme['accent']}; color:{theme['accent']}; font-size:4.4px; font-weight:900; border-radius:50%; }}
+.extra-box {{ position:relative; z-index:1; margin-bottom:3mm; padding:2.7mm 3mm; border:1px solid {theme['panel_border']}; border-radius:9px; background:{theme['panel_bg_alt']}; color:{theme['muted']}; font-size:8.2px; text-align:center; }}
+.footer {{ position:relative; z-index:1; margin-top:5.5mm; }}
+.category.compact {{ padding:3.5mm; border-radius:7px; }}
+.category.compact h2 {{ font-size:18px; margin-bottom:2.5mm; }}
+.dish.compact {{ padding:1.3mm 0; }}
+.dish.compact .dish-line h3 {{ font-size:9.4px; }}
+.dish.compact .dish-line strong {{ font-size:9.5px; }}
+.dish.compact .icon-line {{ margin-top:.6mm; }}
+.dish.compact .dish-desc {{ font-size:7.6px; }}
+.category.soft {{ border-radius:16px; padding:4.5mm; }}
+.category.soft h2 {{ border-bottom:none; padding-bottom:0; }}
+.category.soft h2:after {{ content:""; display:block; width:26mm; height:1px; background:{theme['accent_2']}; margin:2mm 0 0; }}
+.category.mesa {{ border-radius:11px; padding:3.8mm; }}
+.dish.mesa {{ padding:1.55mm 0; }}
+.dish.mesa .dish-line h3 {{ font-size:9.6px; }}
+.dish.mesa .dish-line strong {{ font-size:9.5px; }}
+.dish.mesa .dish-desc {{ font-size:7.8px; }}
+.table-category {{ break-inside:avoid; margin-bottom:4.7mm; border:1px solid {theme['panel_border']}; border-radius:10px; overflow:hidden; background:{theme['panel_bg']}; box-shadow:{theme['shadow']}; }}
+.table-category h2 {{ margin:0; padding:2.6mm 3.2mm; color:{theme['panel_bg_alt']}; background:{theme['accent']}; font-family:Georgia,'Times New Roman',serif; font-size:17px; line-height:1; }}
+.table-row {{ display:grid; grid-template-columns:1fr auto 13mm; gap:2.2mm; align-items:center; padding:1.75mm 2.8mm; border-bottom:1px solid {theme['panel_border']}; }}
+.table-row:last-child {{ border-bottom:none; }}
+.table-product strong {{ display:block; color:{theme['text']}; font-size:9.2px; text-transform:uppercase; letter-spacing:.12px; }}
+.table-desc {{ color:{theme['muted']}; font-size:7.5px; line-height:1.2; margin-top:.5mm; }}
+.table-icons {{ display:flex; flex-wrap:wrap; gap:.7mm; justify-content:flex-end; min-width:12mm; }}
+.table-price {{ text-align:right; color:{theme['accent']}; font-size:9px; font-weight:900; }}
+</style>
+</head>
+<body>
+<div class="{page_classes}">
+{_premium_v6_header(data, theme, logo_src, qr_src, label=label, qr_large=qr_large)}
+{intro}
+<main class="layout">{content}</main>
+<footer class="footer">{extra_html}{allergen_guide_panel_v6(theme, notice)}</footer>
+</div>
+</body>
+</html>'''
+
+
+def render_visual_downloads(data):
+    st.subheader("🎨 Plantillas premium en dos columnas · v6")
+    st.caption(
+        "Todas mantienen 2 columnas, iconos reales junto a los platos y la leyenda abajo. "
+        "La diferencia está en color, fondo, contraste y estructura visual."
+    )
+
+    colA, colB, colC = st.columns([1.15, 1.15, 1])
+    with colA:
+        logo_file = st.file_uploader("Subir logo del restaurante", type=["png", "jpg", "jpeg", "webp"], key="logo_visual_v6")
+    with colB:
+        qr_file = st.file_uploader("Subir QR del menú", type=["png", "jpg", "jpeg", "webp"], key="qr_visual_v6")
+    with colC:
+        qr_url = st.text_input("O generar QR desde URL", placeholder="https://...", key="qr_url_v6")
+
+    logo_src = uploaded_image_to_data_uri(logo_file, max_side=900) if logo_file else None
+    qr_src = uploaded_image_to_data_uri(qr_file, max_side=700) if qr_file else generate_qr_data_uri(qr_url)
+
+    template = st.selectbox("Elige plantilla final", [
+        "Premium Café Editorial · 2 columnas",
+        "Premium Noir · 2 columnas",
+        "Premium Oliva Natural · 2 columnas",
+        "Premium Burdeos Gastrobar · 2 columnas",
+        "Premium Azul Noche Mesa QR · 2 columnas",
+        "Premium Personalizable · 2 columnas"
+    ], key="template_v6")
+
+    mapping = {
+        "Premium Café Editorial · 2 columnas": ("cafe", "cards", "Carta_Premium_Cafe_Editorial_"),
+        "Premium Noir · 2 columnas": ("noir", "cards", "Carta_Premium_Noir_"),
+        "Premium Oliva Natural · 2 columnas": ("oliva", "soft", "Carta_Premium_Oliva_"),
+        "Premium Burdeos Gastrobar · 2 columnas": ("burdeos", "compact", "Carta_Premium_Burdeos_"),
+        "Premium Azul Noche Mesa QR · 2 columnas": ("azul", "mesa", "Carta_Premium_Azul_Noche_"),
+    }
+
+    custom_theme = None
+    if template == "Premium Personalizable · 2 columnas":
+        st.markdown("#### Personalización visual")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            body_bg = st.color_picker("Fondo exterior", "#eadbc5", key="v6_body_bg")
+            page_color = st.color_picker("Fondo carta", "#fff9ed", key="v6_page_color")
+            panel_bg = st.color_picker("Fondo bloques", "#ffffff", key="v6_panel_bg")
+        with c2:
+            text = st.color_picker("Texto", "#211a14", key="v6_text")
+            muted = st.color_picker("Texto secundario", "#5d5146", key="v6_muted")
+            accent = st.color_picker("Color principal", "#86531f", key="v6_accent")
+        with c3:
+            accent_2 = st.color_picker("Líneas/detalles", "#c49a59", key="v6_accent2")
+            border = st.color_picker("Borde carta", "#2a2119", key="v6_border")
+            variant = st.radio("Estructura", ["cards", "soft", "compact", "mesa", "table"], format_func=lambda x: {"cards":"Editorial", "soft":"Suave", "compact":"Compacta", "mesa":"Mesa QR", "table":"Técnica"}[x], horizontal=True, key="v6_variant")
+        custom_theme = {
+            "name": "Premium Personalizado",
+            "label": "Carta premium personalizada · alérgenos",
+            "body_bg": body_bg,
+            "page_bg": f"linear-gradient(145deg,{page_color} 0%,{page_color} 100%)",
+            "page_border": border,
+            "inner_border": accent_2,
+            "panel_bg": f"{panel_bg}d9",
+            "panel_bg_alt": panel_bg,
+            "panel_border": accent_2,
+            "text": text,
+            "muted": muted,
+            "accent": accent,
+            "accent_2": accent_2,
+            "title": text,
+            "header_bg": "transparent",
+            "shadow": "0 8px 18px rgba(0,0,0,.08)",
+            "decor": "radial-gradient(circle at 90% 8%, rgba(0,0,0,.035), transparent 20%)",
+            "guide_theme": "light",
+        }
+        theme_key = "cafe"
+        prefix = "Carta_Premium_Personalizada_"
+    else:
+        theme_key, variant, prefix = mapping[template]
+
+    html_code = create_premium_v6_html(
+        data,
+        logo_src=logo_src,
+        qr_src=qr_src,
+        theme_key=theme_key,
+        variant=variant,
+        custom_theme=custom_theme,
+    )
+    base_name = prefix + slugify_filename(data.get("restaurant_name", "menu"))
+
+    st.markdown("#### Descargas")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.download_button(
+            "⬇️ HTML imprimible",
+            html_code.encode("utf-8"),
+            file_name=f"{base_name}.html",
+            mime="text/html"
+        )
+    with c2:
+        pdf_bytes = html_to_pdf_bytes(html_code)
+        if pdf_bytes:
+            st.download_button("⬇️ PDF visual", pdf_bytes, file_name=f"{base_name}.pdf", mime="application/pdf")
+        else:
+            st.info("PDF directo no activo. Abre el HTML y usa Imprimir → Guardar como PDF, o instala WeasyPrint.")
+    with c3:
+        st.download_button(
+            "⬇️ Word editable",
+            create_premium_editable_word(data),
+            file_name=f"{base_name}_editable.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+    st.info(
+        "La modificación manual real se hace con el Word editable. El HTML/PDF mantiene mejor el diseño visual; "
+        "la opción Personalizable permite cambiar colores y estructura sin tocar código."
+    )
+
+    with st.expander("👀 Vista previa", expanded=True):
+        st.components.v1.html(html_code, height=840, scrolling=True)
 
 # ======================================================
 # APP
