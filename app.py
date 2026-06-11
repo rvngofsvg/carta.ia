@@ -14,11 +14,15 @@ from pypdf import PdfReader
 from docx import Document
 from docx.shared import Cm, Pt
 from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER, WD_LINE_SPACING
+from docx.enum.section import WD_SECTION
+from docx.enum.style import WD_STYLE_TYPE
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 # ======================================================
 # CONFIGURACIÓN GENERAL
 # ======================================================
-st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v4", layout="wide")
+st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v5", layout="wide")
 
 MODELO_A_USAR = "gemini-2.5-flash"
 
@@ -1060,6 +1064,322 @@ body {{ margin:0; background:#efe6d7; color:#211915; font-family:'Trebuchet MS',
 </div></body></html>"""
 
 
+
+def _premium_brand_header(data, logo_src=None, qr_src=None, label="Carta premium · alérgenos"):
+    return f"""
+    <header class="header">
+        <div><div class="label">{html_escape(label)}</div>{brand_html(data, logo_src)}</div>
+        {qr_html(qr_src)}
+    </header>
+    """
+
+
+def create_premium_compact_html(data, logo_src=None, qr_src=None):
+    # Plantilla premium similar a la favorita, más compacta para cartas largas. Siempre dos columnas.
+    notice = html_escape(build_notice(data))
+    blocks = []
+    for cat in data.get("categories", []):
+        rows = []
+        for dish in cat.get("dishes", []):
+            desc = html_escape(dish.get("description", ""))
+            desc_html = f'<div class="compact-desc">{desc}</div>' if desc else ""
+            icons = allergen_icons_html(dish.get("allergens", []), small=True)
+            price = html_escape(format_price(dish.get("price", "")))
+            rows.append(f"""
+            <div class="compact-row">
+                <div class="compact-main">
+                    <div class="compact-title"><span>{html_escape(dish.get('name','Plato'))}</span><span class="compact-icons">{icons}</span></div>
+                    {desc_html}
+                </div>
+                <div class="compact-price">{price}</div>
+            </div>
+            """)
+        blocks.append(f"""
+        <section class="compact-category">
+            <h2>{html_escape(cat.get('name','Categoría'))}</h2>
+            {''.join(rows)}
+        </section>
+        """)
+    extra = html_escape(data.get("texto_extra", ""))
+    extra_html = f'<div class="premium-note">{extra}</div>' if extra else ""
+    return f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Premium Compacta - {html_escape(data.get('restaurant_name','Menú'))}</title>
+<style>
+@page {{ size:A4 portrait; margin:8mm; }}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; background:#efe4d1; color:#1f1711; font-family:'Trebuchet MS', Arial, sans-serif; }}
+.page {{ min-height:281mm; padding:9mm; background:linear-gradient(150deg,#fffdf6 0%,#f3e4cb 100%); border:1.2mm solid #2a2119; box-shadow:inset 0 0 0 .55mm #c49a59; }}
+.header {{ display:grid; grid-template-columns:1fr auto; gap:7mm; align-items:center; margin-bottom:6mm; padding-bottom:4mm; border-bottom:1px solid #c49a59; }}
+.label {{ color:#9b6b35; text-transform:uppercase; letter-spacing:2.8px; font-size:9px; font-weight:900; margin-bottom:1.6mm; }}
+.brand-wrap {{ display:flex; align-items:center; gap:4mm; }}
+.restaurant-logo {{ max-width:31mm; max-height:20mm; object-fit:contain; }}
+.brand-name.mini {{ font-size:9px; color:#7b4c20; text-transform:uppercase; font-weight:900; letter-spacing:1px; }}
+.brand-wordmark {{ font-family:Georgia,'Times New Roman',serif; font-size:28px; color:#2a2119; font-weight:900; letter-spacing:.4px; text-transform:uppercase; }}
+.qr-wrap {{ width:28mm; text-align:center; color:#6c563e; font-size:7px; text-transform:uppercase; letter-spacing:.5px; }}
+.qr-img {{ width:26mm; height:26mm; object-fit:contain; background:#fff; padding:1.1mm; border:1px solid #c49a59; }}
+.layout {{ column-count:2; column-gap:6.5mm; }}
+.compact-category {{ break-inside:avoid; background:rgba(255,255,255,.76); border:1px solid #dcc299; border-radius:7px; padding:3.6mm; margin-bottom:4.2mm; box-shadow:0 5px 13px rgba(47,32,15,.06); }}
+.compact-category h2 {{ margin:0 0 2.6mm; padding-bottom:1.8mm; border-bottom:1px solid #d7bb8d; color:#86531f; font-family:Georgia,'Times New Roman',serif; font-size:18px; line-height:1; }}
+.compact-row {{ display:flex; gap:3mm; align-items:flex-start; padding:1.35mm 0; border-bottom:1px dotted rgba(134,83,31,.18); }}
+.compact-row:last-child {{ border-bottom:none; }}
+.compact-main {{ flex:1; min-width:0; }}
+.compact-title {{ display:flex; align-items:center; flex-wrap:wrap; gap:1.2mm; color:#2d2118; font-size:9.6px; text-transform:uppercase; letter-spacing:.18px; font-weight:900; }}
+.compact-price {{ min-width:12mm; text-align:right; color:#86531f; font-size:9.5px; font-weight:900; }}
+.compact-desc {{ margin-top:.6mm; color:#625448; font-size:7.8px; line-height:1.23; }}
+.compact-icons {{ display:inline-flex; align-items:center; gap:.7mm; }}
+.allergen-icon.small {{ width:3.9mm; height:3.9mm; object-fit:contain; vertical-align:middle; }}
+.missing-icon {{ display:inline-flex; align-items:center; justify-content:center; width:3.9mm; height:3.9mm; border:1px solid #86531f; color:#86531f; font-size:4.5px; font-weight:900; border-radius:50%; }}
+.footer {{ margin-top:5mm; }}
+.premium-note {{ margin-bottom:3mm; padding:2.5mm; border:1px solid #dcc299; background:#fff7e8; color:#493b2d; font-size:8px; text-align:center; }}
+</style></head>
+<body><div class="page">
+{_premium_brand_header(data, logo_src, qr_src, 'Carta premium compacta · alérgenos')}
+<main class="layout">{''.join(blocks)}</main>
+<footer class="footer">{extra_html}{allergen_guide_panel_html(theme="light", notice=notice)}</footer>
+</div></body></html>"""
+
+
+def create_premium_clean_html(data, logo_src=None, qr_src=None):
+    # Plantilla premium clara/editorial, muy similar al template favorito pero con otra personalidad.
+    notice = html_escape(build_notice(data))
+    sections = []
+    for cat in data.get("categories", []):
+        dishes = []
+        for dish in cat.get("dishes", []):
+            desc = html_escape(dish.get("description", ""))
+            desc_html = f'<p>{desc}</p>' if desc else ""
+            icons = allergen_icons_html(dish.get("allergens", []), small=False)
+            price = html_escape(format_price(dish.get("price", "")))
+            dishes.append(f"""
+            <article class="clean-dish">
+                <div class="clean-line"><h3>{html_escape(dish.get('name','Plato'))}</h3><strong>{price}</strong></div>
+                {desc_html}
+                <div class="clean-icons">{icons}</div>
+            </article>
+            """)
+        sections.append(f"""
+        <section class="clean-category">
+            <h2>{html_escape(cat.get('name','Categoría'))}</h2>
+            {''.join(dishes)}
+        </section>
+        """)
+    extra = html_escape(data.get("texto_extra", ""))
+    extra_html = f'<div class="clean-extra"><strong>Notas:</strong> {extra}</div>' if extra else ""
+    return f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Premium Claro - {html_escape(data.get('restaurant_name','Menú'))}</title>
+<style>
+@page {{ size:A4 portrait; margin:8mm; }}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; background:#eadfcf; color:#201814; font-family:'Trebuchet MS', Arial, sans-serif; }}
+.page {{ min-height:281mm; padding:10mm; background:#fffaf2; border:1.1mm solid #b88b51; box-shadow:inset 0 0 0 .6mm rgba(42,33,25,.15); }}
+.header {{ display:grid; grid-template-columns:1fr auto; gap:8mm; align-items:center; margin-bottom:8mm; padding-bottom:5mm; border-bottom:1px solid #d5ba91; }}
+.label {{ color:#9b6b35; text-transform:uppercase; letter-spacing:3px; font-size:9px; font-weight:900; margin-bottom:2mm; }}
+.brand-wrap {{ display:flex; align-items:center; gap:4mm; }}
+.restaurant-logo {{ max-width:34mm; max-height:22mm; object-fit:contain; }}
+.brand-name.mini {{ font-size:9px; color:#7b4c20; text-transform:uppercase; letter-spacing:1px; font-weight:900; }}
+.brand-wordmark {{ font-family:Georgia,'Times New Roman',serif; font-size:29px; color:#2a2119; font-weight:900; text-transform:uppercase; letter-spacing:.45px; }}
+.qr-wrap {{ width:30mm; text-align:center; color:#7b6044; font-size:7.5px; text-transform:uppercase; letter-spacing:.6px; }}
+.qr-img {{ width:28mm; height:28mm; object-fit:contain; background:#fff; padding:1.2mm; border:1px solid #c49a59; }}
+.layout {{ column-count:2; column-gap:7.5mm; }}
+.clean-category {{ break-inside:avoid; margin-bottom:5.2mm; padding:4.4mm; border:1px solid #e0ceb2; border-radius:12px; background:linear-gradient(180deg,#ffffff 0%,#fff8ec 100%); box-shadow:0 8px 20px rgba(70,45,20,.06); }}
+.clean-category h2 {{ margin:0 0 3.2mm; padding-bottom:2mm; color:#784a1d; border-bottom:1px solid #dfc7a1; font-family:Georgia,'Times New Roman',serif; font-size:20px; line-height:1; }}
+.clean-dish {{ padding:2mm 0; border-bottom:1px solid rgba(120,74,29,.12); }}
+.clean-dish:last-child {{ border-bottom:none; }}
+.clean-line {{ display:flex; justify-content:space-between; gap:4mm; align-items:baseline; }}
+.clean-line h3 {{ margin:0; font-size:11.5px; color:#221b15; text-transform:uppercase; letter-spacing:.18px; }}
+.clean-line strong {{ color:#784a1d; font-size:11.2px; white-space:nowrap; }}
+.clean-dish p {{ margin:1mm 0 1.1mm; color:#625347; font-size:9px; line-height:1.28; }}
+.clean-icons {{ display:flex; flex-wrap:wrap; gap:1mm; min-height:4.3mm; align-items:center; }}
+.allergen-icon {{ width:4.8mm; height:4.8mm; object-fit:contain; }}
+.missing-icon {{ display:inline-flex; align-items:center; justify-content:center; width:4.8mm; height:4.8mm; border:1px solid #784a1d; color:#784a1d; font-size:4.8px; font-weight:900; border-radius:50%; }}
+.footer {{ margin-top:6mm; }}
+.clean-extra {{ margin-bottom:3mm; padding:2.8mm; border:1px solid #e0ceb2; background:#fff4e0; color:#493b2d; font-size:8.4px; text-align:center; }}
+</style></head>
+<body><div class="page">
+{_premium_brand_header(data, logo_src, qr_src, 'Carta premium clara · alérgenos')}
+<main class="layout">{''.join(sections)}</main>
+<footer class="footer">{extra_html}{allergen_guide_panel_html(theme="light", notice=notice)}</footer>
+</div></body></html>"""
+
+
+def create_premium_table_html(data, logo_src=None, qr_src=None):
+    # Plantilla premium técnica, pero con estética similar al premium. Siempre dos columnas.
+    notice = html_escape(build_notice(data))
+    blocks = []
+    for cat in data.get("categories", []):
+        rows = []
+        for dish in cat.get("dishes", []):
+            desc = html_escape(dish.get("description", ""))
+            desc_html = f'<div class="table-desc">{desc}</div>' if desc else ""
+            icons = allergen_icons_html(dish.get("allergens", []), small=True)
+            price = html_escape(format_price(dish.get("price", "")))
+            rows.append(f"""
+            <div class="table-row">
+                <div class="table-product"><strong>{html_escape(dish.get('name','Plato'))}</strong>{desc_html}</div>
+                <div class="table-icons">{icons}</div>
+                <div class="table-price">{price}</div>
+            </div>
+            """)
+        blocks.append(f"""
+        <section class="table-category">
+            <h2>{html_escape(cat.get('name','Categoría'))}</h2>
+            {''.join(rows)}
+        </section>
+        """)
+    return f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Premium Técnico - {html_escape(data.get('restaurant_name','Menú'))}</title>
+<style>
+@page {{ size:A4 portrait; margin:8mm; }}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; background:#eee1cf; color:#1f1813; font-family:'Trebuchet MS', Arial, sans-serif; }}
+.page {{ min-height:281mm; padding:9mm; background:linear-gradient(145deg,#fffaf1 0%,#f2e2c8 100%); border:1.2mm solid #2a2119; box-shadow:inset 0 0 0 .55mm #c49a59; }}
+.header {{ display:grid; grid-template-columns:1fr auto; gap:8mm; align-items:center; margin-bottom:7mm; padding-bottom:4mm; border-bottom:1px solid #c49a59; }}
+.label {{ color:#9b6b35; text-transform:uppercase; letter-spacing:2.8px; font-size:9px; font-weight:900; margin-bottom:1.8mm; }}
+.brand-wrap {{ display:flex; align-items:center; gap:4mm; }}
+.restaurant-logo {{ max-width:33mm; max-height:21mm; object-fit:contain; }}
+.brand-name.mini {{ font-size:9px; color:#7b4c20; text-transform:uppercase; letter-spacing:1px; font-weight:900; }}
+.brand-wordmark {{ font-family:Georgia,'Times New Roman',serif; font-size:27px; color:#2a2119; font-weight:900; text-transform:uppercase; letter-spacing:.45px; }}
+.qr-wrap {{ width:29mm; text-align:center; color:#6c563e; font-size:7px; text-transform:uppercase; letter-spacing:.6px; }}
+.qr-img {{ width:27mm; height:27mm; object-fit:contain; background:#fff; padding:1.1mm; border:1px solid #c49a59; }}
+.layout {{ column-count:2; column-gap:6.5mm; }}
+.table-category {{ break-inside:avoid; margin-bottom:4.8mm; border:1px solid #dcc299; border-radius:10px; overflow:hidden; background:#fffdfa; box-shadow:0 6px 16px rgba(70,45,20,.06); }}
+.table-category h2 {{ margin:0; padding:2.6mm 3.2mm; color:#fffaf0; background:#7b4c20; font-family:Georgia,'Times New Roman',serif; font-size:17px; line-height:1; }}
+.table-row {{ display:grid; grid-template-columns:1fr auto 13mm; gap:2.2mm; align-items:center; padding:1.8mm 2.8mm; border-bottom:1px solid #ead9bd; }}
+.table-row:last-child {{ border-bottom:none; }}
+.table-product strong {{ display:block; color:#241b14; font-size:9.4px; text-transform:uppercase; letter-spacing:.15px; }}
+.table-desc {{ color:#66564a; font-size:7.6px; line-height:1.2; margin-top:.5mm; }}
+.table-icons {{ display:flex; flex-wrap:wrap; gap:.7mm; justify-content:flex-end; min-width:12mm; }}
+.table-price {{ text-align:right; color:#7b4c20; font-size:9px; font-weight:900; }}
+.allergen-icon.small {{ width:3.9mm; height:3.9mm; object-fit:contain; }}
+.missing-icon {{ display:inline-flex; align-items:center; justify-content:center; width:3.9mm; height:3.9mm; border:1px solid #7b4c20; color:#7b4c20; font-size:4.4px; font-weight:900; border-radius:50%; }}
+.footer {{ margin-top:5mm; }}
+</style></head>
+<body><div class="page">
+{_premium_brand_header(data, logo_src, qr_src, 'Carta premium técnica · alérgenos')}
+<main class="layout">{''.join(blocks)}</main>
+<footer class="footer">{allergen_guide_panel_html(theme="light", notice=notice)}</footer>
+</div></body></html>"""
+
+
+def set_docx_two_columns(section):
+    sectPr = section._sectPr
+    cols = sectPr.xpath('./w:cols')
+    cols_el = cols[0] if cols else OxmlElement('w:cols')
+    if not cols:
+        sectPr.append(cols_el)
+    cols_el.set(qn('w:num'), '2')
+    cols_el.set(qn('w:space'), '720')
+
+
+def set_docx_margins(section):
+    section.top_margin = Cm(1.4)
+    section.bottom_margin = Cm(1.4)
+    section.left_margin = Cm(1.3)
+    section.right_margin = Cm(1.3)
+
+
+def create_premium_editable_word(data):
+    # DOCX editable en Word/Google Docs. Diseño premium en dos columnas, pensado para cambios manuales.
+    doc = Document()
+    section = doc.sections[0]
+    set_docx_margins(section)
+
+    styles = doc.styles
+    styles['Normal'].font.name = 'Arial'
+    styles['Normal'].font.size = Pt(8.5)
+
+    try:
+        title_style = styles.add_style('Serval Premium Title', WD_STYLE_TYPE.PARAGRAPH)
+    except Exception:
+        title_style = styles['Serval Premium Title']
+    title_style.font.name = 'Georgia'
+    title_style.font.size = Pt(22)
+    title_style.font.bold = True
+
+    try:
+        cat_style = styles.add_style('Serval Premium Category', WD_STYLE_TYPE.PARAGRAPH)
+    except Exception:
+        cat_style = styles['Serval Premium Category']
+    cat_style.font.name = 'Georgia'
+    cat_style.font.size = Pt(13)
+    cat_style.font.bold = True
+
+    p = doc.add_paragraph(style='Serval Premium Title')
+    p.alignment = 1
+    p.add_run(data.get('restaurant_name', 'MENÚ'))
+    sub = doc.add_paragraph()
+    sub.alignment = 1
+    run = sub.add_run('Carta premium de alérgenos · Documento editable')
+    run.bold = True
+    run.font.size = Pt(8.5)
+
+    doc.add_paragraph()
+    set_docx_two_columns(section)
+
+    for cat in data.get('categories', []):
+        p_cat = doc.add_paragraph(style='Serval Premium Category')
+        p_cat.paragraph_format.space_before = Pt(6)
+        p_cat.paragraph_format.space_after = Pt(3)
+        p_cat.add_run(cat.get('name', 'Categoría'))
+        for dish in cat.get('dishes', []):
+            p = doc.add_paragraph()
+            p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(7.6), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            r = p.add_run(dish.get('name', 'Plato'))
+            r.bold = True
+            r.font.size = Pt(8.4)
+            p.add_run('\t' + format_price(dish.get('price', '')) + '  ')
+            icon_run = p.add_run()
+            for allergen in get_ordered_allergens(dish.get('allergens', [])):
+                icon_path = ICON_MAP.get(allergen)
+                if icon_path and os.path.exists(icon_path):
+                    try:
+                        icon_run.add_picture(icon_path, width=Cm(0.34))
+                    except Exception:
+                        p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}]')
+            if dish.get('description'):
+                p_desc = doc.add_paragraph()
+                p_desc.paragraph_format.space_after = Pt(2)
+                d = p_desc.add_run(dish.get('description', ''))
+                d.italic = True
+                d.font.size = Pt(7.4)
+
+    footer_section = doc.add_section(WD_SECTION.CONTINUOUS)
+    set_docx_margins(footer_section)
+    doc.add_paragraph()
+    legend_title = doc.add_paragraph()
+    legend_title.alignment = 1
+    legend_title.add_run('GUÍA DE ALÉRGENOS').bold = True
+
+    table = doc.add_table(rows=2, cols=7)
+    table.autofit = True
+    for idx, allergen in enumerate(ALLERGEN_ORDER):
+        row = 0 if idx < 7 else 1
+        col = idx if idx < 7 else idx - 7
+        cell = table.cell(row, col)
+        par = cell.paragraphs[0]
+        par.alignment = 1
+        icon_path = ICON_MAP.get(allergen)
+        if icon_path and os.path.exists(icon_path):
+            try:
+                par.add_run().add_picture(icon_path, width=Cm(0.55))
+                par.add_run('\n')
+            except Exception:
+                pass
+        txt = par.add_run(ALLERGEN_LABELS.get(allergen, allergen))
+        txt.font.size = Pt(6.5)
+
+    notice = doc.add_paragraph()
+    notice.alignment = 1
+    nr = notice.add_run(build_notice(data))
+    nr.font.size = Pt(6.5)
+    nr.italic = True
+
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
 def html_to_pdf_bytes(html_code):
     try:
         from weasyprint import HTML
@@ -1113,8 +1433,11 @@ def render_editor(data):
 
 
 def render_visual_downloads(data):
-    st.subheader("🎨 Plantillas visuales con iconos reales")
-    st.caption("Todas las plantillas usan los PNG reales de `public/iconos`. La leyenda inferior ahora funciona como bloque visual de diseño, no como texto pequeño perdido.")
+    st.subheader("🎨 Plantillas premium en dos columnas")
+    st.caption(
+        "La clienta prefiere el estilo premium y trabajar en dos columnas. Por eso esta versión sustituye las plantillas más distintas "
+        "por una familia visual premium: todas mantienen dos columnas, iconos reales y una guía inferior más grande."
+    )
 
     colA, colB, colC = st.columns([1.15, 1.15, 1])
     with colA:
@@ -1128,34 +1451,55 @@ def render_visual_downloads(data):
     qr_src = uploaded_image_to_data_uri(qr_file, max_side=700) if qr_file else generate_qr_data_uri(qr_url)
 
     template = st.selectbox("Elige plantilla final", [
-        "Pizarra negra restaurante",
-        "Premium café/bistró",
-        "Matriz técnica",
-        "Mesa QR · Alérgenos"
+        "Premium café/bistró · 2 columnas",
+        "Premium claro · 2 columnas",
+        "Premium compacto · 2 columnas",
+        "Premium técnico · 2 columnas",
+        "Premium mesa QR · 2 columnas"
     ])
 
-    if template == "Pizarra negra restaurante":
-        html_code = create_blackboard_html(data, logo_src=logo_src, qr_src=qr_src)
-        base_name = "Carta_Pizarra_" + slugify_filename(data.get("restaurant_name", "menu"))
-    elif template == "Premium café/bistró":
+    if template == "Premium café/bistró · 2 columnas":
         html_code = create_modern_html(data, logo_src=logo_src, qr_src=qr_src)
-        base_name = "Carta_Premium_" + slugify_filename(data.get("restaurant_name", "menu"))
-    elif template == "Matriz técnica":
-        html_code = create_matrix_html(data, logo_src=logo_src, qr_src=qr_src)
-        base_name = "Matriz_Alergenos_" + slugify_filename(data.get("restaurant_name", "menu"))
+        base_name = "Carta_Premium_Bistro_" + slugify_filename(data.get("restaurant_name", "menu"))
+    elif template == "Premium claro · 2 columnas":
+        html_code = create_premium_clean_html(data, logo_src=logo_src, qr_src=qr_src)
+        base_name = "Carta_Premium_Claro_" + slugify_filename(data.get("restaurant_name", "menu"))
+    elif template == "Premium compacto · 2 columnas":
+        html_code = create_premium_compact_html(data, logo_src=logo_src, qr_src=qr_src)
+        base_name = "Carta_Premium_Compacta_" + slugify_filename(data.get("restaurant_name", "menu"))
+    elif template == "Premium técnico · 2 columnas":
+        html_code = create_premium_table_html(data, logo_src=logo_src, qr_src=qr_src)
+        base_name = "Carta_Premium_Tecnica_" + slugify_filename(data.get("restaurant_name", "menu"))
     else:
         html_code = create_qr_mesa_html(data, logo_src=logo_src, qr_src=qr_src)
-        base_name = "Mesa_QR_Alergenos_" + slugify_filename(data.get("restaurant_name", "menu"))
+        base_name = "Carta_Premium_Mesa_QR_" + slugify_filename(data.get("restaurant_name", "menu"))
 
-    c1, c2 = st.columns(2)
+    st.markdown("#### Descargas")
+    c1, c2, c3 = st.columns(3)
     with c1:
-        st.download_button("⬇️ Descargar HTML imprimible", html_code.encode("utf-8"), file_name=f"{base_name}.html", mime="text/html")
+        st.download_button(
+            "⬇️ HTML imprimible",
+            html_code.encode("utf-8"),
+            file_name=f"{base_name}.html",
+            mime="text/html"
+        )
     with c2:
         pdf_bytes = html_to_pdf_bytes(html_code)
         if pdf_bytes:
-            st.download_button("⬇️ Descargar PDF visual", pdf_bytes, file_name=f"{base_name}.pdf", mime="application/pdf")
+            st.download_button("⬇️ PDF visual", pdf_bytes, file_name=f"{base_name}.pdf", mime="application/pdf")
         else:
             st.info("PDF directo no activo. Abre el HTML y usa Imprimir → Guardar como PDF, o instala WeasyPrint.")
+    with c3:
+        st.download_button(
+            "⬇️ Word editable",
+            create_premium_editable_word(data),
+            file_name=f"{base_name}_editable.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+    st.info(
+        "Para edición manual real, descarga el Word editable. El HTML/PDF mantiene mejor el diseño visual; el DOCX permite cambiar textos, precios, categorías e iconos desde Word o Google Docs."
+    )
 
     with st.expander("👀 Vista previa", expanded=True):
         st.components.v1.html(html_code, height=840, scrolling=True)
