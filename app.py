@@ -18,7 +18,7 @@ from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER, WD_LINE_SPACING
 # ======================================================
 # CONFIGURACIÓN GENERAL
 # ======================================================
-st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH", layout="wide")
+st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v4", layout="wide")
 
 MODELO_A_USAR = "gemini-2.5-flash"
 
@@ -672,6 +672,16 @@ def allergen_icons_html(allergens, small=True):
     return "".join(icon_img_html(a, cls=cls) for a in get_ordered_allergens(allergens))
 
 
+def icon_img_html_inline(allergen, style=""):
+    path = ICON_MAP.get(allergen)
+    src = file_to_data_uri(path)
+    label = ALLERGEN_LABELS.get(allergen, allergen)
+    if src:
+        return f'<img src="{src}" alt="{html_escape(label)}" title="{html_escape(label)}" style="{style}">'
+    short = ALLERGEN_SHORT.get(allergen, allergen[:3].upper())
+    return f'<span title="Falta icono: {html_escape(label)}" style="{style}; display:inline-flex; align-items:center; justify-content:center; border:1px solid currentColor; border-radius:50%; font-size:7px; font-weight:900;">{html_escape(short)}</span>'
+
+
 def allergen_legend_html(compact=False):
     items = []
     for allergen in ALLERGEN_ORDER:
@@ -680,6 +690,42 @@ def allergen_legend_html(compact=False):
         )
     cls = "legend compact" if compact else "legend"
     return f'<div class="{cls}">{"".join(items)}</div>'
+
+
+def allergen_guide_panel_html(theme="dark", notice="", compact=False):
+    # Bloque premium de cierre visual: iconos reales grandes + aviso legal compacto.
+    if theme == "dark":
+        section_style = "margin-top:5mm; padding:5mm 5mm 4mm; border:1px solid rgba(220,184,94,.55); background:linear-gradient(135deg, rgba(0,0,0,.24), rgba(255,255,255,.035)); box-shadow:inset 0 0 18px rgba(0,0,0,.22);"
+        title_style = "margin:0 0 3.5mm; text-align:center; color:#f4d684; font-family:Georgia,'Times New Roman',serif; font-size:15px; letter-spacing:2.6px; text-transform:uppercase;"
+        item_style = "display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:1mm; min-height:16mm; padding:1.8mm 1mm; color:#f8efd2; text-align:center; font-size:7.2px; line-height:1.1; border:1px solid rgba(255,255,255,.07); background:rgba(0,0,0,.12);"
+        icon_style = "width:8.5mm; height:8.5mm; object-fit:contain; filter:drop-shadow(0 1px 2px rgba(0,0,0,.65));"
+        notice_style = "margin-top:3.6mm; color:#cabf9e; font-size:7px; line-height:1.32; text-align:center;"
+    elif theme == "technical":
+        section_style = "margin-top:3mm; padding:3mm; border:1px solid #cfcfcf; background:#f8f8f8;"
+        title_style = "margin:0 0 2mm; text-align:left; color:#111; font-family:Arial,Helvetica,sans-serif; font-size:10px; letter-spacing:.8px; text-transform:uppercase;"
+        item_style = "display:flex; align-items:center; gap:1mm; min-height:8mm; color:#111; font-size:6.8px; line-height:1.05;"
+        icon_style = "width:5.5mm; height:5.5mm; object-fit:contain;"
+        notice_style = "margin-top:2mm; color:#444; font-size:6.8px; line-height:1.25; text-align:right;"
+    else:
+        section_style = "margin-top:5mm; padding:4.5mm; border:1px solid #d8c2a2; border-radius:12px; background:linear-gradient(135deg,#fffaf0,#f4ead9); box-shadow:0 8px 18px rgba(70,44,18,.06);"
+        title_style = "margin:0 0 3.2mm; text-align:center; color:#7b4c20; font-family:Georgia,'Times New Roman',serif; font-size:15px; letter-spacing:2px; text-transform:uppercase;"
+        item_style = "display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:1mm; min-height:15mm; padding:1.6mm .8mm; color:#3e3025; text-align:center; font-size:7.2px; line-height:1.08; border:1px solid rgba(123,76,32,.11); border-radius:8px; background:rgba(255,255,255,.58);"
+        icon_style = "width:8mm; height:8mm; object-fit:contain; filter:drop-shadow(0 1px 1px rgba(80,50,20,.18));"
+        notice_style = "margin-top:3.2mm; color:#6a5848; font-size:7px; line-height:1.32; text-align:center;"
+
+    grid_cols = "repeat(7, 1fr)"
+    items = []
+    for allergen in ALLERGEN_ORDER:
+        items.append(
+            f'<div style="{item_style}">{icon_img_html_inline(allergen, icon_style)}<span>{html_escape(ALLERGEN_LABELS[allergen])}</span></div>'
+        )
+    return (
+        f'<section class="allergen-guide-panel" style="{section_style}">'
+        f'<h3 style="{title_style}">Guía de alérgenos</h3>'
+        f'<div style="display:grid; grid-template-columns:{grid_cols}; gap:2mm 2.4mm; align-items:start;">{"".join(items)}</div>'
+        f'<div style="{notice_style}">{notice}</div>'
+        f'</section>'
+    )
 
 
 def brand_html(data, logo_src=None, mode="dark"):
@@ -787,7 +833,7 @@ h1 {{ margin:1mm 0 0; font-family:Georgia,'Times New Roman',serif; font-size:48p
     {qr_html(qr_src)}
 </header>
 <main class="columns">{''.join(category_blocks)}</main>
-<footer class="footer">{extra_html}{allergen_legend_html(compact=True)}<div class="notice">{notice}</div></footer>
+<footer class="footer">{extra_html}{allergen_guide_panel_html(theme="dark", notice=notice)}</footer>
 </div></body></html>"""
 
 
@@ -856,7 +902,7 @@ h1 {{ margin:0; font-family:Georgia,'Times New Roman',serif; font-size:36px; lin
     {qr_html(qr_src)}
 </header>
 <main class="layout">{''.join(blocks)}</main>
-<footer class="footer">{extra_html}{allergen_legend_html()}<div class="notice">{notice}</div></footer>
+<footer class="footer">{extra_html}{allergen_guide_panel_html(theme="light", notice=notice)}</footer>
 </div></body></html>"""
 
 
@@ -914,7 +960,103 @@ th small {{ display:block; font-size:5.8px; line-height:1.05; }}
     <div class="badge">Serval TECH · Carta Pro</div>
 </header>
 <table><thead><tr><th>Categoría</th><th>Producto / descripción</th><th>Precio</th>{''.join(header_cells)}</tr></thead><tbody>{''.join(rows)}</tbody></table>
-<footer class="footer"><div class="legend-mini"><strong>Leyenda:</strong> {' · '.join([ALLERGEN_SHORT[a] + ' ' + ALLERGEN_LABELS[a] for a in ALLERGEN_ORDER])}</div><div class="notice">{notice}</div></footer>
+<footer class="footer">{allergen_guide_panel_html(theme="technical", notice=notice, compact=True)}</footer>
+</div></body></html>"""
+
+
+def create_qr_mesa_html(data, logo_src=None, qr_src=None):
+    # Plantilla compacta para mesa/barra: A4, QR visible, lectura rápida e iconos reales.
+    notice = html_escape(build_notice(data))
+    restaurant_name = html_escape(data.get("restaurant_name", "MENÚ"))
+
+    if logo_src:
+        brand_block = f'<img class="restaurant-logo" src="{logo_src}" alt="Logo restaurante"><div class="brand-name">{restaurant_name}</div>'
+    else:
+        brand_block = f'<div class="brand-wordmark">{restaurant_name}</div>'
+
+    if qr_src:
+        qr_block = f'<div class="qr-card"><img class="qr-img" src="{qr_src}" alt="QR menú"><div>Escanea la carta digital</div></div>'
+    else:
+        qr_block = '<div class="qr-card empty"><div class="qr-placeholder">QR</div><div>Añade un QR o URL desde la app</div></div>'
+
+    category_blocks = []
+    for cat in data.get("categories", []):
+        dishes = []
+        for dish in cat.get("dishes", []):
+            desc = html_escape(dish.get("description", ""))
+            desc_html = f'<div class="desc">{desc}</div>' if desc else ""
+            icons = allergen_icons_html(dish.get("allergens", []), small=True)
+            price = html_escape(format_price(dish.get("price", "")))
+            dishes.append(f"""
+            <div class="mesa-row">
+                <div class="mesa-info">
+                    <div class="mesa-title"><span>{html_escape(dish.get('name', 'Plato'))}</span><span class="mesa-icons">{icons}</span></div>
+                    {desc_html}
+                </div>
+                <div class="mesa-price">{price}</div>
+            </div>
+            """)
+        category_blocks.append(f"""
+        <section class="mesa-category">
+            <h2>{html_escape(cat.get('name','Categoría'))}</h2>
+            {''.join(dishes)}
+        </section>
+        """)
+
+    extra = html_escape(data.get("texto_extra", ""))
+    extra_html = f'<div class="mesa-extra">{extra}</div>' if extra else ""
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Mesa QR Alérgenos - {restaurant_name}</title>
+<style>
+@page {{ size:A4 portrait; margin:0; }}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; background:#efe6d7; color:#211915; font-family:'Trebuchet MS', Arial, sans-serif; }}
+.page {{ width:210mm; min-height:297mm; padding:10mm; background:linear-gradient(160deg,#fffaf0 0%,#f2e5cf 100%); position:relative; overflow:hidden; }}
+.page:before {{ content:""; position:absolute; inset:6mm; border:1px solid rgba(132,86,38,.18); pointer-events:none; }}
+.header {{ position:relative; z-index:1; display:grid; grid-template-columns:1fr 38mm; gap:8mm; align-items:center; padding-bottom:5mm; border-bottom:2px solid #7b4c20; margin-bottom:5mm; }}
+.brand {{ display:flex; align-items:center; gap:5mm; min-width:0; }}
+.restaurant-logo {{ max-width:34mm; max-height:24mm; object-fit:contain; }}
+.brand-name {{ font-size:12px; color:#7b4c20; text-transform:uppercase; letter-spacing:1.4px; font-weight:900; }}
+.brand-wordmark {{ font-family:Georgia,'Times New Roman',serif; font-size:29px; color:#3a271b; line-height:1; text-transform:uppercase; letter-spacing:.8px; }}
+.header-text .label {{ color:#9b6b35; text-transform:uppercase; letter-spacing:2.5px; font-size:10px; font-weight:900; }}
+.header-text h1 {{ margin:1.5mm 0 0; font-family:Georgia,'Times New Roman',serif; font-size:30px; color:#241811; line-height:1; }}
+.qr-card {{ width:36mm; min-height:40mm; padding:2.2mm; border:1px solid #b28a58; background:#fff; border-radius:7px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; font-size:7.5px; color:#6d543b; text-transform:uppercase; gap:1.5mm; }}
+.qr-img {{ width:28mm; height:28mm; object-fit:contain; }}
+.qr-placeholder {{ width:25mm; height:25mm; display:flex; align-items:center; justify-content:center; border:1px dashed #a38355; color:#a38355; font-size:14px; font-weight:900; }}
+.intro {{ position:relative; z-index:1; margin:0 0 5mm; display:grid; grid-template-columns:1fr auto; gap:5mm; align-items:center; }}
+.intro-main {{ padding:3mm 4mm; border-left:4px solid #7b4c20; background:rgba(255,255,255,.5); font-size:10px; line-height:1.35; color:#574333; }}
+.intro-badge {{ padding:2.5mm 3.2mm; border:1px solid #7b4c20; color:#7b4c20; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:1px; }}
+.menu-grid {{ position:relative; z-index:1; column-count:2; column-gap:7mm; }}
+.mesa-category {{ break-inside:avoid; margin-bottom:5mm; background:rgba(255,255,255,.72); border:1px solid #e0ceb2; border-radius:11px; padding:4mm; box-shadow:0 6px 16px rgba(80,55,28,.06); }}
+.mesa-category h2 {{ margin:0 0 3mm; color:#7b4c20; font-family:Georgia,'Times New Roman',serif; font-size:17px; border-bottom:1px solid #d9c3a3; padding-bottom:1.8mm; }}
+.mesa-row {{ display:flex; gap:3mm; align-items:flex-start; padding:1.7mm 0; border-bottom:1px dotted rgba(123,76,32,.22); }}
+.mesa-row:last-child {{ border-bottom:none; }}
+.mesa-info {{ flex:1; min-width:0; }}
+.mesa-title {{ display:flex; gap:1.5mm; align-items:center; flex-wrap:wrap; font-size:9.4px; font-weight:900; text-transform:uppercase; letter-spacing:.18px; color:#2d221a; }}
+.desc {{ margin-top:.7mm; color:#66564a; font-size:7.8px; line-height:1.25; }}
+.mesa-price {{ min-width:13mm; text-align:right; color:#7b4c20; font-size:9.2px; font-weight:900; }}
+.mesa-icons {{ display:inline-flex; gap:.8mm; align-items:center; }}
+.allergen-icon.small {{ width:4.1mm; height:4.1mm; object-fit:contain; vertical-align:middle; }}
+.missing-icon {{ display:inline-flex; align-items:center; justify-content:center; width:4.1mm; height:4.1mm; border:1px solid #7b4c20; color:#7b4c20; font-size:4.6px; font-weight:900; border-radius:50%; }}
+.footer {{ position:relative; z-index:1; margin-top:6mm; }}
+.mesa-extra {{ margin-bottom:3mm; padding:3mm; border:1px solid #d8c2a2; border-radius:8px; background:#fff7e8; color:#5d4635; font-size:8.5px; text-align:center; }}
+</style>
+</head>
+<body><div class="page">
+<header class="header">
+    <div class="brand">{brand_block}<div class="header-text"><div class="label">Mesa QR · Alérgenos</div><h1>Consulta rápida</h1></div></div>
+    {qr_block}
+</header>
+<section class="intro">
+    <div class="intro-main">Carta compacta para consulta en mesa o barra. Los iconos junto a cada producto indican alérgenos presentes o de revisión recomendada.</div>
+    <div class="intro-badge">Iconos reales</div>
+</section>
+<main class="menu-grid">{''.join(category_blocks)}</main>
+<footer class="footer">{extra_html}{allergen_guide_panel_html(theme="light", notice=notice)}</footer>
 </div></body></html>"""
 
 
@@ -972,6 +1114,7 @@ def render_editor(data):
 
 def render_visual_downloads(data):
     st.subheader("🎨 Plantillas visuales con iconos reales")
+    st.caption("Todas las plantillas usan los PNG reales de `public/iconos`. La leyenda inferior ahora funciona como bloque visual de diseño, no como texto pequeño perdido.")
 
     colA, colB, colC = st.columns([1.15, 1.15, 1])
     with colA:
@@ -987,7 +1130,8 @@ def render_visual_downloads(data):
     template = st.selectbox("Elige plantilla final", [
         "Pizarra negra restaurante",
         "Premium café/bistró",
-        "Matriz técnica"
+        "Matriz técnica",
+        "Mesa QR · Alérgenos"
     ])
 
     if template == "Pizarra negra restaurante":
@@ -996,9 +1140,12 @@ def render_visual_downloads(data):
     elif template == "Premium café/bistró":
         html_code = create_modern_html(data, logo_src=logo_src, qr_src=qr_src)
         base_name = "Carta_Premium_" + slugify_filename(data.get("restaurant_name", "menu"))
-    else:
+    elif template == "Matriz técnica":
         html_code = create_matrix_html(data, logo_src=logo_src, qr_src=qr_src)
         base_name = "Matriz_Alergenos_" + slugify_filename(data.get("restaurant_name", "menu"))
+    else:
+        html_code = create_qr_mesa_html(data, logo_src=logo_src, qr_src=qr_src)
+        base_name = "Mesa_QR_Alergenos_" + slugify_filename(data.get("restaurant_name", "menu"))
 
     c1, c2 = st.columns(2)
     with c1:
@@ -1011,7 +1158,8 @@ def render_visual_downloads(data):
             st.info("PDF directo no activo. Abre el HTML y usa Imprimir → Guardar como PDF, o instala WeasyPrint.")
 
     with st.expander("👀 Vista previa", expanded=True):
-        st.components.v1.html(html_code, height=760, scrolling=True)
+        st.components.v1.html(html_code, height=840, scrolling=True)
+
 
 # ======================================================
 # APP
