@@ -12,7 +12,7 @@ from io import BytesIO
 from PIL import Image, ImageOps
 from pypdf import PdfReader
 from docx import Document
-from docx.shared import Cm, Pt
+from docx.shared import Cm, Pt, RGBColor
 from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER, WD_LINE_SPACING
 from docx.enum.section import WD_SECTION
 from docx.enum.style import WD_STYLE_TYPE
@@ -22,7 +22,7 @@ from docx.oxml.ns import qn
 # ======================================================
 # CONFIGURACIÓN GENERAL
 # ======================================================
-st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v6", layout="wide")
+st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v7", layout="wide")
 
 MODELO_A_USAR = "gemini-2.5-flash"
 
@@ -1271,6 +1271,16 @@ def set_docx_two_columns(section):
     cols_el.set(qn('w:space'), '720')
 
 
+def set_docx_one_column(section):
+    sectPr = section._sectPr
+    cols = sectPr.xpath('./w:cols')
+    cols_el = cols[0] if cols else OxmlElement('w:cols')
+    if not cols:
+        sectPr.append(cols_el)
+    cols_el.set(qn('w:num'), '1')
+    cols_el.set(qn('w:space'), '720')
+
+
 def set_docx_margins(section):
     section.top_margin = Cm(1.4)
     section.bottom_margin = Cm(1.4)
@@ -1328,15 +1338,9 @@ def create_premium_editable_word(data):
             r = p.add_run(dish.get('name', 'Plato'))
             r.bold = True
             r.font.size = Pt(8.4)
-            p.add_run('\t' + format_price(dish.get('price', '')) + '  ')
-            icon_run = p.add_run()
-            for allergen in get_ordered_allergens(dish.get('allergens', [])):
-                icon_path = ICON_MAP.get(allergen)
-                if icon_path and os.path.exists(icon_path):
-                    try:
-                        icon_run.add_picture(icon_path, width=Cm(0.34))
-                    except Exception:
-                        p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}]')
+            # V7: sin símbolos de alérgenos en cada plato; solo precio.
+            # Los iconos quedan exclusivamente en la guía/leyenda inferior.
+            p.add_run('\t' + format_price(dish.get('price', '')))
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
                 p_desc.paragraph_format.space_after = Pt(2)
@@ -1346,6 +1350,7 @@ def create_premium_editable_word(data):
 
     footer_section = doc.add_section(WD_SECTION.CONTINUOUS)
     set_docx_margins(footer_section)
+    set_docx_one_column(footer_section)
     doc.add_paragraph()
     legend_title = doc.add_paragraph()
     legend_title.alignment = 1
@@ -1430,6 +1435,101 @@ def render_editor(data):
                     st.warning(" · ".join(dish.get("review_notes", [])))
                 st.divider()
     return data
+
+
+# ======================================================
+# V7 - BIBLIOTECA DE PLANTILLAS EDITABLES SIN ICONOS EN PLATOS
+# ======================================================
+def rgb_from_hex(hex_color):
+    h = str(hex_color or "#000000").strip().replace("#", "")
+    if len(h) == 3:
+        h = "".join(ch * 2 for ch in h)
+    try:
+        return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    except Exception:
+        return RGBColor(0, 0, 0)
+
+
+def apply_run_color(run, hex_color):
+    run.font.color.rgb = rgb_from_hex(hex_color)
+
+
+def create_editable_template_word(data, template_key="cafe"):
+    theme = premium_v6_theme(template_key)
+    doc = Document()
+    section = doc.sections[0]
+    set_docx_margins(section)
+    styles = doc.styles
+    styles['Normal'].font.name = 'Arial'
+    styles['Normal'].font.size = Pt(8.3)
+    p = doc.add_paragraph(); p.alignment = 1
+    title = p.add_run(data.get('restaurant_name', 'MENÚ'))
+    title.bold = True; title.font.name = 'Georgia'; title.font.size = Pt(22)
+    apply_run_color(title, theme.get('title', theme.get('accent', '#111111')))
+    sub = doc.add_paragraph(); sub.alignment = 1
+    sr = sub.add_run('Carta editable · dos columnas · leyenda de alérgenos al final')
+    sr.bold = True; sr.font.size = Pt(8); apply_run_color(sr, theme.get('muted', '#555555'))
+    line = doc.add_paragraph(); line.alignment = 1
+    lr = line.add_run('─' * 54); lr.font.size = Pt(6); apply_run_color(lr, theme.get('accent_2', '#999999'))
+    set_docx_two_columns(section)
+    for cat in data.get('categories', []):
+        p_cat = doc.add_paragraph(); p_cat.paragraph_format.space_before = Pt(7); p_cat.paragraph_format.space_after = Pt(3)
+        rcat = p_cat.add_run(cat.get('name', 'Categoría'))
+        rcat.bold = True; rcat.font.name = 'Georgia'; rcat.font.size = Pt(12.5)
+        apply_run_color(rcat, theme.get('accent', '#222222'))
+        for dish in cat.get('dishes', []):
+            p_dish = doc.add_paragraph(); p_dish.paragraph_format.space_after = Pt(1.8)
+            p_dish.paragraph_format.tab_stops.add_tab_stop(Cm(7.6), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            rn = p_dish.add_run(dish.get('name', 'Plato'))
+            rn.bold = True; rn.font.size = Pt(8.3); apply_run_color(rn, theme.get('text', '#111111'))
+            rp = p_dish.add_run('	' + format_price(dish.get('price', '')))
+            rp.bold = True; rp.font.size = Pt(8.2); apply_run_color(rp, theme.get('accent', '#222222'))
+            if dish.get('description'):
+                p_desc = doc.add_paragraph(); p_desc.paragraph_format.space_after = Pt(2)
+                rd = p_desc.add_run(dish.get('description', ''))
+                rd.italic = True; rd.font.size = Pt(7.2); apply_run_color(rd, theme.get('muted', '#555555'))
+    footer_section = doc.add_section(WD_SECTION.CONTINUOUS)
+    set_docx_margins(footer_section); set_docx_one_column(footer_section)
+    doc.add_paragraph()
+    legend_title = doc.add_paragraph(); legend_title.alignment = 1
+    ltr = legend_title.add_run('GUÍA DE ALÉRGENOS')
+    ltr.bold = True; ltr.font.size = Pt(10); apply_run_color(ltr, theme.get('accent', '#222222'))
+    table = doc.add_table(rows=2, cols=7); table.autofit = True
+    for idx, allergen in enumerate(ALLERGEN_ORDER):
+        row = 0 if idx < 7 else 1; col = idx if idx < 7 else idx - 7
+        cell = table.cell(row, col); par = cell.paragraphs[0]; par.alignment = 1
+        icon_path = ICON_MAP.get(allergen)
+        if icon_path and os.path.exists(icon_path):
+            try:
+                par.add_run().add_picture(icon_path, width=Cm(0.56)); par.add_run('\n')
+            except Exception:
+                pass
+        txt = par.add_run(ALLERGEN_LABELS.get(allergen, allergen))
+        txt.font.size = Pt(6.4); apply_run_color(txt, theme.get('text', '#111111'))
+    notice = doc.add_paragraph(); notice.alignment = 1
+    nr = notice.add_run(build_notice(data)); nr.font.size = Pt(6.2); nr.italic = True
+    apply_run_color(nr, theme.get('muted', '#555555'))
+    buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
+
+
+def render_editable_template_library(data):
+    st.subheader('🖊️ Plantillas editables sin iconos en platos')
+    st.caption('Documentos Word editables en 2 columnas, platos limpios y guía de alérgenos solo al final.')
+    options = {
+        'Café Editorial': 'cafe', 'Arena Minimal': 'arena', 'Terracota Mediterráneo': 'terracota',
+        'Rosa Pastel Cafetería': 'rosa', 'Mar Claro': 'mar', 'Noir Premium': 'noir',
+        'Carbón Suave': 'carbon', 'Oliva Natural': 'oliva', 'Burdeos Gastrobar': 'burdeos',
+        'Azul Noche': 'azul', 'Blanco Editorial': 'blanco'
+    }
+    c1, c2 = st.columns([1.2, 1])
+    with c1:
+        selected = st.selectbox('Elige estilo editable', list(options.keys()), key='editable_template_v7')
+    with c2:
+        st.info('Editable real en Word/Google Docs. No muestra iconos al lado de platos; solo la leyenda inferior.')
+    theme_key = options[selected]
+    base_name = 'Carta_Editable_' + slugify_filename(selected) + '_' + slugify_filename(data.get('restaurant_name', 'menu'))
+    st.download_button('⬇️ Descargar plantilla Word editable', create_editable_template_word(data, template_key=theme_key), file_name=f'{base_name}.docx', mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    st.markdown('También puedes usar la pestaña **Plantillas visuales** para descargar HTML/PDF con la misma lógica: platos limpios y guía de alérgenos abajo.')
 
 
 def render_visual_downloads(data):
@@ -1612,6 +1712,17 @@ PREMIUM_V6_THEMES = {
     },
 }
 
+# V7 - más skins premium de dos columnas. Mantienen la misma estructura: platos limpios y leyenda abajo.
+PREMIUM_V7_EXTRA_THEMES = {
+    "arena": {"name":"Premium Arena Minimal","label":"Carta premium arena · consulta rápida","body_bg":"#d8c4a5","page_bg":"linear-gradient(145deg,#fffaf0 0%,#ead4b2 100%)","page_border":"#8b6b3e","inner_border":"#c8a56f","panel_bg":"rgba(255,255,255,.78)","panel_bg_alt":"#fff4df","panel_border":"#d7bd91","text":"#2a2117","muted":"#6a5840","accent":"#8b6230","accent_2":"#c8a56f","title":"#2a2117","header_bg":"transparent","shadow":"0 8px 18px rgba(70,44,18,.07)","decor":"radial-gradient(circle at 8% 10%, rgba(200,165,111,.16), transparent 22%)","guide_theme":"light"},
+    "terracota": {"name":"Premium Terracota Mediterráneo","label":"Carta premium terracota · mediterránea","body_bg":"#b45f43","page_bg":"linear-gradient(145deg,#fff7ed 0%,#efd0bd 100%)","page_border":"#8f3f2d","inner_border":"#c8845f","panel_bg":"rgba(255,250,245,.82)","panel_bg_alt":"#fff0e7","panel_border":"#deb69f","text":"#2b1712","muted":"#704c3e","accent":"#a14a32","accent_2":"#c8845f","title":"#6f2d20","header_bg":"linear-gradient(90deg, rgba(161,74,50,.12), transparent)","shadow":"0 8px 18px rgba(111,45,32,.11)","decor":"radial-gradient(circle at 90% 10%, rgba(161,74,50,.14), transparent 22%)","guide_theme":"light"},
+    "rosa": {"name":"Premium Rosa Pastel","label":"Carta premium rosa pastel · cafetería","body_bg":"#ead3cf","page_bg":"linear-gradient(145deg,#fff8f4 0%,#f3dcd5 100%)","page_border":"#7d4b48","inner_border":"#c9968f","panel_bg":"rgba(255,255,255,.80)","panel_bg_alt":"#fff0ec","panel_border":"#e0beb8","text":"#2b1b1b","muted":"#6f5754","accent":"#9a5b56","accent_2":"#c9968f","title":"#643835","header_bg":"rgba(154,91,86,.08)","shadow":"0 8px 18px rgba(100,56,53,.08)","decor":"radial-gradient(circle at 86% 8%, rgba(201,150,143,.20), transparent 24%)","guide_theme":"light"},
+    "mar": {"name":"Premium Mar Claro","label":"Carta premium mar claro · fresca","body_bg":"#cbdfe2","page_bg":"linear-gradient(145deg,#fbfffe 0%,#dcecef 100%)","page_border":"#315866","inner_border":"#8db6bf","panel_bg":"rgba(255,255,255,.80)","panel_bg_alt":"#eef9fa","panel_border":"#bfdae0","text":"#18292e","muted":"#526a70","accent":"#2f6f7d","accent_2":"#8db6bf","title":"#183d47","header_bg":"rgba(47,111,125,.07)","shadow":"0 8px 18px rgba(24,61,71,.08)","decor":"radial-gradient(circle at 90% 9%, rgba(141,182,191,.22), transparent 24%)","guide_theme":"light"},
+    "carbon": {"name":"Premium Carbón Suave","label":"Carta premium carbón · urbana","body_bg":"#171717","page_bg":"linear-gradient(145deg,#2b2a28 0%,#151515 100%)","page_border":"#bda36f","inner_border":"rgba(189,163,111,.40)","panel_bg":"rgba(255,255,255,.06)","panel_bg_alt":"rgba(189,163,111,.08)","panel_border":"rgba(189,163,111,.36)","text":"#f1eadb","muted":"#c7bda8","accent":"#bda36f","accent_2":"#847351","title":"#fff8e9","header_bg":"rgba(255,255,255,.03)","shadow":"0 10px 22px rgba(0,0,0,.30)","decor":"radial-gradient(circle at 12% 10%, rgba(255,255,255,.08), transparent 22%)","guide_theme":"dark"},
+    "blanco": {"name":"Premium Blanco Editorial","label":"Carta premium blanco · editorial","body_bg":"#f0f0ec","page_bg":"linear-gradient(145deg,#ffffff 0%,#f3f0e8 100%)","page_border":"#1f1f1f","inner_border":"#b8aa8e","panel_bg":"rgba(255,255,255,.90)","panel_bg_alt":"#f8f4ea","panel_border":"#ddd6c8","text":"#141414","muted":"#55534e","accent":"#1f1f1f","accent_2":"#b8aa8e","title":"#111111","header_bg":"transparent","shadow":"0 8px 18px rgba(0,0,0,.05)","decor":"radial-gradient(circle at 92% 7%, rgba(184,170,142,.16), transparent 22%)","guide_theme":"light"},
+}
+PREMIUM_V6_THEMES.update(PREMIUM_V7_EXTRA_THEMES)
+
 
 def premium_v6_theme(theme_key="cafe", custom=None):
     theme = dict(PREMIUM_V6_THEMES.get(theme_key, PREMIUM_V6_THEMES["cafe"]))
@@ -1668,20 +1779,21 @@ def _premium_v6_header(data, theme, logo_src=None, qr_src=None, label=None, qr_l
     '''
 
 
-def _build_cards_sections(data, variant="cards"):
+def _build_cards_sections(data, variant="cards", show_dish_icons=False):
     sections = []
     for cat in data.get("categories", []):
         dishes = []
         for dish in cat.get("dishes", []):
             desc = html_escape(dish.get("description", ""))
             desc_html = f'<p class="dish-desc">{desc}</p>' if desc else ""
-            icons = allergen_icons_html(dish.get("allergens", []), small=(variant != "cards"))
+            icons = allergen_icons_html(dish.get("allergens", []), small=(variant != "cards")) if show_dish_icons else ""
+            icons_html = f'<div class="icon-line">{icons}</div>' if show_dish_icons and icons else ""
             price = html_escape(format_price(dish.get("price", "")))
             dishes.append(f'''
             <article class="dish {variant}">
                 <div class="dish-line"><h3>{html_escape(dish.get('name','Plato'))}</h3><strong>{price}</strong></div>
                 {desc_html}
-                <div class="icon-line">{icons}</div>
+                {icons_html}
             </article>
             ''')
         sections.append(f'''
@@ -1693,19 +1805,21 @@ def _build_cards_sections(data, variant="cards"):
     return "".join(sections)
 
 
-def _build_table_sections(data):
+def _build_table_sections(data, show_dish_icons=False):
     blocks = []
     for cat in data.get("categories", []):
         rows = []
         for dish in cat.get("dishes", []):
             desc = html_escape(dish.get("description", ""))
             desc_html = f'<div class="table-desc">{desc}</div>' if desc else ""
-            icons = allergen_icons_html(dish.get("allergens", []), small=True)
+            icons = allergen_icons_html(dish.get("allergens", []), small=True) if show_dish_icons else ""
+            icons_cell = f'<div class="table-icons">{icons}</div>' if show_dish_icons and icons else ""
+            row_class = "table-row" if show_dish_icons else "table-row no-icons"
             price = html_escape(format_price(dish.get("price", "")))
             rows.append(f'''
-            <div class="table-row">
+            <div class="{row_class}">
                 <div class="table-product"><strong>{html_escape(dish.get('name','Plato'))}</strong>{desc_html}</div>
-                <div class="table-icons">{icons}</div>
+                {icons_cell}
                 <div class="table-price">{price}</div>
             </div>
             ''')
@@ -1717,7 +1831,6 @@ def _build_table_sections(data):
         ''')
     return "".join(blocks)
 
-
 def create_premium_v6_html(data, logo_src=None, qr_src=None, theme_key="cafe", variant="cards", custom_theme=None):
     theme = premium_v6_theme(theme_key, custom=custom_theme)
     notice = html_escape(build_notice(data))
@@ -1725,10 +1838,10 @@ def create_premium_v6_html(data, logo_src=None, qr_src=None, theme_key="cafe", v
     extra_html = f'<div class="extra-box"><strong>Notas de carta:</strong> {extra}</div>' if extra else ""
 
     if variant == "table":
-        content = _build_table_sections(data)
+        content = _build_table_sections(data, show_dish_icons=False)
         label = theme.get("label", "Carta premium técnica · alérgenos")
     else:
-        content = _build_cards_sections(data, variant=variant)
+        content = _build_cards_sections(data, variant=variant, show_dish_icons=False)
         label = theme.get("label", "Carta premium · alérgenos")
 
     intro = ""
@@ -1799,6 +1912,7 @@ body {{ margin:0; background:{theme['body_bg']}; color:{theme['text']}; font-fam
 .table-category {{ break-inside:avoid; margin-bottom:4.7mm; border:1px solid {theme['panel_border']}; border-radius:10px; overflow:hidden; background:{theme['panel_bg']}; box-shadow:{theme['shadow']}; }}
 .table-category h2 {{ margin:0; padding:2.6mm 3.2mm; color:{theme['panel_bg_alt']}; background:{theme['accent']}; font-family:Georgia,'Times New Roman',serif; font-size:17px; line-height:1; }}
 .table-row {{ display:grid; grid-template-columns:1fr auto 13mm; gap:2.2mm; align-items:center; padding:1.75mm 2.8mm; border-bottom:1px solid {theme['panel_border']}; }}
+.table-row.no-icons {{ grid-template-columns:1fr 13mm; }}
 .table-row:last-child {{ border-bottom:none; }}
 .table-product strong {{ display:block; color:{theme['text']}; font-size:9.2px; text-transform:uppercase; letter-spacing:.12px; }}
 .table-desc {{ color:{theme['muted']}; font-size:7.5px; line-height:1.2; margin-top:.5mm; }}
@@ -1817,11 +1931,106 @@ body {{ margin:0; background:{theme['body_bg']}; color:{theme['text']}; font-fam
 </html>'''
 
 
+# ======================================================
+# V7 - BIBLIOTECA DE PLANTILLAS EDITABLES SIN ICONOS EN PLATOS
+# ======================================================
+def rgb_from_hex(hex_color):
+    h = str(hex_color or "#000000").strip().replace("#", "")
+    if len(h) == 3:
+        h = "".join(ch * 2 for ch in h)
+    try:
+        return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    except Exception:
+        return RGBColor(0, 0, 0)
+
+
+def apply_run_color(run, hex_color):
+    run.font.color.rgb = rgb_from_hex(hex_color)
+
+
+def create_editable_template_word(data, template_key="cafe"):
+    theme = premium_v6_theme(template_key)
+    doc = Document()
+    section = doc.sections[0]
+    set_docx_margins(section)
+    styles = doc.styles
+    styles['Normal'].font.name = 'Arial'
+    styles['Normal'].font.size = Pt(8.3)
+    p = doc.add_paragraph(); p.alignment = 1
+    title = p.add_run(data.get('restaurant_name', 'MENÚ'))
+    title.bold = True; title.font.name = 'Georgia'; title.font.size = Pt(22)
+    apply_run_color(title, theme.get('title', theme.get('accent', '#111111')))
+    sub = doc.add_paragraph(); sub.alignment = 1
+    sr = sub.add_run('Carta editable · dos columnas · leyenda de alérgenos al final')
+    sr.bold = True; sr.font.size = Pt(8); apply_run_color(sr, theme.get('muted', '#555555'))
+    line = doc.add_paragraph(); line.alignment = 1
+    lr = line.add_run('─' * 54); lr.font.size = Pt(6); apply_run_color(lr, theme.get('accent_2', '#999999'))
+    set_docx_two_columns(section)
+    for cat in data.get('categories', []):
+        p_cat = doc.add_paragraph(); p_cat.paragraph_format.space_before = Pt(7); p_cat.paragraph_format.space_after = Pt(3)
+        rcat = p_cat.add_run(cat.get('name', 'Categoría'))
+        rcat.bold = True; rcat.font.name = 'Georgia'; rcat.font.size = Pt(12.5)
+        apply_run_color(rcat, theme.get('accent', '#222222'))
+        for dish in cat.get('dishes', []):
+            p_dish = doc.add_paragraph(); p_dish.paragraph_format.space_after = Pt(1.8)
+            p_dish.paragraph_format.tab_stops.add_tab_stop(Cm(7.6), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            rn = p_dish.add_run(dish.get('name', 'Plato'))
+            rn.bold = True; rn.font.size = Pt(8.3); apply_run_color(rn, theme.get('text', '#111111'))
+            rp = p_dish.add_run('	' + format_price(dish.get('price', '')))
+            rp.bold = True; rp.font.size = Pt(8.2); apply_run_color(rp, theme.get('accent', '#222222'))
+            if dish.get('description'):
+                p_desc = doc.add_paragraph(); p_desc.paragraph_format.space_after = Pt(2)
+                rd = p_desc.add_run(dish.get('description', ''))
+                rd.italic = True; rd.font.size = Pt(7.2); apply_run_color(rd, theme.get('muted', '#555555'))
+    footer_section = doc.add_section(WD_SECTION.CONTINUOUS)
+    set_docx_margins(footer_section); set_docx_one_column(footer_section)
+    doc.add_paragraph()
+    legend_title = doc.add_paragraph(); legend_title.alignment = 1
+    ltr = legend_title.add_run('GUÍA DE ALÉRGENOS')
+    ltr.bold = True; ltr.font.size = Pt(10); apply_run_color(ltr, theme.get('accent', '#222222'))
+    table = doc.add_table(rows=2, cols=7); table.autofit = True
+    for idx, allergen in enumerate(ALLERGEN_ORDER):
+        row = 0 if idx < 7 else 1; col = idx if idx < 7 else idx - 7
+        cell = table.cell(row, col); par = cell.paragraphs[0]; par.alignment = 1
+        icon_path = ICON_MAP.get(allergen)
+        if icon_path and os.path.exists(icon_path):
+            try:
+                par.add_run().add_picture(icon_path, width=Cm(0.56)); par.add_run('\n')
+            except Exception:
+                pass
+        txt = par.add_run(ALLERGEN_LABELS.get(allergen, allergen))
+        txt.font.size = Pt(6.4); apply_run_color(txt, theme.get('text', '#111111'))
+    notice = doc.add_paragraph(); notice.alignment = 1
+    nr = notice.add_run(build_notice(data)); nr.font.size = Pt(6.2); nr.italic = True
+    apply_run_color(nr, theme.get('muted', '#555555'))
+    buffer = BytesIO(); doc.save(buffer); buffer.seek(0); return buffer
+
+
+def render_editable_template_library(data):
+    st.subheader('🖊️ Plantillas editables sin iconos en platos')
+    st.caption('Documentos Word editables en 2 columnas, platos limpios y guía de alérgenos solo al final.')
+    options = {
+        'Café Editorial': 'cafe', 'Arena Minimal': 'arena', 'Terracota Mediterráneo': 'terracota',
+        'Rosa Pastel Cafetería': 'rosa', 'Mar Claro': 'mar', 'Noir Premium': 'noir',
+        'Carbón Suave': 'carbon', 'Oliva Natural': 'oliva', 'Burdeos Gastrobar': 'burdeos',
+        'Azul Noche': 'azul', 'Blanco Editorial': 'blanco'
+    }
+    c1, c2 = st.columns([1.2, 1])
+    with c1:
+        selected = st.selectbox('Elige estilo editable', list(options.keys()), key='editable_template_v7')
+    with c2:
+        st.info('Editable real en Word/Google Docs. No muestra iconos al lado de platos; solo la leyenda inferior.')
+    theme_key = options[selected]
+    base_name = 'Carta_Editable_' + slugify_filename(selected) + '_' + slugify_filename(data.get('restaurant_name', 'menu'))
+    st.download_button('⬇️ Descargar plantilla Word editable', create_editable_template_word(data, template_key=theme_key), file_name=f'{base_name}.docx', mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    st.markdown('También puedes usar la pestaña **Plantillas visuales** para descargar HTML/PDF con la misma lógica: platos limpios y guía de alérgenos abajo.')
+
+
 def render_visual_downloads(data):
-    st.subheader("🎨 Plantillas premium en dos columnas · v6")
+    st.subheader("🎨 Plantillas premium editables · sin iconos en platos · v7")
     st.caption(
-        "Todas mantienen 2 columnas, iconos reales junto a los platos y la leyenda abajo. "
-        "La diferencia está en color, fondo, contraste y estructura visual."
+        "Todas mantienen 2 columnas y la guía de alérgenos abajo. "
+        "Por petición de la clienta, los platos salen limpios: sin símbolos de alérgenos junto a cada plato."
     )
 
     colA, colB, colC = st.columns([1.15, 1.15, 1])
@@ -1837,19 +2046,31 @@ def render_visual_downloads(data):
 
     template = st.selectbox("Elige plantilla final", [
         "Premium Café Editorial · 2 columnas",
+        "Premium Arena Minimal · 2 columnas",
+        "Premium Terracota Mediterráneo · 2 columnas",
+        "Premium Rosa Pastel · 2 columnas",
+        "Premium Mar Claro · 2 columnas",
         "Premium Noir · 2 columnas",
+        "Premium Carbón Suave · 2 columnas",
         "Premium Oliva Natural · 2 columnas",
         "Premium Burdeos Gastrobar · 2 columnas",
         "Premium Azul Noche Mesa QR · 2 columnas",
+        "Premium Blanco Editorial · 2 columnas",
         "Premium Personalizable · 2 columnas"
-    ], key="template_v6")
+    ], key="template_v7")
 
     mapping = {
         "Premium Café Editorial · 2 columnas": ("cafe", "cards", "Carta_Premium_Cafe_Editorial_"),
+        "Premium Arena Minimal · 2 columnas": ("arena", "cards", "Carta_Premium_Arena_"),
+        "Premium Terracota Mediterráneo · 2 columnas": ("terracota", "soft", "Carta_Premium_Terracota_"),
+        "Premium Rosa Pastel · 2 columnas": ("rosa", "soft", "Carta_Premium_Rosa_"),
+        "Premium Mar Claro · 2 columnas": ("mar", "cards", "Carta_Premium_Mar_"),
         "Premium Noir · 2 columnas": ("noir", "cards", "Carta_Premium_Noir_"),
+        "Premium Carbón Suave · 2 columnas": ("carbon", "compact", "Carta_Premium_Carbon_"),
         "Premium Oliva Natural · 2 columnas": ("oliva", "soft", "Carta_Premium_Oliva_"),
         "Premium Burdeos Gastrobar · 2 columnas": ("burdeos", "compact", "Carta_Premium_Burdeos_"),
         "Premium Azul Noche Mesa QR · 2 columnas": ("azul", "mesa", "Carta_Premium_Azul_Noche_"),
+        "Premium Blanco Editorial · 2 columnas": ("blanco", "table", "Carta_Premium_Blanco_Editorial_"),
     }
 
     custom_theme = None
@@ -1991,7 +2212,7 @@ if app_mode == "📝 Generador de Cartas":
 
     if st.session_state.menu_data:
         st.markdown("---")
-        tab1, tab2, tab3, tab4 = st.tabs(["✅ Revisar carta", "🍤 Word con iconos", "📄 Word limpio", "🎨 Plantillas visuales"])
+        tab1, tab2, tab3, tab4 = st.tabs(["✅ Revisar carta", "🍤 Word con iconos", "🖊️ Editables sin iconos", "🎨 Plantillas visuales"])
         data = st.session_state.menu_data
 
         with tab1:
@@ -2001,7 +2222,7 @@ if app_mode == "📝 Generador de Cartas":
             st.download_button("⬇️ DESCARGAR CARTA WORD CON ALÉRGENOS", create_word(data), "Carta_Alergenos.docx")
 
         with tab3:
-            st.download_button("⬇️ DESCARGAR TEXTO LIMPIO WORD", create_clean_word(data), "Carta_Limpia.docx")
+            render_editable_template_library(data)
 
         with tab4:
             render_visual_downloads(data)
