@@ -23,7 +23,7 @@ from docx.oxml.ns import qn
 # ======================================================
 # CONFIGURACIÓN GENERAL
 # ======================================================
-st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v7", layout="wide")
+st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v8", layout="wide")
 
 MODELO_A_USAR = "gemini-2.5-flash"
 
@@ -32,6 +32,9 @@ SANGRIA_PLATOS = Cm(0.8)
 ESPACIO_PLATOS = Pt(3)
 MARGEN_INFERIOR_FORZADO = Cm(4.5)
 MAX_IMAGE_SIDE = 2200
+CLEAN_WORD_DISH_FONT_SIZE = 12
+CLEAN_WORD_PRICE_FONT_SIZE = 12
+CLEAN_WORD_DESCRIPTION_FONT_SIZE = 10.5
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -477,10 +480,14 @@ ALÉRGENOS PERMITIDOS:
 Usa únicamente estas claves exactas: {allergen_keys}
 
 REGLAS DE TRANSCRIPCIÓN:
-- Extrae Nombre, Categorías, Platos, Descripción y Precio exactamente como aparecen.
+- Extrae Nombre, Categorías, Platos, Descripción, Precio y TODO el texto auxiliar exactamente como aparece.
+- Conserva numeración literal de los platos cuando exista en la carta original: 1, 01, 1., 1), Nº 1, etc. Ponla en el campo number y no la inventes.
+- Si no hay numeración visible, deja number vacío.
 - No traduzcas. Si la carta es bilingüe, conserva lo que aparezca.
 - No inventes platos ni precios.
-- Si hay texto suelto, horarios, notas, suplementos o avisos, ponlo en texto_extra.
+- No elimines textos que no sean platos: teléfonos, dirección, horarios, redes, notas, suplementos, menús, avisos, condiciones, encabezados, pies, recomendaciones, etc.
+- Pon esos textos no pertenecientes a platos en texto_extra, separados por saltos de línea.
+- Si un texto auxiliar pertenece claramente a una categoría concreta, ponlo también en category_text de esa categoría.
 
 REGLAS DE ALÉRGENOS:
 - Marca alérgenos cuando el nombre, descripción o preparación habitual del plato lo indique claramente.
@@ -503,13 +510,15 @@ REGLAS DE ALÉRGENOS:
 SALIDA JSON PURO, SIN MARKDOWN:
 {{
   "restaurant_name": "Nombre detectado o MENÚ",
-  "texto_extra": "texto suelto literal",
+  "texto_extra": "todo texto suelto literal que no sea plato, incluyendo teléfonos, horarios, dirección, notas y avisos",
   "categories": [
     {{
       "name": "Categoría",
+      "category_text": "texto auxiliar literal dentro de esta categoría, si aparece",
       "dishes": [
         {{
-          "name": "Plato",
+          "number": "1",
+          "name": "Plato sin quitar palabras importantes",
           "description": "Descripción literal",
           "price": "10,50",
           "allergens": ["gluten", "lacteos"],
@@ -575,6 +584,68 @@ def format_price(price):
     return f"{p}€"
 
 
+def clean_text_value(value):
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return "\n".join(str(x).strip() for x in value if str(x).strip())
+    return str(value).strip()
+
+
+def unique_text_blocks(*values):
+    blocks = []
+    seen = set()
+    for value in values:
+        txt = clean_text_value(value)
+        if not txt:
+            continue
+        for part in re.split(r"\n{2,}|\r\n|\n", txt):
+            part = part.strip()
+            if not part:
+                continue
+            key = normalize_text(part)
+            if key and key not in seen:
+                seen.add(key)
+                blocks.append(part)
+    return blocks
+
+
+def dish_display_name(dish):
+    """Nombre visible del plato, conservando numeración original cuando la IA la haya separado."""
+    name = str(dish.get("name") or "Plato").strip()
+    number = str(dish.get("number") or dish.get("numero") or dish.get("n") or "").strip()
+    if not number:
+        return name
+    number_clean = number.strip()
+    # Evita duplicar si Gemini ya dejó el número dentro del nombre.
+    name_norm = normalize_text(name)
+    number_norm = normalize_text(number_clean).rstrip(".)-ºª")
+    if name_norm.startswith(number_norm + " ") or name_norm.startswith(number_norm + ".") or name_norm.startswith(number_norm + ")"):
+        return name
+    if re.search(r"[\.)]$", number_clean):
+        return f"{number_clean} {name}".strip()
+    return f"{number_clean}. {name}".strip()
+
+
+def add_text_block_to_doc(doc, text, indent=None, font_size=10.5, italic=True, color=None):
+    text = clean_text_value(text)
+    if not text:
+        return
+    for line in unique_text_blocks(text):
+        p = doc.add_paragraph()
+        if indent is not None:
+            release_paragraph_constraints(p, indent)
+        p.paragraph_format.space_after = Pt(2)
+        r = p.add_run(line)
+        r.font.size = Pt(font_size)
+        r.italic = italic
+        if color:
+            try:
+                set_run_color(r, color)
+            except Exception:
+                pass
+
+
 def create_word(data):
     doc = new_doc_from_template()
     for section in doc.sections:
@@ -597,7 +668,7 @@ def create_word(data):
             p = doc.add_paragraph()
             release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
             p.paragraph_format.tab_stops.add_tab_stop(Cm(13.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            p.add_run(dish.get("name", "Plato")).bold = True
+            p.add_run(dish_display_name(dish)).bold = True
             p.add_run(f"\t{format_price(dish.get('price', ''))}\t")
             run_icons = p.add_run()
             for allergen in get_ordered_allergens(dish.get("allergens", [])):
@@ -625,6 +696,9 @@ def create_word(data):
 
 
 def create_clean_word(data):
+    """Word limpio clásico: una columna, editable, sin iconos junto a platos.
+    Conserva numeración de platos si existe, texto auxiliar de la carta y cuerpo a 12 pt.
+    """
     doc = new_doc_from_template()
     for section in doc.sections:
         section.bottom_margin = MARGEN_INFERIOR_FORZADO
@@ -633,25 +707,39 @@ def create_clean_word(data):
     p_title = doc.add_heading(rest_name, 0)
     release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
 
+    # Texto auxiliar general detectado en la carta: teléfonos, horarios, dirección, avisos, etc.
+    for block in unique_text_blocks(data.get("texto_extra"), data.get("header_text"), data.get("footer_text"), data.get("notes")):
+        add_text_block_to_doc(doc, block, SANGRIA_CATEGORIA, font_size=10.5, italic=True)
+
     for category in data.get("categories", []):
         p_cat = doc.add_heading(category.get("name", "Categoría"), level=1)
         release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
         p_cat.paragraph_format.space_before = Pt(6)
+
+        for block in unique_text_blocks(category.get("category_text"), category.get("texto_extra"), category.get("notes")):
+            add_text_block_to_doc(doc, block, SANGRIA_PLATOS, font_size=10.5, italic=True)
+
         for dish in category.get("dishes", []):
             p = doc.add_paragraph()
             release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
             p.paragraph_format.tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            p.add_run(dish.get("name", "Plato")).bold = True
-            p.add_run(f"\t{format_price(dish.get('price', ''))}")
+            rn = p.add_run(dish_display_name(dish))
+            rn.bold = True
+            rn.font.size = Pt(CLEAN_WORD_DISH_FONT_SIZE)
+            rp = p.add_run(f"\t{format_price(dish.get('price', ''))}")
+            rp.font.size = Pt(CLEAN_WORD_PRICE_FONT_SIZE)
             if dish.get("description"):
                 p_desc = doc.add_paragraph()
                 release_paragraph_constraints(p_desc, SANGRIA_PLATOS, is_dish=True)
-                p_desc.add_run(dish["description"]).italic = True
+                rd = p_desc.add_run(dish["description"])
+                rd.italic = True
+                rd.font.size = Pt(CLEAN_WORD_DESCRIPTION_FONT_SIZE)
 
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     return buffer
+
 
 # ======================================================
 # HTML/PDF VISUAL CON ICONOS REALES
@@ -768,7 +856,7 @@ def create_blackboard_html(data, logo_src=None, qr_src=None):
             dishes.append(f"""
             <div class="dish-row">
                 <div class="dish-main">
-                    <div class="dish-title-line"><span class="dish-name">{html_escape(dish.get('name', 'Plato'))}</span><span class="icons-line">{icons}</span></div>
+                    <div class="dish-title-line"><span class="dish-name">{html_escape(dish_display_name(dish))}</span><span class="icons-line">{icons}</span></div>
                     {desc_html}
                 </div>
                 <div class="price">{price}</div>
@@ -854,7 +942,7 @@ def create_modern_html(data, logo_src=None, qr_src=None):
             price = html_escape(format_price(dish.get("price", "")))
             dishes.append(f"""
             <article class="modern-dish">
-                <div class="modern-line"><h3>{html_escape(dish.get('name','Plato'))}</h3><strong>{price}</strong></div>
+                <div class="modern-line"><h3>{html_escape(dish_display_name(dish))}</h3><strong>{price}</strong></div>
                 {desc_html}
                 <div class="icon-line">{icons}</div>
             </article>
@@ -925,7 +1013,7 @@ def create_matrix_html(data, logo_src=None, qr_src=None):
             rows.append(f"""
             <tr>
                 <td class="cat">{html_escape(cat.get('name',''))}</td>
-                <td class="prod"><strong>{html_escape(dish.get('name',''))}</strong><br><span>{html_escape(dish.get('description',''))}</span></td>
+                <td class="prod"><strong>{html_escape(dish_display_name(dish))}</strong><br><span>{html_escape(dish.get('description',''))}</span></td>
                 <td class="price-cell">{html_escape(format_price(dish.get('price','')))}</td>
                 {''.join(cells)}
             </tr>
@@ -995,7 +1083,7 @@ def create_qr_mesa_html(data, logo_src=None, qr_src=None):
             dishes.append(f"""
             <div class="mesa-row">
                 <div class="mesa-info">
-                    <div class="mesa-title"><span>{html_escape(dish.get('name', 'Plato'))}</span><span class="mesa-icons">{icons}</span></div>
+                    <div class="mesa-title"><span>{html_escape(dish_display_name(dish))}</span><span class="mesa-icons">{icons}</span></div>
                     {desc_html}
                 </div>
                 <div class="mesa-price">{price}</div>
@@ -1089,7 +1177,7 @@ def create_premium_compact_html(data, logo_src=None, qr_src=None):
             rows.append(f"""
             <div class="compact-row">
                 <div class="compact-main">
-                    <div class="compact-title"><span>{html_escape(dish.get('name','Plato'))}</span><span class="compact-icons">{icons}</span></div>
+                    <div class="compact-title"><span>{html_escape(dish_display_name(dish))}</span><span class="compact-icons">{icons}</span></div>
                     {desc_html}
                 </div>
                 <div class="compact-price">{price}</div>
@@ -1153,7 +1241,7 @@ def create_premium_clean_html(data, logo_src=None, qr_src=None):
             price = html_escape(format_price(dish.get("price", "")))
             dishes.append(f"""
             <article class="clean-dish">
-                <div class="clean-line"><h3>{html_escape(dish.get('name','Plato'))}</h3><strong>{price}</strong></div>
+                <div class="clean-line"><h3>{html_escape(dish_display_name(dish))}</h3><strong>{price}</strong></div>
                 {desc_html}
                 <div class="clean-icons">{icons}</div>
             </article>
@@ -1216,7 +1304,7 @@ def create_premium_table_html(data, logo_src=None, qr_src=None):
             price = html_escape(format_price(dish.get("price", "")))
             rows.append(f"""
             <div class="table-row">
-                <div class="table-product"><strong>{html_escape(dish.get('name','Plato'))}</strong>{desc_html}</div>
+                <div class="table-product"><strong>{html_escape(dish_display_name(dish))}</strong>{desc_html}</div>
                 <div class="table-icons">{icons}</div>
                 <div class="table-price">{price}</div>
             </div>
@@ -1326,7 +1414,7 @@ def create_premium_editable_word(data):
             p = doc.add_paragraph()
             p.paragraph_format.space_after = Pt(2)
             p.paragraph_format.tab_stops.add_tab_stop(Cm(7.6), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            r = p.add_run(dish.get('name', 'Plato'))
+            r = p.add_run(dish_display_name(dish))
             r.bold = True
             r.font.size = Pt(8.4)
             p.add_run('\t' + format_price(dish.get('price', '')) + '  ')
@@ -1498,6 +1586,8 @@ def create_editable_word_clean_template(data, theme_key='cafe', two_columns=True
     styles['Normal'].font.size = Pt(8.6)
 
     add_docx_heading_block(doc, data, theme)
+    for block in unique_text_blocks(data.get('texto_extra'), data.get('header_text'), data.get('footer_text'), data.get('notes')):
+        add_text_block_to_doc(doc, block, None, font_size=8.2 if two_columns else 10.5, italic=True, color=theme['muted'])
     if two_columns:
         set_docx_two_columns(section)
 
@@ -1509,11 +1599,13 @@ def create_editable_word_clean_template(data, theme_key='cafe', two_columns=True
         rc.bold = True
         rc.font.size = Pt(13)
         set_run_color(rc, theme['cat'])
+        for block in unique_text_blocks(cat.get('category_text'), cat.get('texto_extra'), cat.get('notes')):
+            add_text_block_to_doc(doc, block, None, font_size=7.8 if two_columns else 10.5, italic=True, color=theme['muted'])
         for dish in cat.get('dishes', []):
             p = doc.add_paragraph()
             p.paragraph_format.space_after = Pt(1.6)
             p.paragraph_format.tab_stops.add_tab_stop(Cm(7.8 if two_columns else 15.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            r = p.add_run(dish.get('name', 'Plato'))
+            r = p.add_run(dish_display_name(dish))
             r.bold = True
             r.font.size = Pt(8.7)
             set_run_color(r, theme['text'])
@@ -1561,10 +1653,10 @@ def render_editable_clean_templates(data):
             'Elige plantilla editable',
             list(EDITABLE_WORD_THEMES.keys()),
             format_func=lambda k: EDITABLE_WORD_THEMES[k]['name'],
-            key='editable_clean_theme_v7'
+            key='editable_clean_theme_v8'
         )
     with c2:
-        two_cols = st.checkbox('Trabajar en 2 columnas', value=True, key='editable_clean_two_cols_v7')
+        two_cols = st.checkbox('Trabajar en 2 columnas', value=True, key='editable_clean_two_cols_v8')
 
     base_name = 'Plantilla_Editable_' + slugify_filename(EDITABLE_WORD_THEMES[theme_key]['name']) + '_' + slugify_filename(data.get('restaurant_name','menu'))
     c1, c2 = st.columns(2)
@@ -1583,7 +1675,7 @@ def render_editable_clean_templates(data):
             mime='application/zip'
         )
 
-    st.info('El Word limpio original sigue igual: una columna, sin diseño premium y sin iconos. Este apartado es para plantillas editables de cliente.')
+    st.info('El Word limpio original se mantiene en una columna, conserva numeración si existe, añade los textos auxiliares detectados y usa letra 12 en los platos. Este apartado es para plantillas editables de cliente.')
 
 def html_to_pdf_bytes(html_code):
     try:
@@ -1609,15 +1701,18 @@ def show_asset_diagnostics():
 
 def render_editor(data):
     data["restaurant_name"] = st.text_input("Nombre del restaurante", data.get("restaurant_name", ""))
-    data["texto_extra"] = st.text_area("📝 Texto suelto detectado", data.get("texto_extra", ""), height=90)
+    data["texto_extra"] = st.text_area("📝 Texto suelto detectado / textos no plato", data.get("texto_extra", ""), height=120, help="Aquí deben quedar teléfonos, horarios, dirección, notas, suplementos, avisos y cualquier texto de la carta que no sea un plato.")
 
     st.info("La app usa revisión unificada: IA + reglas de hostelería + edición manual final. Revisa especialmente salsas, fritos, caldos y productos industriales.")
     for c_idx, cat in enumerate(data.get("categories", [])):
         with st.expander(f"📂 {cat.get('name', 'Categoría')}", expanded=True):
             cat["name"] = st.text_input("Categoría", cat.get("name", ""), key=f"cat_{c_idx}")
+            cat["category_text"] = st.text_area("Texto auxiliar de esta categoría", cat.get("category_text", ""), key=f"cat_text_{c_idx}", height=54)
             for d_idx, dish in enumerate(cat.get("dishes", [])):
                 st.markdown(f"**Plato {d_idx + 1}**")
-                col1, col2 = st.columns([3, 1.35])
+                col0, col1, col2 = st.columns([0.75, 3, 1.35])
+                with col0:
+                    dish["number"] = st.text_input("Nº", dish.get("number", ""), key=f"num_{c_idx}_{d_idx}", help="Número original del plato si venía numerado en la carta.")
                 with col1:
                     dish["name"] = st.text_input("Plato", dish.get("name", ""), key=f"name_{c_idx}_{d_idx}")
                     dish["description"] = st.text_area("Descripción", dish.get("description", ""), key=f"desc_{c_idx}_{d_idx}", height=64)
@@ -1655,7 +1750,7 @@ def render_visual_downloads(data):
     logo_src = uploaded_image_to_data_uri(logo_file, max_side=900) if logo_file else None
     qr_src = uploaded_image_to_data_uri(qr_file, max_side=700) if qr_file else generate_qr_data_uri(qr_url)
 
-    show_dish_icons = st.checkbox("Mostrar iconos junto a cada plato", value=False, key="show_dish_icons_v7")
+    show_dish_icons = st.checkbox("Mostrar iconos junto a cada plato", value=False, key="show_dish_icons_v8")
 
     template = st.selectbox("Elige plantilla final", [
         "Premium café/bistró · 2 columnas",
@@ -1887,7 +1982,7 @@ def _build_cards_sections(data, variant="cards", show_dish_icons=True):
             price = html_escape(format_price(dish.get("price", "")))
             dishes.append(f'''
             <article class="dish {variant}">
-                <div class="dish-line"><h3>{html_escape(dish.get('name','Plato'))}</h3><strong>{price}</strong></div>
+                <div class="dish-line"><h3>{html_escape(dish_display_name(dish))}</h3><strong>{price}</strong></div>
                 {desc_html}
                 {icon_line}
             </article>
@@ -1913,7 +2008,7 @@ def _build_table_sections(data, show_dish_icons=True):
             price = html_escape(format_price(dish.get("price", "")))
             rows.append(f'''
             <div class="table-row">
-                <div class="table-product"><strong>{html_escape(dish.get('name','Plato'))}</strong>{desc_html}</div>
+                <div class="table-product"><strong>{html_escape(dish_display_name(dish))}</strong>{desc_html}</div>
                 {icons_html}
                 <div class="table-price">{price}</div>
             </div>
@@ -2045,7 +2140,7 @@ def render_visual_downloads(data):
     logo_src = uploaded_image_to_data_uri(logo_file, max_side=900) if logo_file else None
     qr_src = uploaded_image_to_data_uri(qr_file, max_side=700) if qr_file else generate_qr_data_uri(qr_url)
 
-    show_dish_icons = st.checkbox("Mostrar iconos junto a cada plato", value=False, key="show_dish_icons_v7")
+    show_dish_icons = st.checkbox("Mostrar iconos junto a cada plato", value=False, key="show_dish_icons_v8")
 
     template = st.selectbox("Elige plantilla final", [
         "Premium Café Editorial · 2 columnas",
