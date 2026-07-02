@@ -6,3 +6,4 @@ Pillow
 pdf2docx
 PyMuPdf
 weasyprint
+qrcode
