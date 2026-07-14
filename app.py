@@ -15,15 +15,16 @@ from pypdf import PdfReader
 from docx import Document
 from docx.shared import Cm, Pt
 from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER, WD_LINE_SPACING
-from docx.enum.section import WD_SECTION
+from docx.enum.section import WD_SECTION, WD_ORIENT
 from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 # ======================================================
 # CONFIGURACIÓN GENERAL
 # ======================================================
-st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v8", layout="wide")
+st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v9", layout="wide")
 
 MODELO_A_USAR = "gemini-2.5-flash"
 
@@ -1632,6 +1633,350 @@ def create_editable_word_clean_template(data, theme_key='cafe', two_columns=True
     return buffer
 
 
+
+def set_cell_width(cell, width_cm):
+    """Fija el ancho de una celda para que cabeceros y pies coincidan con las dos páginas del libro."""
+    width = Cm(width_cm)
+    cell.width = width
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_w = tc_pr.find(qn('w:tcW'))
+    if tc_w is None:
+        tc_w = OxmlElement('w:tcW')
+        tc_pr.append(tc_w)
+    tc_w.set(qn('w:w'), str(int(width.twips)))
+    tc_w.set(qn('w:type'), 'dxa')
+
+def set_table_width(table, width_cm):
+    width = Cm(width_cm)
+    tbl_pr = table._tbl.tblPr
+    tbl_w = tbl_pr.find(qn('w:tblW'))
+    if tbl_w is None:
+        tbl_w = OxmlElement('w:tblW')
+        tbl_pr.append(tbl_w)
+    tbl_w.set(qn('w:w'), str(int(width.twips)))
+    tbl_w.set(qn('w:type'), 'dxa')
+
+
+def set_table_grid_widths(table, widths_cm):
+    grid_cols = table._tbl.tblGrid.findall(qn('w:gridCol'))
+    for idx, width_cm in enumerate(widths_cm):
+        if idx >= len(grid_cols):
+            break
+        grid_cols[idx].set(qn('w:w'), str(int(Cm(width_cm).twips)))
+
+
+
+def set_cell_margins(cell, top=70, start=90, bottom=70, end=90):
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_mar = tc_pr.first_child_found_in('w:tcMar')
+    if tc_mar is None:
+        tc_mar = OxmlElement('w:tcMar')
+        tc_pr.append(tc_mar)
+    for margin_name, margin_value in {
+        'top': top, 'start': start, 'bottom': bottom, 'end': end
+    }.items():
+        node = tc_mar.find(qn(f'w:{margin_name}'))
+        if node is None:
+            node = OxmlElement(f'w:{margin_name}')
+            tc_mar.append(node)
+        node.set(qn('w:w'), str(margin_value))
+        node.set(qn('w:type'), 'dxa')
+
+
+def set_table_cell_border(cell, **edges):
+    """Bordes básicos para cabeceros/pies sin depender de estilos instalados en Word."""
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_borders = tc_pr.first_child_found_in('w:tcBorders')
+    if tc_borders is None:
+        tc_borders = OxmlElement('w:tcBorders')
+        tc_pr.append(tc_borders)
+    for edge_name, edge_data in edges.items():
+        edge = tc_borders.find(qn(f'w:{edge_name}'))
+        if edge is None:
+            edge = OxmlElement(f'w:{edge_name}')
+            tc_borders.append(edge)
+        for key in ['val', 'sz', 'space', 'color']:
+            if key in edge_data:
+                edge.set(qn(f'w:{key}'), str(edge_data[key]))
+
+
+def set_book_columns(section, gutter_cm=0.8):
+    """Dos columnas reales de Word en A4 horizontal, con canal central de modo libro."""
+    sect_pr = section._sectPr
+    cols = sect_pr.xpath('./w:cols')
+    cols_el = cols[0] if cols else OxmlElement('w:cols')
+    if not cols:
+        sect_pr.append(cols_el)
+    gutter_twips = int(Cm(gutter_cm).twips)
+    cols_el.set(qn('w:num'), '2')
+    cols_el.set(qn('w:space'), str(gutter_twips))
+    cols_el.set(qn('w:equalWidth'), '1')
+
+
+def add_book_header_side(cell, data, theme):
+    set_cell_shading(cell, theme['header'])
+    set_cell_margins(cell, top=70, start=130, bottom=70, end=130)
+    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    p = cell.paragraphs[0]
+    p.alignment = 1
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+    r = p.add_run(str(data.get('restaurant_name') or 'MENÚ').upper())
+    r.bold = True
+    r.font.name = 'Georgia'
+    r.font.size = Pt(11.5)
+    set_run_color(r, 'FFFFFF')
+    p2 = cell.add_paragraph()
+    p2.alignment = 1
+    p2.paragraph_format.space_before = Pt(0)
+    p2.paragraph_format.space_after = Pt(0)
+    r2 = p2.add_run('CARTA · MENÚ')
+    r2.bold = True
+    r2.font.size = Pt(5.8)
+    set_run_color(r2, 'FFFFFF')
+
+
+def add_book_legend_side(cell, data, theme, side_width_cm=13.5):
+    set_cell_margins(cell, top=35, start=55, bottom=25, end=55)
+    set_table_cell_border(cell, top={'val':'single','sz':'6','space':'0','color':theme['cat']})
+    p = cell.paragraphs[0]
+    p.alignment = 1
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(1)
+    title = p.add_run('GUÍA DE ALÉRGENOS')
+    title.bold = True
+    title.font.size = Pt(6.2)
+    set_run_color(title, theme['cat'])
+
+    legend = cell.add_table(rows=2, cols=7)
+    legend.alignment = WD_TABLE_ALIGNMENT.CENTER
+    legend.autofit = False
+    legend_width_cm = max(10.5, side_width_cm - 0.35)
+    set_table_width(legend, legend_width_cm)
+    legend_cell_cm = legend_width_cm / 7.0
+    set_table_grid_widths(legend, [legend_cell_cm] * 7)
+    for idx, allergen in enumerate(ALLERGEN_ORDER):
+        row = 0 if idx < 7 else 1
+        col = idx if idx < 7 else idx - 7
+        item_cell = legend.cell(row, col)
+        set_cell_width(item_cell, legend_cell_cm)
+        set_cell_margins(item_cell, top=0, start=4, bottom=0, end=4)
+        ip = item_cell.paragraphs[0]
+        ip.alignment = 1
+        ip.paragraph_format.space_before = Pt(0)
+        ip.paragraph_format.space_after = Pt(0)
+        icon_path = ICON_MAP.get(allergen)
+        if icon_path and os.path.exists(icon_path):
+            try:
+                ip.add_run().add_picture(icon_path, width=Cm(0.32))
+                ip.add_run('\n')
+            except Exception:
+                pass
+        else:
+            fallback = ip.add_run(ALLERGEN_SHORT.get(allergen, allergen[:3]).upper() + '\n')
+            fallback.bold = True
+            fallback.font.size = Pt(4.4)
+            set_run_color(fallback, theme['cat'])
+        label = ip.add_run(ALLERGEN_LABELS.get(allergen, allergen))
+        label.font.size = Pt(3.7)
+        set_run_color(label, theme['text'])
+
+    notice_p = cell.add_paragraph()
+    notice_p.alignment = 1
+    notice_p.paragraph_format.space_before = Pt(1)
+    notice_p.paragraph_format.space_after = Pt(0)
+    nr = notice_p.add_run(build_notice(data))
+    nr.font.size = Pt(4.2)
+    nr.italic = True
+    set_run_color(nr, theme['muted'])
+
+
+def configure_book_header_footer(section, data, theme):
+    """Duplica cabecero y leyenda en los lados izquierdo y derecho de cada página horizontal."""
+    usable_width = section.page_width - section.left_margin - section.right_margin
+    usable_cm = usable_width / 360000.0
+    gutter_cm = 0.8
+    side_cm = (usable_cm - gutter_cm) / 2
+
+    header = section.header
+    header.is_linked_to_previous = False
+    header.distance = Cm(0.35)
+    header.paragraphs[0].paragraph_format.space_after = Pt(0)
+    ht = header.add_table(rows=1, cols=3, width=usable_width)
+    ht.alignment = WD_TABLE_ALIGNMENT.CENTER
+    ht.autofit = False
+    set_table_grid_widths(ht, [side_cm, gutter_cm, side_cm])
+    set_cell_width(ht.cell(0, 0), side_cm)
+    set_cell_width(ht.cell(0, 1), gutter_cm)
+    set_cell_width(ht.cell(0, 2), side_cm)
+    add_book_header_side(ht.cell(0, 0), data, theme)
+    add_book_header_side(ht.cell(0, 2), data, theme)
+    set_cell_shading(ht.cell(0, 1), 'FFFFFF')
+    set_cell_margins(ht.cell(0, 1), top=0, start=0, bottom=0, end=0)
+
+    footer = section.footer
+    footer.is_linked_to_previous = False
+    footer.distance = Cm(0.25)
+    footer.paragraphs[0].paragraph_format.space_after = Pt(0)
+    ft = footer.add_table(rows=1, cols=3, width=usable_width)
+    ft.alignment = WD_TABLE_ALIGNMENT.CENTER
+    ft.autofit = False
+    set_table_grid_widths(ft, [side_cm, gutter_cm, side_cm])
+    set_cell_width(ft.cell(0, 0), side_cm)
+    set_cell_width(ft.cell(0, 1), gutter_cm)
+    set_cell_width(ft.cell(0, 2), side_cm)
+    add_book_legend_side(ft.cell(0, 0), data, theme, side_width_cm=side_cm)
+    add_book_legend_side(ft.cell(0, 2), data, theme, side_width_cm=side_cm)
+    set_cell_margins(ft.cell(0, 1), top=0, start=0, bottom=0, end=0)
+
+
+def create_landscape_book_word(
+    data,
+    theme_key='cafe',
+    dish_font_size=12,
+    include_descriptions=True,
+    icons_after_dish=True,
+):
+    """Word editable A4 horizontal en modo libro.
+
+    - Dos columnas reales que fluyen de izquierda a derecha.
+    - Cabecero y leyenda inferior repetidos en cada lado.
+    - Número + plato + símbolos inmediatamente después + precio alineado al final.
+    """
+    theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES['cafe'])
+    doc = Document()
+    section = doc.sections[0]
+    section.orientation = WD_ORIENT.LANDSCAPE
+    section.page_width = Cm(29.7)
+    section.page_height = Cm(21.0)
+    section.left_margin = Cm(0.8)
+    section.right_margin = Cm(0.8)
+    section.top_margin = Cm(2.25)
+    section.bottom_margin = Cm(3.35)
+    section.header_distance = Cm(0.35)
+    section.footer_distance = Cm(0.25)
+    set_book_columns(section, gutter_cm=0.8)
+    configure_book_header_footer(section, data, theme)
+
+    styles = doc.styles
+    styles['Normal'].font.name = 'Arial'
+    styles['Normal'].font.size = Pt(dish_font_size)
+
+    # Conserva todo texto auxiliar detectado: teléfonos, horarios, dirección, notas, etc.
+    for block in unique_text_blocks(
+        data.get('texto_extra'), data.get('header_text'), data.get('footer_text'), data.get('notes')
+    ):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(3)
+        r = p.add_run(block)
+        r.italic = True
+        r.font.size = Pt(max(8.5, dish_font_size - 1.5))
+        set_run_color(r, theme['muted'])
+
+    for cat in data.get('categories', []):
+        p_cat = doc.add_paragraph()
+        p_cat.paragraph_format.space_before = Pt(5)
+        p_cat.paragraph_format.space_after = Pt(2)
+        p_cat.paragraph_format.keep_with_next = True
+        rc = p_cat.add_run(str(cat.get('name') or 'Categoría').upper())
+        rc.bold = True
+        rc.font.name = 'Georgia'
+        rc.font.size = Pt(dish_font_size + 2)
+        set_run_color(rc, theme['cat'])
+
+        for block in unique_text_blocks(cat.get('category_text'), cat.get('texto_extra'), cat.get('notes')):
+            p_extra = doc.add_paragraph()
+            p_extra.paragraph_format.space_before = Pt(0)
+            p_extra.paragraph_format.space_after = Pt(2)
+            rr = p_extra.add_run(block)
+            rr.italic = True
+            rr.font.size = Pt(max(8, dish_font_size - 2))
+            set_run_color(rr, theme['muted'])
+
+        for dish in cat.get('dishes', []):
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+            p.paragraph_format.tab_stops.add_tab_stop(
+                Cm(12.35), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.SPACES
+            )
+
+            name_run = p.add_run(dish_display_name(dish))
+            name_run.bold = True
+            name_run.font.size = Pt(dish_font_size)
+            set_run_color(name_run, theme['text'])
+
+            if icons_after_dish:
+                p.add_run('  ')
+                for allergen in get_ordered_allergens(dish.get('allergens', [])):
+                    icon_path = ICON_MAP.get(allergen)
+                    if icon_path and os.path.exists(icon_path):
+                        try:
+                            p.add_run().add_picture(icon_path, width=Cm(0.36))
+                            p.add_run(' ')
+                        except Exception:
+                            fb = p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ')
+                            fb.font.size = Pt(max(6, dish_font_size - 4))
+                    else:
+                        fb = p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ')
+                        fb.font.size = Pt(max(6, dish_font_size - 4))
+                        set_run_color(fb, theme['cat'])
+
+            price_run = p.add_run('\t' + format_price(dish.get('price', '')))
+            price_run.bold = True
+            price_run.font.size = Pt(dish_font_size)
+            set_run_color(price_run, theme['text'])
+
+            if include_descriptions and dish.get('description'):
+                pd = doc.add_paragraph()
+                pd.paragraph_format.space_before = Pt(0)
+                pd.paragraph_format.space_after = Pt(2)
+                rd = pd.add_run(str(dish.get('description') or ''))
+                rd.italic = True
+                rd.font.size = Pt(max(8.5, dish_font_size - 1.5))
+                set_run_color(rd, theme['muted'])
+
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def render_landscape_book_word(data):
+    st.subheader('📖 Word horizontal · modo libro')
+    st.caption('A4 horizontal editable: dos lados, cabecero y leyenda repetidos en cada lado. Los símbolos quedan justo después del plato y el precio al final.')
+
+    c1, c2, c3 = st.columns([1.25, 0.8, 0.9])
+    with c1:
+        theme_key = st.selectbox(
+            'Estilo del libro',
+            list(EDITABLE_WORD_THEMES.keys()),
+            format_func=lambda k: EDITABLE_WORD_THEMES[k]['name'],
+            key='book_theme_v9'
+        )
+    with c2:
+        dish_size = st.selectbox('Tamaño de platos', [10, 11, 12], index=2, key='book_font_v9')
+    with c3:
+        include_desc = st.checkbox('Incluir descripciones', value=True, key='book_desc_v9')
+
+    st.info('Este formato se añade como opción nueva. No reemplaza el Word limpio, las plantillas editables, el Radar de Clientes ni el Extractor Universal.')
+    output = create_landscape_book_word(
+        data,
+        theme_key=theme_key,
+        dish_font_size=dish_size,
+        include_descriptions=include_desc,
+        icons_after_dish=True,
+    )
+    filename = 'Carta_Horizontal_Modo_Libro_' + slugify_filename(data.get('restaurant_name', 'menu')) + '.docx'
+    st.download_button(
+        '⬇️ DESCARGAR WORD HORIZONTAL MODO LIBRO',
+        output,
+        file_name=filename,
+        mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    )
+
 def create_editable_templates_zip(data, two_columns=True):
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -2251,7 +2596,7 @@ app_mode = st.sidebar.radio("Navegación", ["📝 Generador de Cartas", "📡 Ra
 
 if app_mode == "📝 Generador de Cartas":
     st.title("Sistema Integral de Cartas 🥘")
-    st.caption("Revisión unificada de alérgenos: IA + reglas de hostelería + edición manual. v7 añade plantillas editables limpias sin iconos junto a cada plato.")
+    st.caption("Revisión unificada de alérgenos: IA + reglas de hostelería + edición manual. v9 añade Word horizontal editable en modo libro.")
 
     if "menu_data" not in st.session_state:
         st.session_state.menu_data = None
@@ -2299,7 +2644,7 @@ if app_mode == "📝 Generador de Cartas":
 
     if st.session_state.menu_data:
         st.markdown("---")
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["✅ Revisar carta", "🍤 Word con iconos", "📄 Word limpio", "📝 Plantillas editables", "🎨 Plantillas visuales"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["✅ Revisar carta", "🍤 Word con iconos", "📄 Word limpio", "📝 Plantillas editables", "📖 Word horizontal", "🎨 Plantillas visuales"])
         data = st.session_state.menu_data
 
         with tab1:
@@ -2315,6 +2660,9 @@ if app_mode == "📝 Generador de Cartas":
             render_editable_clean_templates(data)
 
         with tab5:
+            render_landscape_book_word(data)
+
+        with tab6:
             render_visual_downloads(data)
 
 elif app_mode == "📡 Radar de Clientes":
