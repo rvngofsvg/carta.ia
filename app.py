@@ -1,5 +1,6 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
 import os
 import json
 import re
@@ -24,9 +25,9 @@ from docx.oxml.ns import qn
 # ======================================================
 # CONFIGURACIÓN GENERAL
 # ======================================================
-st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v9", layout="wide")
+st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v11.1", layout="wide")
 
-MODELO_A_USAR = "gemini-2.5-flash"
+MODELO_A_USAR = "gemini-3.6-flash"
 
 SANGRIA_CATEGORIA = Cm(0.8)
 SANGRIA_PLATOS = Cm(0.8)
@@ -409,7 +410,22 @@ if not API_KEY:
     st.error("❌ Falta la GEMINI_API_KEY en los Secrets.")
     st.stop()
 
-genai.configure(api_key=API_KEY)
+GENAI_CLIENT = genai.Client(api_key=API_KEY)
+
+
+class _GeminiModelCompat:
+    """Compatibilidad temporal para las funciones v9 que aún llaman model.generate_content().
+    Internamente usa exclusivamente el SDK google-genai actual.
+    """
+    def __init__(self, model_name):
+        self.model_name = model_name
+
+    def generate_content(self, contents, request_options=None):
+        return GENAI_CLIENT.models.generate_content(
+            model=self.model_name,
+            contents=contents,
+        )
+
 
 # ======================================================
 # LECTURA DE ARCHIVOS
@@ -450,7 +466,7 @@ def extract_text_from_pdf_scanned_with_gemini(file):
         file.seek(0)
         pdf_bytes = file.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        model = genai.GenerativeModel(MODELO_A_USAR)
+        model = _GeminiModelCompat(MODELO_A_USAR)
         chunks = []
         for i, page in enumerate(doc[:6]):  # límite de seguridad
             pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
@@ -542,7 +558,7 @@ def parse_json_response(text):
 
 
 def analyze_content(content, content_type="image"):
-    model = genai.GenerativeModel(MODELO_A_USAR)
+    model = _GeminiModelCompat(MODELO_A_USAR)
     prompt = build_ai_prompt()
     try:
         with st.spinner(f"🧠 Analizando menú con {MODELO_A_USAR} + reglas Serval TECH..."):
@@ -2588,6 +2604,739 @@ def render_visual_downloads(data):
         st.components.v1.html(html_code, height=840, scrolling=True)
 
 # ======================================================
+# V11.1 - ESTABILIZACIÓN PROFESIONAL
+# Voz + alérgenos + salidas + traducción (sin añadir módulos nuevos)
+# ======================================================
+import copy
+import hashlib
+
+MENU_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "restaurant_name": {"type": "string"},
+        "texto_extra": {"type": "string"},
+        "categories": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "category_text": {"type": "string"},
+                    "dishes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "number": {"type": "string"},
+                                "name": {"type": "string"},
+                                "description": {"type": "string"},
+                                "price": {"type": "string"},
+                                "allergens": {
+                                    "type": "array",
+                                    "items": {"type": "string", "enum": ALLERGEN_ORDER},
+                                },
+                                "review_notes": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["number", "name", "description", "price", "allergens", "review_notes"],
+                        },
+                    },
+                },
+                "required": ["name", "category_text", "dishes"],
+            },
+        },
+    },
+    "required": ["restaurant_name", "texto_extra", "categories"],
+}
+
+
+def build_ai_prompt():
+    allergen_keys = ", ".join(ALLERGEN_ORDER)
+    return f"""
+Eres un transcriptor profesional de cartas de restaurante y un asistente técnico de revisión de alérgenos para hostelería en España/UE.
+
+OBJETIVO:
+1) Transcribir fielmente la carta.
+2) Estructurar categorías, platos, descripciones y precios.
+3) Proponer alérgenos SOLO cuando el texto del plato/descripción los respalde de forma clara.
+4) Si un alérgeno depende de la receta habitual, marca la duda en review_notes en vez de afirmarlo como confirmado.
+
+ALÉRGENOS PERMITIDOS:
+Usa únicamente estas claves exactas: {allergen_keys}
+
+REGLAS DE TRANSCRIPCIÓN:
+- Conserva el nombre del restaurante/marca tal como aparece. NO lo traduzcas.
+- Conserva categorías, platos, descripción, precio y todo texto auxiliar.
+- Conserva numeración literal si existe; si no existe, deja number vacío.
+- No inventes platos, ingredientes, precios ni cantidades.
+- Pon teléfonos, dirección, horarios, notas, suplementos y avisos en texto_extra.
+- Si una nota pertenece claramente a una categoría, ponla en category_text.
+
+REGLAS DE ALÉRGENOS:
+- allergens debe contener SOLO alérgenos con evidencia suficientemente clara en nombre/descripción o en un producto/plato inequívoco.
+- Si la receta puede variar, NO lo confirmes: añádelo a review_notes.
+- "marisco" es genérico: revisar si son crustáceos, moluscos o ambos.
+- "alioli" puede llevar huevo o no: revisar receta.
+- "pesto", "romesco", "hummus" y "César" pueden variar: revisar receta y proveedor.
+- caldos/fondos/sofritos/pastillas pueden llevar apio: revisar, no confirmar automáticamente.
+- vino/vinagre/cava/vermut/sidra pueden requerir revisar sulfitos según producto/etiquetado: no los confirmes solo por el nombre.
+- "tortilla de trigo" no implica huevo; "tortilla de patatas/española/francesa" sí implica huevo.
+- "burger/hamburguesa" sola no implica gluten; solo si se menciona pan/brioche u otro cereal con gluten.
+- "sushi" o "tataki" solos no implican pescado; usa la especie/ingrediente si aparece.
+- piñones NO deben mapearse automáticamente a "frutos de cascara".
+- contaminación cruzada de freidora va en review_notes, no como presencia automática.
+- Si indica "sin gluten", no marques gluten y añade nota de revisión sobre ficha/manipulación.
+- "sin lactosa" no significa necesariamente "sin leche".
+
+Devuelve SOLO JSON válido según el esquema solicitado por la aplicación.
+"""
+
+
+def _gemini_menu_json(contents):
+    response = GENAI_CLIENT.models.generate_content(
+        model=MODELO_A_USAR,
+        contents=contents,
+        config=genai_types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=MENU_JSON_SCHEMA,
+        ),
+    )
+    return parse_json_response(response.text)
+
+
+def _word_or_phrase(text, phrase):
+    haystack = normalize_text(text)
+    needle = normalize_text(phrase)
+    if not needle:
+        return False
+    return re.search(r"(?<!\w)" + re.escape(needle) + r"(?!\w)", haystack, flags=re.IGNORECASE) is not None
+
+
+# Solo ingredientes/nombres con respaldo suficientemente directo.
+V11_1_EXPLICIT_RULES = {
+    "gluten": [
+        "gluten", "trigo", "cebada", "centeno", "avena", "espelta", "harina de trigo", "pan", "brioche",
+        "pasta", "fideos", "couscous", "cuscus", "bulgur", "panko", "tempura", "rebozado", "empanado",
+        "focaccia", "pizza", "bao", "gyoza", "tortilla de trigo", "cerveza", "radler",
+    ],
+    "lacteos": [
+        "leche", "lacteos", "lácteos", "queso", "nata", "mantequilla", "yogur", "yoghurt", "mozzarella",
+        "parmesano", "cheddar", "burrata", "feta", "mascarpone", "gorgonzola", "crema de leche", "helado",
+        "panna cotta", "cafe con leche", "café con leche", "cortado", "cappuccino", "capuccino",
+    ],
+    "huevos": [
+        "huevo", "huevos", "yema", "clara", "mayonesa", "mahonesa", "merengue", "tortilla de patatas",
+        "tortilla española", "tortilla espanola", "tortilla francesa", "revuelto", "huevo poche", "huevo poché",
+    ],
+    "crustaceos": [
+        "gamba", "gambas", "langostino", "langostinos", "cigala", "cigalas", "bogavante", "cangrejo",
+        "buey de mar", "camaron", "camarón", "carabinero", "quisquilla",
+    ],
+    "moluscos": [
+        "pulpo", "calamar", "calamares", "raba", "rabas", "sepia", "mejillon", "mejillón", "mejillones",
+        "almeja", "almejas", "chipiron", "chipirón", "vieira", "vieiras", "ostra", "ostras", "navaja",
+        "navajas", "berberecho", "berberechos", "zamburiña", "zamburiñas", "salsa de ostras",
+    ],
+    "pescado": [
+        "pescado", "atun", "atún", "salmon", "salmón", "bacalao", "merluza", "anchoa", "anchoas",
+        "boqueron", "boquerón", "boquerones", "sardina", "sardinas", "ventresca", "bonito", "dorada", "lubina",
+        "dashi", "katsuobushi",
+    ],
+    "cacahuetes": ["cacahuete", "cacahuetes", "mani", "maní", "peanut", "crema de cacahuete"],
+    "soja": ["soja", "soya", "tofu", "miso", "edamame", "tamari", "salsa de soja", "salsa de soya", "teriyaki"],
+    "frutos de cascara": [
+        "almendra", "almendras", "avellana", "avellanas", "nuez", "nueces", "anacardo", "anacardos",
+        "pistacho", "pistachos", "pacana", "pacanas", "nuez de brasil", "nueces de brasil", "macadamia", "macadamias",
+        "nutella",
+    ],
+    "apio": ["apio"],
+    "mostaza": ["mostaza", "dijon"],
+    "sesamo": ["sesamo", "sésamo", "ajonjoli", "ajonjolí", "tahini"],
+    "sulfitos": ["sulfitos", "sulfito", "dioxido de azufre", "dióxido de azufre", "so2"],
+    "altramuces": ["altramuz", "altramuces", "lupin", "lupino"],
+}
+
+# Platos/preparaciones de alta confianza: se marcan, pero se deja nota de validación de receta.
+V11_1_COMPOUND_CONFIRMED = [
+    (r"\bcroquet", ["gluten", "lacteos", "huevos"], "Croqueta: confirmar receta y ficha de ingredientes antes de entregar."),
+    (r"\bcalamares?\s+(a la romana|rebozados?|empanados?)\b|\brabas?\s+(rebozadas?|empanadas?)\b", ["moluscos", "gluten"], "Rebozado de calamar/raba: confirmar si la mezcla lleva huevo."),
+    (r"\bcarbonara\b", ["huevos", "lacteos"], "Carbonara: confirmar receta concreta del establecimiento."),
+    (r"\bbechamel\b", ["gluten", "lacteos"], "Bechamel: confirmar harina/espesante y leche utilizados."),
+    (r"\bnutella\b", ["frutos de cascara", "lacteos"], "Nutella: confirmar que se utiliza el producto original o revisar la crema equivalente."),
+]
+
+# Casos variables: no se convierten en iconos automáticamente.
+V11_1_REVIEW_PATTERNS = [
+    (r"\bmarisco\b", ["crustaceos", "moluscos"], "'Marisco' es genérico: confirmar si se trata de crustáceos, moluscos o ambos."),
+    (r"\balioli\b|\bali-oli\b", ["huevos"], "Alioli: confirmar receta; puede llevar huevo o ser alioli tradicional sin huevo."),
+    (r"\bhummus\b", ["sesamo"], "Hummus: confirmar si la receta lleva tahini/sésamo."),
+    (r"\bpesto\b", ["frutos de cascara", "lacteos"], "Pesto: confirmar frutos de cáscara y queso de la receta concreta."),
+    (r"\bromesco\b", ["frutos de cascara", "gluten"], "Romesco: confirmar frutos de cáscara y espesantes/pan de la receta."),
+    (r"\b(c[eé]sar|cesar)\b", ["huevos", "pescado", "lacteos", "mostaza", "gluten"], "César: revisar salsa, queso y croutons/pan de la receta concreta."),
+    (r"\bcaldo\b|\bfondo\b|\bpastilla de caldo\b|\bsofrito\b", ["apio"], "Caldo/fondo/sofrito: confirmar apio y ficha técnica del proveedor."),
+    (r"\bvino\b|\bcava\b|\bvermut\b|\bvermouth\b|\bvinagre\b|\bsidra\b|\blicor\b", ["sulfitos"], "Bebida/ingrediente fermentado: revisar etiquetado y presencia declarable de sulfitos."),
+    (r"\bteriyaki\b|\bsalsa de soja\b|\bsalsa de soya\b", ["gluten"], "Salsa de soja/teriyaki: confirmar si contiene trigo/gluten o si es una variante sin gluten."),
+    (r"\bburger\b|\bhamburguesa\b", ["gluten"], "Burger/hamburguesa: no asumir pan; confirmar si se sirve con pan/brioche."),
+    (r"\bsushi\b|\btataki\b", ["pescado"], "Sushi/tataki: confirmar el ingrediente principal; el nombre por sí solo no implica pescado."),
+    (r"\btortilla\b(?!\s+(?:de\s+(?:trigo|patatas|maiz)|espanola|francesa))", ["huevos", "gluten"], "'Tortilla' es ambiguo: distinguir tortilla de huevo de tortilla de trigo/maíz."),
+    (r"\bpi[nñ][oó]n(?:es)?\b", [], "Piñones: no se clasifican automáticamente como 'frutos de cáscara' dentro de los 14 grupos obligatorios."),
+    (r"\bfrutos secos\b", ["frutos de cascara", "cacahuetes"], "'Frutos secos' es genérico: identificar el fruto concreto antes de marcar el grupo legal correspondiente."),
+    (r"\bfrit[oa]s?\b|\bfritura\b|\bfreidora\b", [], "Fritura/freidora: revisar el protocolo real de contaminación cruzada."),
+    (r"\bsin lactosa\b", ["lacteos"], "Sin lactosa no equivale necesariamente a sin leche: confirmar proteína de leche."),
+]
+
+
+def _evidence_from_text(text):
+    confirmed = []
+    notes = []
+    for allergen, keywords in V11_1_EXPLICIT_RULES.items():
+        if any(_word_or_phrase(text, kw) for kw in keywords):
+            confirmed = add_allergen(confirmed, allergen)
+
+    for pattern, allergens, note in V11_1_COMPOUND_CONFIRMED:
+        if re.search(pattern, normalize_text(text), flags=re.IGNORECASE):
+            for allergen in allergens:
+                confirmed = add_allergen(confirmed, allergen)
+            if note not in notes:
+                notes.append(note)
+
+    for pattern, candidates, note in V11_1_REVIEW_PATTERNS:
+        if re.search(pattern, normalize_text(text), flags=re.IGNORECASE):
+            # Si la evidencia explícita ya confirmó algo, la nota sigue siendo útil para los elementos variables.
+            if note not in notes:
+                notes.append(note)
+
+    if re.search(r"\bsin\s+gluten\b|\bgluten\s*free\b", normalize_text(text), flags=re.IGNORECASE):
+        confirmed = [a for a in confirmed if a != "gluten"]
+        notes.append("Marcado como sin gluten: confirmar ficha técnica y manipulación separada.")
+
+    return get_ordered_allergens(confirmed), notes
+
+
+def apply_allergen_rules_to_dish(dish):
+    name = dish.get("name") or ""
+    desc = dish.get("description") or ""
+    text = f"{name} {desc}"
+    confirmed, notes = _evidence_from_text(text)
+
+    # Las propuestas de IA que no tienen soporte suficiente se convierten en revisión, no en icono final.
+    ai_suggestions = get_ordered_allergens(dish.get("allergens", []))
+    for allergen in ai_suggestions:
+        if allergen not in confirmed:
+            label = ALLERGEN_LABELS.get(allergen, allergen)
+            note = f"La IA sugirió {label}, pero no hay evidencia textual suficiente: confirmar receta/proveedor antes de marcarlo."
+            if note not in notes:
+                notes.append(note)
+
+    old_notes = dish.get("review_notes", []) or []
+    merged = []
+    for note in old_notes + notes:
+        if note and note not in merged:
+            merged.append(note)
+
+    dish["allergens"] = confirmed
+    dish["review_notes"] = merged
+    return dish
+
+
+def apply_allergen_rules(data):
+    for category in data.get("categories", []):
+        for dish in category.get("dishes", []):
+            apply_allergen_rules_to_dish(dish)
+    return data
+
+
+def analyze_content(content, content_type="image"):
+    try:
+        with st.spinner(f"🧠 Analizando menú con {MODELO_A_USAR} + revisión Serval TECH..."):
+            prompt = build_ai_prompt()
+            if content_type == "image":
+                data = _gemini_menu_json([prompt, content])
+            else:
+                data = _gemini_menu_json(prompt + "\n\nMENÚ:\n" + str(content))
+            data = apply_allergen_rules(data)
+            data["_generated_at"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+            data["_system_mode"] = "Gemini 3.6 + reglas verificables + revisión manual"
+            return data
+    except Exception as exc:
+        st.error(f"Error IA/análisis: {exc}")
+        return None
+
+
+def _normalize_audio_price(price):
+    value = str(price or "").strip().replace("€", "").strip()
+    if not value:
+        return ""
+    value = re.sub(r"\s+", " ", value)
+    m = re.fullmatch(r"(\d{1,4})\s+(\d{2})", value)
+    if m:
+        return f"{m.group(1)},{m.group(2)}"
+    if re.fullmatch(r"\d+[\.,]\d{1,2}", value):
+        whole, decimal = re.split(r"[\.,]", value, maxsplit=1)
+        return f"{whole},{decimal.ljust(2, '0')}"
+    if re.fullmatch(r"\d+", value):
+        return f"{value},00"
+    return value
+
+
+def _normalize_audio_menu_prices(data):
+    for category in data.get("categories", []):
+        for dish in category.get("dishes", []):
+            dish["price"] = _normalize_audio_price(dish.get("price", ""))
+    return data
+
+
+def _audio_mime(audio_file):
+    name = str(getattr(audio_file, "name", "") or "").lower()
+    ext = os.path.splitext(name)[1]
+    mapping = {
+        ".wav": "audio/wav",
+        ".mp3": "audio/mp3",
+        ".aac": "audio/aac",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
+    }
+    if ext in mapping:
+        return mapping[ext]
+    raw = str(getattr(audio_file, "type", "") or "").lower()
+    aliases = {
+        "audio/mpeg": "audio/mp3",
+        "audio/x-wav": "audio/wav",
+        "audio/wave": "audio/wav",
+    }
+    return aliases.get(raw, raw if raw.startswith("audio/") else "audio/wav")
+
+
+def analyze_audio_menu(audio_file):
+    if not audio_file:
+        return None
+    audio_file.seek(0)
+    audio_bytes = audio_file.read()
+    audio_file.seek(0)
+    if not audio_bytes:
+        raise ValueError("La grabación está vacía.")
+    # El límite total de inline request es 20 MB; reservamos margen para el prompt JSON.
+    if len(audio_bytes) > 18 * 1024 * 1024:
+        raise ValueError("El audio es demasiado grande para el dictado rápido. Divide el menú en una grabación más corta.")
+
+    audio_prompt = build_ai_prompt() + """
+
+INSTRUCCIONES PARA DICTADO DE BAR/RESTAURANTE:
+- La persona puede usar muletillas, pausas, dudas, repeticiones y correcciones. No las conviertas en platos.
+- Si corrige algo, conserva únicamente la última versión claramente indicada.
+- Crea un plato solo si ha sido nombrado explícitamente.
+- Si dice 'cinco primeros' pero solo nombra tres, crea solo esos tres.
+- Convierte 'primeros', 'segundos', 'postres', 'bebidas', 'tapas' y equivalentes en categorías cuando corresponda.
+- Si dicta un precio hablado, conviértelo a número decimal: 'doce cincuenta' -> '12,50'; 'cinco con noventa' -> '5,90'.
+- Si no dicta precio, deja price vacío.
+- No inventes ingredientes para completar recetas.
+"""
+    part = genai_types.Part.from_bytes(data=audio_bytes, mime_type=_audio_mime(audio_file))
+    data = _gemini_menu_json([audio_prompt, part])
+    data = _normalize_audio_menu_prices(data)
+    data = apply_allergen_rules(data)
+    data["_generated_at"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+    data["_system_mode"] = "Dictado por voz · Gemini 3.6 + revisión Serval TECH"
+    data["_input_mode"] = "audio"
+    return data
+
+
+def _add_allergen_icons_to_run(paragraph, allergens, width_cm=0.36):
+    added = False
+    for allergen in get_ordered_allergens(allergens):
+        icon_path = ICON_MAP.get(allergen)
+        if icon_path and os.path.exists(icon_path):
+            try:
+                paragraph.add_run().add_picture(icon_path, width=Cm(width_cm))
+                paragraph.add_run(" ")
+                added = True
+            except Exception:
+                fallback = paragraph.add_run(f"[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ")
+                fallback.font.size = Pt(7)
+                added = True
+        else:
+            fallback = paragraph.add_run(f"[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ")
+            fallback.font.size = Pt(7)
+            added = True
+    return added
+
+
+def _create_client_word(data, with_allergens=False, theme_key="cafe", two_columns=False):
+    """Mismo contenido base para las dos cartas finales. Solo cambia la capa de alérgenos."""
+    theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES["cafe"])
+    doc = new_doc_from_template() if not two_columns else Document()
+    section = doc.sections[0]
+    if two_columns:
+        set_docx_margins(section)
+        set_docx_two_columns(section)
+    else:
+        section.bottom_margin = MARGEN_INFERIOR_FORZADO
+
+    rest_name = data.get("restaurant_name", "MENÚ")
+    p_title = doc.add_heading(rest_name, 0)
+    release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
+
+    for block in unique_text_blocks(data.get("texto_extra"), data.get("header_text"), data.get("footer_text"), data.get("notes")):
+        add_text_block_to_doc(doc, block, SANGRIA_CATEGORIA, font_size=10.5, italic=True)
+
+    for category in data.get("categories", []):
+        p_cat = doc.add_heading(category.get("name", "Categoría"), level=1)
+        release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
+        p_cat.paragraph_format.space_before = Pt(6)
+        for block in unique_text_blocks(category.get("category_text"), category.get("texto_extra"), category.get("notes")):
+            add_text_block_to_doc(doc, block, SANGRIA_PLATOS, font_size=10.0, italic=True)
+
+        for dish in category.get("dishes", []):
+            p = doc.add_paragraph()
+            release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(15.0 if not two_columns else 7.8), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            name_run = p.add_run(dish_display_name(dish))
+            name_run.bold = True
+            name_run.font.size = Pt(11.5)
+            if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
+                p.add_run("  ")
+                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.36)
+            price_run = p.add_run("\t" + format_price(dish.get("price", "")))
+            price_run.bold = True
+            price_run.font.size = Pt(11.2)
+            if dish.get("description"):
+                pd = doc.add_paragraph()
+                release_paragraph_constraints(pd, SANGRIA_PLATOS, is_dish=True)
+                rd = pd.add_run(str(dish.get("description") or ""))
+                rd.italic = True
+                rd.font.size = Pt(10)
+
+    if with_allergens:
+        try:
+            add_docx_allergen_legend(doc, data, theme)
+        except Exception:
+            pass
+
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def create_word(data):
+    # Orden solicitado: PLATO -> SÍMBOLOS -> PRECIO. Conserva los mismos textos que la carta sin alérgenos.
+    return _create_client_word(data, with_allergens=True, two_columns=False)
+
+
+def create_client_word_without_allergens(data, theme_key="cafe", two_columns=False):
+    return _create_client_word(data, with_allergens=False, theme_key=theme_key, two_columns=two_columns)
+
+
+def allergen_validation_stats(data):
+    dishes = [dish for cat in data.get("categories", []) for dish in cat.get("dishes", [])]
+    return {
+        "platos": len(dishes),
+        "con_alergenos": sum(bool(get_ordered_allergens(d.get("allergens", []))) for d in dishes),
+        "sin_alergenos": sum(not bool(get_ordered_allergens(d.get("allergens", []))) for d in dishes),
+        "requieren_revision": sum(bool(d.get("review_notes")) for d in dishes),
+    }
+
+
+def run_allergen_smoke_tests():
+    cases = [
+        ("Croquetas de jamón", "", {"gluten", "lacteos", "huevos"}, set()),
+        ("Salmón teriyaki", "", {"pescado", "soja"}, set()),
+        ("Calamares a la romana", "", {"moluscos", "gluten"}, set()),
+        ("Panna cotta", "", {"lacteos"}, set()),
+        ("Tortilla de trigo con pollo", "", {"gluten"}, {"huevos"}),
+        ("Tataki de ternera", "", set(), {"pescado"}),
+        ("Pesto casero", "", set(), {"frutos de cascara"}),
+        ("Pan con piñones", "", {"gluten"}, {"frutos de cascara"}),
+        ("Marisco del día", "", set(), {"crustaceos", "moluscos"}),
+    ]
+    results = []
+    for name, desc, required, forbidden in cases:
+        dish = {"name": name, "description": desc, "allergens": [], "review_notes": []}
+        apply_allergen_rules_to_dish(dish)
+        got = set(dish.get("allergens", []))
+        ok = required.issubset(got) and not (forbidden & got)
+        results.append((name, ok, sorted(required), sorted(forbidden), sorted(got), list(dish.get("review_notes", []))))
+    return results
+
+
+def render_allergen_validation(data):
+    st.markdown("#### Control de alérgenos")
+    stats = allergen_validation_stats(data)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Platos", stats["platos"])
+    c2.metric("Con alérgenos", stats["con_alergenos"])
+    c3.metric("Sin alérgenos", stats["sin_alergenos"])
+    c4.metric("Revisar", stats["requieren_revision"])
+
+    if st.button("🧪 Comprobar motor", key="v11_1_smoke_allergens"):
+        results = run_allergen_smoke_tests()
+        if all(row[1] for row in results):
+            st.success("Prueba interna superada.")
+        else:
+            st.error("La prueba interna ha detectado una regresión.")
+        for name, ok, required, forbidden, got, notes in results:
+            st.write(("✅" if ok else "❌") + f" {name} · detectado: {', '.join(got) or 'ninguno'}")
+
+    st.warning("Antes de entregar una carta de alérgenos debe validarse con la receta real, fichas técnicas y protocolo del establecimiento. Las dudas quedan como avisos de revisión, no como iconos confirmados.")
+
+
+def render_quick_outputs(data):
+    st.subheader("⚡ Salidas rápidas")
+    st.caption("Separamos el Word de trabajo de las dos cartas finales para evitar confusiones.")
+    c1, c2, c3 = st.columns(3)
+    restaurant = slugify_filename(data.get("restaurant_name", "menu"))
+    with c1:
+        st.markdown("**1 · Texto limpio para editar**")
+        st.caption("Word clásico de trabajo, sin símbolos.")
+        st.download_button(
+            "⬇️ Descargar texto limpio",
+            create_clean_word(data),
+            file_name=f"Texto_Limpio_{restaurant}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="v11_1_quick_clean",
+        )
+    with c2:
+        st.markdown("**2 · Carta final sin alérgenos**")
+        st.caption("Mismo contenido final, sin símbolos ni leyenda.")
+        st.download_button(
+            "⬇️ Descargar sin alérgenos",
+            create_client_word_without_allergens(data),
+            file_name=f"Carta_Sin_Alergenos_{restaurant}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="v11_1_quick_no_allergens",
+        )
+    with c3:
+        st.markdown("**3 · Carta final con alérgenos**")
+        st.caption("Plato → símbolos confirmados → precio.")
+        st.download_button(
+            "⬇️ Descargar con alérgenos",
+            create_word(data),
+            file_name=f"Carta_Con_Alergenos_{restaurant}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="v11_1_quick_allergens",
+        )
+
+
+def menu_signature(data):
+    stable = {
+        "restaurant_name": data.get("restaurant_name", ""),
+        "texto_extra": data.get("texto_extra", ""),
+        "categories": [],
+    }
+    for category in data.get("categories", []):
+        c = {"name": category.get("name", ""), "category_text": category.get("category_text", ""), "dishes": []}
+        for dish in category.get("dishes", []):
+            c["dishes"].append({
+                "number": dish.get("number", ""),
+                "name": dish.get("name", ""),
+                "description": dish.get("description", ""),
+                "price": dish.get("price", ""),
+                "allergens": get_ordered_allergens(dish.get("allergens", [])),
+            })
+        stable["categories"].append(c)
+    raw = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def invalidate_translation():
+    st.session_state.pop("translated_menu_data", None)
+    st.session_state.pop("translated_language", None)
+    st.session_state.pop("translated_source_signature", None)
+
+
+TRANSLATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "texto_extra": {"type": "string"},
+        "categories": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "category_text": {"type": "string"},
+                    "dishes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "name": {"type": "string"},
+                                "description": {"type": "string"},
+                            },
+                            "required": ["id", "name", "description"],
+                        },
+                    },
+                },
+                "required": ["id", "name", "category_text", "dishes"],
+            },
+        },
+    },
+    "required": ["texto_extra", "categories"],
+}
+
+
+def _translation_payload(data):
+    payload = {"texto_extra": data.get("texto_extra", ""), "categories": []}
+    for ci, category in enumerate(data.get("categories", [])):
+        cat_id = f"cat_{ci}"
+        c = {
+            "id": cat_id,
+            "name": category.get("name", ""),
+            "category_text": category.get("category_text", ""),
+            "dishes": [],
+        }
+        for di, dish in enumerate(category.get("dishes", [])):
+            c["dishes"].append({
+                "id": f"{cat_id}_dish_{di}",
+                "name": dish.get("name", ""),
+                "description": dish.get("description", ""),
+            })
+        payload["categories"].append(c)
+    return payload
+
+
+def translate_menu_data(data, target_language):
+    payload = _translation_payload(data)
+    prompt = f"""
+Traduce al idioma {target_language} los textos gastronómicos del JSON adjunto.
+Devuelve SOLO JSON válido con exactamente los mismos IDs.
+NO añadas, borres, unas ni reordenes categorías o platos.
+NO traduzcas nombres comerciales del restaurante: el nombre del restaurante no se envía y se conservará aparte.
+Traduce únicamente texto_extra, name/category_text de categorías y name/description de platos.
+No inventes contenido.
+
+JSON:
+{json.dumps(payload, ensure_ascii=False)}
+"""
+    response = GENAI_CLIENT.models.generate_content(
+        model=MODELO_A_USAR,
+        contents=prompt,
+        config=genai_types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=TRANSLATION_SCHEMA,
+        ),
+    )
+    translated_payload = parse_json_response(response.text)
+
+    src_cat_ids = [c["id"] for c in payload["categories"]]
+    dst_cat_ids = [c.get("id") for c in translated_payload.get("categories", [])]
+    if src_cat_ids != dst_cat_ids:
+        raise ValueError("La traducción alteró las categorías. No se ha generado el documento para evitar mezclar datos.")
+
+    result = copy.deepcopy(data)
+    result["texto_extra"] = translated_payload.get("texto_extra", data.get("texto_extra", ""))
+    by_cat_id = {c.get("id"): c for c in translated_payload.get("categories", [])}
+
+    for ci, category in enumerate(result.get("categories", [])):
+        cat_id = f"cat_{ci}"
+        translated_cat = by_cat_id.get(cat_id)
+        if not translated_cat:
+            raise ValueError(f"Falta la categoría {cat_id} en la traducción.")
+        category["name"] = translated_cat.get("name", category.get("name", ""))
+        category["category_text"] = translated_cat.get("category_text", category.get("category_text", ""))
+        dst_dishes = {d.get("id"): d for d in translated_cat.get("dishes", [])}
+        expected_dish_ids = [f"{cat_id}_dish_{di}" for di, _ in enumerate(category.get("dishes", []))]
+        if set(dst_dishes.keys()) != set(expected_dish_ids):
+            raise ValueError(f"La traducción alteró los platos de {cat_id}. Se ha bloqueado la salida.")
+        for di, dish in enumerate(category.get("dishes", [])):
+            translated_dish = dst_dishes[f"{cat_id}_dish_{di}"]
+            dish["name"] = translated_dish.get("name", dish.get("name", ""))
+            dish["description"] = translated_dish.get("description", dish.get("description", ""))
+
+    result["restaurant_name"] = data.get("restaurant_name", "MENÚ")
+    result["_translated_language"] = target_language
+    return result
+
+
+def render_voice_menu_capture():
+    with st.expander("🎙️ Dictar menú por voz", expanded=True):
+        st.caption("Habla de forma natural. La app ignora muletillas y correcciones, estructura el menú y después lo deja editable para revisar.")
+        recorded = st.audio_input("Grabar menú", sample_rate=16000, key="v11_1_voice_record") if hasattr(st, "audio_input") else None
+        if recorded is None and not hasattr(st, "audio_input"):
+            st.info("La versión instalada de Streamlit no permite grabación directa; puedes subir un audio.")
+        uploaded_audio = st.file_uploader(
+            "O subir audio ya grabado",
+            type=["wav", "mp3", "aac", "ogg", "flac"],
+            key="v11_1_voice_upload",
+        )
+        audio_source = recorded or uploaded_audio
+        if audio_source:
+            st.audio(audio_source)
+            if st.button("✨ CONVERTIR AUDIO EN MENÚ", type="primary", key="v11_1_process_voice"):
+                try:
+                    with st.spinner("Transcribiendo y estructurando el menú..."):
+                        data = analyze_audio_menu(audio_source)
+                    if data:
+                        st.session_state.menu_data = data
+                        invalidate_translation()
+                        st.session_state["_last_menu_signature"] = menu_signature(data)
+                        st.success("✅ Audio convertido. Revisa platos, precios y alérgenos antes de descargar.")
+                        st.rerun()
+                    else:
+                        st.error("No se pudo obtener un menú válido del audio.")
+                except Exception as exc:
+                    st.error(f"No se pudo procesar el audio: {exc}")
+        st.caption("La IA ayuda a estructurar y detectar; la validación final de alérgenos corresponde a la receta y fichas reales del establecimiento.")
+
+
+def render_translation(data):
+    st.subheader("🌍 Traducción de carta")
+    st.caption("Traduce textos sin tocar el nombre comercial, precios, numeración ni alérgenos revisados.")
+    current_signature = menu_signature(data)
+    stored_signature = st.session_state.get("translated_source_signature")
+    if st.session_state.get("translated_menu_data") and stored_signature != current_signature:
+        invalidate_translation()
+        st.info("La carta original cambió. Se ha descartado la traducción anterior para evitar mezclar versiones.")
+
+    target = st.selectbox(
+        "Idioma de salida",
+        ["Catalán", "Inglés", "Francés", "Italiano", "Alemán", "Portugués"],
+        key="v11_1_translate_target",
+    )
+    if st.button("🌍 Traducir carta", type="primary", key="v11_1_translate_button"):
+        try:
+            with st.spinner(f"Traduciendo al {target}..."):
+                translated = translate_menu_data(data, target)
+                st.session_state.translated_menu_data = translated
+                st.session_state.translated_language = target
+                st.session_state.translated_source_signature = current_signature
+            st.success(f"Carta traducida al {target}.")
+        except Exception as exc:
+            invalidate_translation()
+            st.error(f"No se pudo traducir la carta: {exc}")
+
+    translated = st.session_state.get("translated_menu_data")
+    if translated:
+        language = st.session_state.get("translated_language", target)
+        st.markdown(f"**Vista traducida: {language}**")
+        preview_lines = []
+        for category in translated.get("categories", [])[:4]:
+            preview_lines.append(f"### {category.get('name', '')}")
+            for dish in category.get("dishes", [])[:5]:
+                preview_lines.append(f"- {dish_display_name(dish)} · {format_price(dish.get('price', ''))}")
+        st.markdown("\n".join(preview_lines) if preview_lines else "Sin platos detectados.")
+        c1, c2 = st.columns(2)
+        slug = slugify_filename(language)
+        with c1:
+            st.download_button(
+                "⬇️ Traducción sin alérgenos",
+                create_client_word_without_allergens(translated),
+                file_name=f"Carta_{slug}_Sin_Alergenos.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="v11_1_translate_no_allergens",
+            )
+        with c2:
+            st.download_button(
+                "⬇️ Traducción con alérgenos",
+                create_word(translated),
+                file_name=f"Carta_{slug}_Con_Alergenos.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="v11_1_translate_allergens",
+            )
+
+
+# ======================================================
 # APP
 # ======================================================
 st.sidebar.title("Menú Principal 🚀")
@@ -2596,13 +3345,16 @@ app_mode = st.sidebar.radio("Navegación", ["📝 Generador de Cartas", "📡 Ra
 
 if app_mode == "📝 Generador de Cartas":
     st.title("Sistema Integral de Cartas 🥘")
-    st.caption("Revisión unificada de alérgenos: IA + reglas de hostelería + edición manual. v9 añade Word horizontal editable en modo libro.")
+    st.caption("v11.1 · Dictado por voz estabilizado + revisión prudente de alérgenos + salidas y traducción protegidas.")
 
     if "menu_data" not in st.session_state:
         st.session_state.menu_data = None
     if "last_image_info" not in st.session_state:
         st.session_state.last_image_info = None
 
+    render_voice_menu_capture()
+
+    st.markdown("#### O subir una carta existente")
     uploaded_file = st.file_uploader("Sube el menú", type=["jpg", "png", "jpeg", "pdf", "docx"])
 
     if uploaded_file:
@@ -2639,30 +3391,44 @@ if app_mode == "📝 Generador de Cartas":
             data = analyze_content(extract_text_from_docx(uploaded_file), "text")
         if data:
             st.session_state.menu_data = data
+            invalidate_translation()
+            st.session_state["_last_menu_signature"] = menu_signature(data)
             st.success("✅ Menú analizado. Revisa los alérgenos antes de descargar.")
             st.rerun()
 
     if st.session_state.menu_data:
         st.markdown("---")
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["✅ Revisar carta", "🍤 Word con iconos", "📄 Word limpio", "📝 Plantillas editables", "📖 Word horizontal", "🎨 Plantillas visuales"])
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(["✅ Revisar carta", "⚡ Salidas rápidas", "🌍 Traducción", "🍤 Word con iconos", "📄 Word limpio", "📝 Plantillas editables", "📖 Word horizontal", "🎨 Plantillas visuales"])
         data = st.session_state.menu_data
 
         with tab1:
+            previous_signature = st.session_state.get("_last_menu_signature")
             st.session_state.menu_data = render_editor(data)
+            new_signature = menu_signature(st.session_state.menu_data)
+            if previous_signature and previous_signature != new_signature:
+                invalidate_translation()
+            st.session_state["_last_menu_signature"] = new_signature
+            render_allergen_validation(st.session_state.menu_data)
 
         with tab2:
-            st.download_button("⬇️ DESCARGAR CARTA WORD CON ALÉRGENOS", create_word(data), "Carta_Alergenos.docx")
+            render_quick_outputs(data)
 
         with tab3:
-            st.download_button("⬇️ DESCARGAR TEXTO LIMPIO WORD", create_clean_word(data), "Carta_Limpia.docx")
+            render_translation(data)
 
         with tab4:
-            render_editable_clean_templates(data)
+            st.download_button("⬇️ DESCARGAR CARTA WORD CON ALÉRGENOS", create_word(data), "Carta_Alergenos.docx")
 
         with tab5:
-            render_landscape_book_word(data)
+            st.download_button("⬇️ DESCARGAR TEXTO LIMPIO WORD", create_clean_word(data), "Carta_Limpia.docx")
 
         with tab6:
+            render_editable_clean_templates(data)
+
+        with tab7:
+            render_landscape_book_word(data)
+
+        with tab8:
             render_visual_downloads(data)
 
 elif app_mode == "📡 Radar de Clientes":
@@ -2706,7 +3472,7 @@ elif app_mode == "📄 Extractor de Texto Universal":
                 else:
                     texto_extraido = extract_text_from_pdf_scanned_with_gemini(up_any) or ""
             elif ext in ["jpg", "jpeg", "png"]:
-                model = genai.GenerativeModel(MODELO_A_USAR)
+                model = _GeminiModelCompat(MODELO_A_USAR)
                 img, _ = prepare_image_for_ai(up_any)
                 response = model.generate_content([
                     "Transcribe literalmente de arriba a abajo todo el texto que veas en esta imagen. No inventes. Devuelve solo texto plano.",
