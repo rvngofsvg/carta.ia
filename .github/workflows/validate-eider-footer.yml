@@ -1,5 +1,6 @@
 name: Validate Eider Word footer
 
+# QA trigger: client UX + allergen sizing update 2026-10-08
 on:
   push:
     branches: [main]
@@ -39,16 +40,15 @@ jobs:
           qa = Path('qa')
           assert sitecustomize._ICON_DIR is not None, 'Los iconos empaquetados no se localizaron'
           assert all((sitecustomize._ICON_DIR / filename).is_file() for _, filename in sitecustomize.LEGEND_ITEMS)
+          assert sitecustomize.INLINE_ICON_MIN_CM >= 0.75, sitecustomize.INLINE_ICON_MIN_CM
           print('ICON_DIR', sitecustomize._ICON_DIR)
 
-          # Verifica el problema real de los iconos junto a platos: nunca deben quedar minúsculos.
           icon_test = Document()
           p_icon = icon_test.add_paragraph('Queso Manchego Viejo  ')
           shape = p_icon.add_run().add_picture('Public/Iconos/lacteos.png', width=Cm(0.34))
           assert shape.width >= Cm(sitecustomize.INLINE_ICON_MIN_CM), (shape.width, Cm(sitecustomize.INLINE_ICON_MIN_CM))
           icon_test.save(qa / 'qa_inline_icon.docx')
 
-          # Portrait fixture con la antigua leyenda en body: el parche debe reemplazarla.
           p = Document()
           p.sections[0].bottom_margin = Cm(1.0)
           p.add_heading('QA VERTICAL', 0)
@@ -62,7 +62,6 @@ jobs:
           p.add_paragraph('Información orientativa basada en carta. Debe validarse con ingredientes reales.')
           p.save(qa / 'qa_vertical.docx')
 
-          # Landscape/book fixture: dos leyendas, una por cada mitad.
           l = Document()
           s = l.sections[0]
           s.orientation = WD_ORIENT.LANDSCAPE
@@ -80,7 +79,6 @@ jobs:
               lt.cell(0 if i < 7 else 1, i if i < 7 else i-7).text = label
           l.save(qa / 'qa_horizontal.docx')
 
-          # Documento sin alérgenos: no debe ser alterado por sitecustomize.
           clean = Document()
           clean.sections[0].bottom_margin = Cm(1.0)
           clean.sections[0].footer.paragraphs[0].text = 'FOOTER LIMPIO'
@@ -109,9 +107,9 @@ jobs:
               reopened = Document(path)
               for sec in reopened.sections:
                   if landscape:
-                      assert sec.bottom_margin >= Cm(4.7)
+                      assert sec.bottom_margin >= Cm(5.4)
                   else:
-                      assert sec.bottom_margin >= Cm(5.0)
+                      assert sec.bottom_margin >= Cm(6.1)
               print('PASS', path)
 
           check_allergen_docx(qa / 'qa_vertical.docx', landscape=False)
@@ -128,7 +126,7 @@ jobs:
               'PASS\n'
               f'icon_dir={sitecustomize._ICON_DIR}\n'
               f'inline_min_cm={sitecustomize.INLINE_ICON_MIN_CM}\n'
-              'portrait_footer=2x7 native icons\n'
+              'portrait_footer=2x7 native icons enlarged\n'
               'clean_doc_untouched=yes\n',
               encoding='utf-8'
           )
