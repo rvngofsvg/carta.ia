@@ -35,7 +35,7 @@ LEGEND_ITEMS = (
 )
 
 _ALLERGEN_ICON_FILENAMES = {filename.lower() for _, filename in LEGEND_ITEMS}
-INLINE_ICON_MIN_CM = 0.52
+INLINE_ICON_MIN_CM = 0.75
 
 
 def _find_root():
@@ -283,8 +283,8 @@ def _footer_variants(section):
 
 
 def _single_footer(section, usable_cm):
-    if section.bottom_margin < Cm(5.0):
-        section.bottom_margin = Cm(5.0)
+    if section.bottom_margin < Cm(6.1):
+        section.bottom_margin = Cm(6.1)
     section.footer_distance = Cm(0.15)
 
     for footer in _footer_variants(section):
@@ -300,9 +300,9 @@ def _single_footer(section, usable_cm):
             _fill_native_legend(
                 wrapper.cell(0, 0),
                 width_cm=width_cm,
-                icon_cm=1.05,
-                label_pt=8.8,
-                legal_pt=8.8,
+                icon_cm=1.35,
+                label_pt=10.2,
+                legal_pt=9.6,
             )
         except Exception:
             _clear(footer)
@@ -310,8 +310,8 @@ def _single_footer(section, usable_cm):
 
 
 def _book_footer(section, usable_cm):
-    if section.bottom_margin < Cm(4.7):
-        section.bottom_margin = Cm(4.7)
+    if section.bottom_margin < Cm(5.4):
+        section.bottom_margin = Cm(5.4)
     section.footer_distance = Cm(0.12)
     gutter_cm = 0.8
     side_cm = max(6.0, (usable_cm - gutter_cm) / 2.0)
@@ -337,9 +337,9 @@ def _book_footer(section, usable_cm):
                 _fill_native_legend(
                     table.cell(0, idx),
                     width_cm=side_cm,
-                    icon_cm=0.82,
-                    label_pt=7.2,
-                    legal_pt=7.0,
+                    icon_cm=1.00,
+                    label_pt=8.3,
+                    legal_pt=8.0,
                 )
         except Exception:
             for idx in (0, 2):

@@ -26,7 +26,7 @@ from docx.oxml.ns import qn
 # ======================================================
 # CONFIGURACIÓN GENERAL
 # ======================================================
-st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v11.2", layout="wide")
+st.set_page_config(page_title="Carta IA · Serval TECH", layout="wide")
 
 MODELO_A_USAR = "gemini-3.6-flash"
 
@@ -1435,12 +1435,13 @@ def add_docx_heading_block(doc, data, theme, subtitle='Plantilla editable sin ic
 
 
 def add_docx_allergen_legend(doc, data, theme):
+    # Leyenda base legible incluso si el parche de footer no llegara a ejecutarse.
     doc.add_paragraph()
     title = doc.add_paragraph()
     title.alignment = 1
     tr = title.add_run('GUÍA DE ALÉRGENOS')
     tr.bold = True
-    tr.font.size = Pt(10)
+    tr.font.size = Pt(12)
     set_run_color(tr, theme['cat'])
 
     table = doc.add_table(rows=2, cols=7)
@@ -1455,18 +1456,18 @@ def add_docx_allergen_legend(doc, data, theme):
         icon_path = ICON_MAP.get(allergen)
         if icon_path and os.path.exists(icon_path):
             try:
-                par.add_run().add_picture(icon_path, width=Cm(0.52))
+                par.add_run().add_picture(icon_path, width=Cm(0.95))
                 par.add_run('\n')
             except Exception:
                 pass
         txt = par.add_run(ALLERGEN_LABELS.get(allergen, allergen))
-        txt.font.size = Pt(6.2)
+        txt.font.size = Pt(9.2)
+        txt.bold = True
         set_run_color(txt, theme['text'])
     notice = doc.add_paragraph()
     notice.alignment = 1
     nr = notice.add_run(build_notice(data))
-    nr.font.size = Pt(6.3)
-    nr.italic = True
+    nr.font.size = Pt(9.0)
     set_run_color(nr, theme['muted'])
 
 
@@ -1809,7 +1810,7 @@ def create_landscape_book_word(
                     icon_path = ICON_MAP.get(allergen)
                     if icon_path and os.path.exists(icon_path):
                         try:
-                            p.add_run().add_picture(icon_path, width=Cm(0.36))
+                            p.add_run().add_picture(icon_path, width=Cm(0.75))
                             p.add_run(' ')
                         except Exception:
                             fb = p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ')
@@ -1943,7 +1944,7 @@ def render_editor(data):
     data["restaurant_name"] = st.text_input("Nombre del restaurante", data.get("restaurant_name", ""))
     data["texto_extra"] = st.text_area("📝 Texto suelto detectado / textos no plato", data.get("texto_extra", ""), height=120, help="Aquí deben quedar teléfonos, horarios, dirección, notas, suplementos, avisos y cualquier texto de la carta que no sea un plato.")
 
-    st.info("La app usa revisión unificada: IA + reglas de hostelería + edición manual final. Revisa especialmente salsas, fritos, caldos y productos industriales.")
+    st.info("Puedes editar cualquier plato, precio o alérgeno directamente aquí antes de descargar.")
     for c_idx, cat in enumerate(data.get("categories", [])):
         with st.expander(f"📂 {cat.get('name', 'Categoría')}", expanded=True):
             cat["name"] = st.text_input("Categoría", cat.get("name", ""), key=f"cat_{c_idx}")
@@ -1967,7 +1968,8 @@ def render_editor(data):
                         key=f"all_{c_idx}_{d_idx}"
                     )
                 if dish.get("review_notes"):
-                    st.warning(" · ".join(dish.get("review_notes", [])))
+                    with st.expander("ℹ️ Sugerencia opcional", expanded=False):
+                        st.caption(" · ".join(dish.get("review_notes", [])))
                 st.divider()
     return data
 
@@ -2746,7 +2748,7 @@ INSTRUCCIONES PARA DICTADO DE BAR/RESTAURANTE:
     return data
 
 
-def _add_allergen_icons_to_run(paragraph, allergens, width_cm=0.36):
+def _add_allergen_icons_to_run(paragraph, allergens, width_cm=0.75):
     added = False
     for allergen in get_ordered_allergens(allergens):
         icon_path = ICON_MAP.get(allergen)
@@ -2800,7 +2802,7 @@ def _create_client_word(data, with_allergens=False, theme_key="cafe", two_column
             name_run.font.size = Pt(11.5)
             if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
                 p.add_run("  ")
-                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.36)
+                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)
             price_run = p.add_run("\t" + format_price(dish.get("price", "")))
             price_run.bold = True
             price_run.font.size = Pt(11.2)
@@ -2979,46 +2981,45 @@ def render_export_preflight(data, key_prefix="export", compact=False):
 
 
 def render_quick_outputs(data):
-    st.subheader("📦 Descargas")
-    st.caption("Tres salidas claras: trabajo editable, carta final sin alérgenos y carta final validada con alérgenos.")
-    can_export_allergens = render_export_preflight(data, key_prefix="quick")
-
-    c1, c2, c3 = st.columns(3)
+    st.subheader("⬇️ Descargar")
+    st.caption("Elige una opción. Si quieres la carta lista para entregar, usa la primera.")
     restaurant = slugify_filename(data.get("restaurant_name", "menu"))
+    c1, c2, c3 = st.columns(3)
+
     with c1:
-        st.markdown("**1 · Texto limpio para editar**")
-        st.caption("Word clásico de trabajo, sin símbolos.")
+        st.markdown("### ✅ Carta con alérgenos")
+        st.caption("La opción principal: platos, precios, iconos y leyenda inferior.")
         st.download_button(
-            "⬇️ Descargar texto limpio",
-            create_clean_word(data),
-            file_name=f"Texto_Limpio_{restaurant}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="v11_2_quick_clean",
-        )
-    with c2:
-        st.markdown("**2 · Carta final sin alérgenos**")
-        st.caption("Mismo contenido final, sin símbolos ni leyenda.")
-        st.download_button(
-            "⬇️ Descargar sin alérgenos",
-            create_client_word_without_allergens(data),
-            file_name=f"Carta_Sin_Alergenos_{restaurant}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="v11_2_quick_no_allergens",
-        )
-    with c3:
-        st.markdown("**3 · Carta final con alérgenos**")
-        st.caption(
-            "Disponible cuando el control previo está validado."
-            if not can_export_allergens
-            else "Plato → símbolos confirmados → precio."
-        )
-        st.download_button(
-            "⬇️ Descargar con alérgenos",
+            "⬇️ DESCARGAR CARTA CON ALÉRGENOS",
             create_word(data),
             file_name=f"Carta_Con_Alergenos_{restaurant}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="v11_2_quick_allergens",
-            disabled=not can_export_allergens,
+            key="v11_3_quick_allergens",
+            use_container_width=True,
+        )
+
+    with c2:
+        st.markdown("### 📄 Carta sin alérgenos")
+        st.caption("Mismo contenido, sin iconos ni leyenda de alérgenos.")
+        st.download_button(
+            "⬇️ DESCARGAR SIN ALÉRGENOS",
+            create_client_word_without_allergens(data),
+            file_name=f"Carta_Sin_Alergenos_{restaurant}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="v11_3_quick_no_allergens",
+            use_container_width=True,
+        )
+
+    with c3:
+        st.markdown("### ✏️ Word para editar")
+        st.caption("Para cambiar manualmente textos, precios o detalles en Word.")
+        st.download_button(
+            "⬇️ DESCARGAR WORD EDITABLE",
+            create_clean_word(data),
+            file_name=f"Texto_Editable_{restaurant}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="v11_3_quick_clean",
+            use_container_width=True,
         )
 
 
@@ -3187,20 +3188,19 @@ def render_voice_menu_capture():
 
 
 def render_translation(data):
-    st.subheader("🌍 Traducción de carta")
-    st.caption("Traduce textos sin tocar el nombre comercial, precios, numeración ni alérgenos revisados.")
+    st.subheader("🌍 Traducir carta")
+    st.caption("Elige idioma, traduce y descarga. No modifica precios, numeración ni el nombre del restaurante.")
     current_signature = menu_signature(data)
     stored_signature = st.session_state.get("translated_source_signature")
     if st.session_state.get("translated_menu_data") and stored_signature != current_signature:
         invalidate_translation()
-        st.info("La carta original cambió. Se ha descartado la traducción anterior para evitar mezclar versiones.")
 
     target = st.selectbox(
-        "Idioma de salida",
+        "Idioma",
         ["Catalán", "Inglés", "Francés", "Italiano", "Alemán", "Portugués"],
-        key="v11_2_translate_target",
+        key="v11_3_translate_target",
     )
-    if st.button("🌍 Traducir carta", type="primary", key="v11_2_translate_button"):
+    if st.button("🌍 TRADUCIR", type="primary", key="v11_3_translate_button", use_container_width=True):
         try:
             with st.spinner(f"Traduciendo al {target}..."):
                 translated = translate_menu_data(data, target)
@@ -3215,37 +3215,25 @@ def render_translation(data):
     translated = st.session_state.get("translated_menu_data")
     if translated:
         language = st.session_state.get("translated_language", target)
-        st.markdown(f"**Vista traducida: {language}**")
-        preview_lines = []
-        for category in translated.get("categories", [])[:4]:
-            preview_lines.append(f"### {category.get('name', '')}")
-            for dish in category.get("dishes", [])[:5]:
-                preview_lines.append(f"- {dish_display_name(dish)} · {format_price(dish.get('price', ''))}")
-        st.markdown("\n".join(preview_lines) if preview_lines else "Sin platos detectados.")
-
-        can_export_allergens = render_export_preflight(
-            translated,
-            key_prefix=f"translation_{slugify_filename(language)}",
-            compact=True,
-        )
-        c1, c2 = st.columns(2)
         slug = slugify_filename(language)
+        c1, c2 = st.columns(2)
         with c1:
             st.download_button(
-                "⬇️ Traducción sin alérgenos",
-                create_client_word_without_allergens(translated),
-                file_name=f"Carta_{slug}_Sin_Alergenos.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key="v11_2_translate_no_allergens",
-            )
-        with c2:
-            st.download_button(
-                "⬇️ Traducción con alérgenos",
+                "⬇️ CON ALÉRGENOS",
                 create_word(translated),
                 file_name=f"Carta_{slug}_Con_Alergenos.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key="v11_2_translate_allergens",
-                disabled=not can_export_allergens,
+                key="v11_3_translate_allergens",
+                use_container_width=True,
+            )
+        with c2:
+            st.download_button(
+                "⬇️ SIN ALÉRGENOS",
+                create_client_word_without_allergens(translated),
+                file_name=f"Carta_{slug}_Sin_Alergenos.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="v11_3_translate_no_allergens",
+                use_container_width=True,
             )
 
 
@@ -3258,7 +3246,7 @@ app_mode = st.sidebar.radio("Navegación", ["📝 Generador de Cartas", "📡 Ra
 
 if app_mode == "📝 Generador de Cartas":
     st.title("Sistema Integral de Cartas 🥘")
-    st.caption("v11.2 · Preflight de alérgenos + PDFs completos + interfaz simplificada + núcleo sin funciones duplicadas.")
+    st.caption("Crea, revisa y descarga tu carta de forma sencilla.")
 
     if "menu_data" not in st.session_state:
         st.session_state.menu_data = None
@@ -3306,51 +3294,42 @@ if app_mode == "📝 Generador de Cartas":
             st.session_state.menu_data = data
             invalidate_translation()
             st.session_state["_last_menu_signature"] = menu_signature(data)
-            st.success("✅ Menú analizado. Revisa los alérgenos antes de descargar.")
+            st.success("✅ Carta preparada. Revisa lo que quieras cambiar y después pulsa Descargar.")
             st.rerun()
 
     if st.session_state.menu_data:
         st.markdown("---")
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "✅ Revisar carta",
-            "📦 Descargas",
-            "🌍 Traducción",
-            "🎨 Diseños",
-            "🧰 Avanzado",
+        tab1, tab2, tab3 = st.tabs([
+            "✏️ Revisar",
+            "⬇️ Descargar",
+            "⋯ Más opciones",
         ])
         data = st.session_state.menu_data
 
         with tab1:
+            st.caption("Corrige solo lo que necesites. Los cambios se aplican directamente a las descargas.")
             previous_signature = st.session_state.get("_last_menu_signature")
             st.session_state.menu_data = render_editor(data)
             new_signature = menu_signature(st.session_state.menu_data)
             if previous_signature and previous_signature != new_signature:
                 invalidate_translation()
             st.session_state["_last_menu_signature"] = new_signature
-            render_allergen_validation(st.session_state.menu_data)
 
         with tab2:
-            render_quick_outputs(data)
+            render_quick_outputs(st.session_state.menu_data)
 
         with tab3:
-            render_translation(data)
-
-        with tab4:
-            st.markdown("#### Plantillas editables")
-            render_editable_clean_templates(data)
-            st.markdown("---")
-            st.markdown("#### Plantillas visuales con información de alérgenos")
-            if render_export_preflight(data, key_prefix="visual", compact=True):
-                render_visual_downloads(data)
-            else:
-                st.info("Valida los casos pendientes para habilitar las plantillas visuales con alérgenos.")
-
-        with tab5:
-            st.markdown("#### Formato horizontal / libro")
-            if render_export_preflight(data, key_prefix="advanced", compact=True):
-                render_landscape_book_word(data)
-            else:
-                st.info("Valida los casos pendientes para habilitar la salida horizontal con alérgenos.")
+            st.caption("Estas herramientas son opcionales. No necesitas entrar aquí para descargar una carta normal.")
+            with st.expander("🌍 Traducir la carta", expanded=False):
+                render_translation(st.session_state.menu_data)
+            with st.expander("🎨 Diseños y plantillas", expanded=False):
+                render_editable_clean_templates(st.session_state.menu_data)
+                st.markdown("---")
+                render_visual_downloads(st.session_state.menu_data)
+            with st.expander("📖 Formato horizontal / modo libro", expanded=False):
+                render_landscape_book_word(st.session_state.menu_data)
+            with st.expander("🧪 Revisión técnica de alérgenos (opcional)", expanded=False):
+                render_allergen_validation(st.session_state.menu_data)
 
 elif app_mode == "📡 Radar de Clientes":
     st.title("Radar de Redes y Mapas 📡")
