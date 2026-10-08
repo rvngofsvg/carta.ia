@@ -1,5 +1,6 @@
 name: Polish Carta IA v12 exports
 
+# Retry after source fix 2026-10-09
 on:
   push:
     branches: [main]
