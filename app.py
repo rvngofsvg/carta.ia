@@ -7,6 +7,7 @@ import re
 import base64
 import zipfile
 import unicodedata
+from collections import Counter
 from html import escape as html_escape
 from datetime import datetime
 from io import BytesIO
