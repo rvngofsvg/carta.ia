@@ -22,6 +22,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Repair v12 patch source
+        run: python scripts/fix_v12_source.py
+
+      - name: Compile migration script
+        run: python -m py_compile scripts/v12_core_patch.py
+
       - name: Apply v12 core patch
         run: python scripts/v12_core_patch.py
 
@@ -44,7 +50,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add app.py requirements.txt serval_eider_patch/sitecustomize.py scripts/v12_core_patch.py
+          git add app.py requirements.txt serval_eider_patch/sitecustomize.py scripts/v12_core_patch.py scripts/fix_v12_source.py
           if git diff --cached --quiet; then
             echo 'Nothing to commit.'
             exit 0
