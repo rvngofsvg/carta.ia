@@ -3,7 +3,6 @@ from pathlib import Path
 import sys
 import unicodedata
 
-from PIL import Image
 from docx.document import Document as _DocumentClass
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -21,7 +20,7 @@ def _find_root():
 
 def _find_legend_path():
     root = _find_root()
-    filename = "leyenda_alergenos_eider.webp"
+    filename = "leyenda_alergenos_eider.png"
     candidates = (
         Path(sys.prefix) / "serval_eider_legend" / filename,
         Path(__file__).resolve().parent / "serval_eider_legend" / filename,
@@ -39,7 +38,7 @@ _ORIGINAL_SAVE = None
 
 
 def _legend_bytes():
-    """Carga el arte original enviado por Eider y lo convierte a PNG para Word."""
+    """Carga el PNG exacto extraído del documento original de Eider."""
     global _LEGEND_BYTES
     if _LEGEND_BYTES is not None:
         return _LEGEND_BYTES
@@ -48,12 +47,9 @@ def _legend_bytes():
         raise FileNotFoundError(f"No se encontró la leyenda de alérgenos de Eider: {_LEGEND_PATH}")
 
     raw = _LEGEND_PATH.read_bytes()
-    image = Image.open(BytesIO(raw))
-    image.load()
-    image = image.convert("RGB")
-    out = BytesIO()
-    image.save(out, format="PNG", optimize=True)
-    _LEGEND_BYTES = out.getvalue()
+    if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("La leyenda de alérgenos de Eider no es un PNG válido")
+    _LEGEND_BYTES = raw
     return _LEGEND_BYTES
 
 
