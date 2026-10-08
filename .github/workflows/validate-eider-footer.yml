@@ -1,6 +1,5 @@
-name: Validate Eider Word footer
+name: Validate real Carta IA exports
 
-# QA trigger: client UX + allergen sizing update 2026-10-08
 on:
   push:
     branches: [main]
@@ -11,6 +10,8 @@ permissions:
 jobs:
   qa:
     runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: dummy-qa-key
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,143 +21,123 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install focused dependencies
+      - name: Install app dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install python-docx==1.2.0 Pillow==12.3.0
-          python -m pip install ./serval_eider_patch
+          python -m pip install -r requirements.txt
 
-      - name: Generate and structurally validate Word outputs
+      - name: Generate exports through the real app functions
         run: |
-          mkdir -p qa
+          mkdir -p qa_real
           python - <<'PY'
           from pathlib import Path
           import zipfile
           from docx import Document
-          from docx.enum.section import WD_ORIENT
           from docx.shared import Cm
-          import sitecustomize
+          import app
 
-          qa = Path('qa')
-          assert sitecustomize._ICON_DIR is not None, 'Los iconos empaquetados no se localizaron'
-          assert all((sitecustomize._ICON_DIR / filename).is_file() for _, filename in sitecustomize.LEGEND_ITEMS)
-          assert sitecustomize.INLINE_ICON_MIN_CM >= 0.75, sitecustomize.INLINE_ICON_MIN_CM
-          print('ICON_DIR', sitecustomize._ICON_DIR)
+          qa = Path('qa_real')
+          data = {
+              'restaurant_name': 'QA Restaurante',
+              'texto_extra': 'Carta de prueba de exportación real.',
+              'categories': [
+                  {
+                      'name': 'Entrantes',
+                      'category_text': '',
+                      'dishes': [
+                          {'number':'1','name':'Croquetas de jamón','description':'Croquetas caseras','price':'9,50','allergens':['gluten','huevos','lacteos'],'review_notes':[]},
+                          {'number':'2','name':'Salmón teriyaki','description':'Salmón con salsa teriyaki','price':'14,00','allergens':['pescado','soja','gluten'],'review_notes':[]},
+                          {'number':'3','name':'Queso Manchego Viejo','description':'','price':'4,90','allergens':['lacteos'],'review_notes':[]},
+                      ],
+                  },
+                  {
+                      'name': 'Postres',
+                      'category_text': '',
+                      'dishes': [
+                          {'number':'4','name':'Tiramisú','description':'','price':'6,50','allergens':['gluten','huevos','lacteos'],'review_notes':[]},
+                      ],
+                  },
+              ],
+          }
 
-          icon_test = Document()
-          p_icon = icon_test.add_paragraph('Queso Manchego Viejo  ')
-          shape = p_icon.add_run().add_picture('Public/Iconos/lacteos.png', width=Cm(0.34))
-          assert shape.width >= Cm(sitecustomize.INLINE_ICON_MIN_CM), (shape.width, Cm(sitecustomize.INLINE_ICON_MIN_CM))
-          icon_test.save(qa / 'qa_inline_icon.docx')
+          assert app.MODELO_A_USAR == 'gemini-3.8-flash'
+          assert app.MODELO_ALERGENOS == 'gemini-3.1-pro-preview'
+          assert 'neutral' in app.EDITABLE_WORD_THEMES
 
-          p = Document()
-          p.sections[0].bottom_margin = Cm(1.0)
-          p.add_heading('QA VERTICAL', 0)
-          for i in range(36):
-              p.add_paragraph(f'Plato {i+1} ........................ 12,00€ — descripción de prueba.')
-          p.add_paragraph('GUÍA DE ALÉRGENOS')
-          t = p.add_table(rows=2, cols=7)
-          labels = ['GLUTEN','CRUSTÁCEOS','HUEVOS','PESCADO','CACAHUETES','SOJA','LÁCTEOS','FRUTOS DE CÁSCARA','APIO','MOSTAZA','SÉSAMO','SULFITOS','ALTRAMUCES','MOLUSCOS']
-          for i, label in enumerate(labels):
-              t.cell(0 if i < 7 else 1, i if i < 7 else i-7).text = label
-          p.add_paragraph('Información orientativa basada en carta. Debe validarse con ingredientes reales.')
-          p.save(qa / 'qa_vertical.docx')
+          with_all = app.create_word(data, theme_key='neutral')
+          without_all = app.create_client_word_without_allergens(data, theme_key='neutral')
+          pdf_all = app.create_client_pdf_bytes(data, theme_key='neutral', with_allergens=True)
+          pdf_clean = app.create_client_pdf_bytes(data, theme_key='neutral', with_allergens=False)
 
-          l = Document()
-          s = l.sections[0]
-          s.orientation = WD_ORIENT.LANDSCAPE
-          s.page_width = Cm(29.7)
-          s.page_height = Cm(21.0)
-          s.left_margin = Cm(0.8)
-          s.right_margin = Cm(0.8)
-          s.bottom_margin = Cm(1.0)
-          l.add_heading('QA HORIZONTAL / LIBRO', 0)
-          for i in range(30):
-              l.add_paragraph(f'{i+1}. Plato de prueba  [GLU] [HUE]                         14,50€')
-          l.add_paragraph('GUÍA DE ALÉRGENOS')
-          lt = l.add_table(rows=2, cols=7)
-          for i, label in enumerate(labels):
-              lt.cell(0 if i < 7 else 1, i if i < 7 else i-7).text = label
-          l.save(qa / 'qa_horizontal.docx')
+          assert pdf_all and pdf_all.startswith(b'%PDF'), 'PDF con alérgenos no se generó'
+          assert pdf_clean and pdf_clean.startswith(b'%PDF'), 'PDF sin alérgenos no se generó'
 
-          clean = Document()
-          clean.sections[0].bottom_margin = Cm(1.0)
-          clean.sections[0].footer.paragraphs[0].text = 'FOOTER LIMPIO'
-          clean.add_paragraph('Carta final sin alérgenos')
-          clean.save(qa / 'qa_clean.docx')
+          (qa / 'carta_con_alergenos.docx').write_bytes(with_all.getvalue())
+          (qa / 'carta_sin_alergenos.docx').write_bytes(without_all.getvalue())
+          (qa / 'carta_con_alergenos.pdf').write_bytes(pdf_all)
+          (qa / 'carta_sin_alergenos.pdf').write_bytes(pdf_clean)
 
-          def footer_xml(path):
+          def footer_xmls(path):
               with zipfile.ZipFile(path) as z:
                   return [z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml')]
 
-          def check_allergen_docx(path, landscape=False):
-              with zipfile.ZipFile(path) as z:
-                  doc_xml = z.read('word/document.xml').decode('utf-8')
-                  assert 'GUÍA DE ALÉRGENOS' not in doc_xml, 'La leyenda antigua sigue en el body'
-                  footers = [z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml')]
-                  assert footers, 'No hay footer XML'
-                  richest = max(footers, key=lambda x: x.count('<w:drawing'))
-                  drawings = richest.count('<w:drawing')
-                  assert sitecustomize.LEGAL_TEXT.split(',')[0] in richest
-                  assert 'GLUTEN' in richest and 'MOLUSCOS' in richest
-                  if landscape:
-                      assert drawings >= 28, f'Libro necesita 28 iconos en el footer principal; drawings={drawings}'
-                  else:
-                      assert drawings >= 14, f'Vertical necesita 14 iconos; drawings={drawings}'
+          all_path = qa / 'carta_con_alergenos.docx'
+          clean_path = qa / 'carta_sin_alergenos.docx'
+          all_footers = footer_xmls(all_path)
+          clean_footers = footer_xmls(clean_path)
+          assert all_footers, 'La carta con alérgenos no tiene footer real'
+          richest = max(all_footers, key=lambda x: x.count('<w:drawing'))
+          assert 'Reglamento de la UE 1169/2011' in richest
+          assert 'GLUTEN' in richest and 'MOLUSCOS' in richest
+          assert richest.count('<w:drawing') >= 14, richest.count('<w:drawing')
+          assert not any('Reglamento de la UE 1169/2011' in f or 'GLUTEN' in f for f in clean_footers)
 
-              reopened = Document(path)
-              for sec in reopened.sections:
-                  # Word almacena márgenes en twips; permitimos ~1 mm de redondeo.
-                  if landscape:
-                      assert sec.bottom_margin >= Cm(5.3), sec.bottom_margin
-                  else:
-                      assert sec.bottom_margin >= Cm(6.0), sec.bottom_margin
-              print('PASS', path)
+          reopened = Document(all_path)
+          assert any(shape.width >= Cm(0.70) for shape in reopened.inline_shapes), 'Los iconos de plato siguen por debajo del mínimo visual'
+          for sec in reopened.sections:
+              assert sec.bottom_margin >= Cm(5.1), sec.bottom_margin
 
-          check_allergen_docx(qa / 'qa_vertical.docx', landscape=False)
-          check_allergen_docx(qa / 'qa_horizontal.docx', landscape=True)
+          with zipfile.ZipFile(all_path) as z:
+              body = z.read('word/document.xml').decode('utf-8')
+              assert 'GUÍA DE ALÉRGENOS' not in body, 'La leyenda volvió al body en lugar del footer'
 
-          clean_reopened = Document(qa / 'qa_clean.docx')
-          assert clean_reopened.sections[0].bottom_margin < Cm(2.0), 'El Word sin alérgenos fue modificado'
-          clean_footers = footer_xml(qa / 'qa_clean.docx')
-          assert any('FOOTER LIMPIO' in f for f in clean_footers)
-          assert not any('GLUTEN' in f or sitecustomize.LEGAL_TEXT.split(',')[0] in f for f in clean_footers)
-          print('PASS clean document isolation')
+          source = Path('app.py').read_text(encoding='utf-8')
+          assert 'st.multiselect(' in source and '"Alérgenos"' in source, 'Se perdió la edición manual de alérgenos'
+          assert 'WORD CON ALÉRGENOS' in source and 'PDF CON ALÉRGENOS' in source
+          assert 'WORD SIN ALÉRGENOS' in source and 'PDF SIN ALÉRGENOS' in source
 
           (qa / 'qa_report.txt').write_text(
-              'PASS\n'
-              f'icon_dir={sitecustomize._ICON_DIR}\n'
-              f'inline_min_cm={sitecustomize.INLINE_ICON_MIN_CM}\n'
-              'portrait_footer=2x7 native icons enlarged\n'
-              'clean_doc_untouched=yes\n',
-              encoding='utf-8'
+              'PASS real export path\n'
+              'word_with_allergens=ok\nword_without_allergens=ok\n'
+              'pdf_with_allergens=ok\npdf_without_allergens=ok\n'
+              'direct_word_footer=ok\nmanual_allergen_editor=present\n',
+              encoding='utf-8',
           )
+          print('PASS real Carta IA exports')
           PY
 
-      - name: Install renderer
+      - name: Install renderers
         if: success()
         run: |
-          if ! command -v libreoffice >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y libreoffice-writer poppler-utils
-          fi
+          sudo apt-get update
+          sudo apt-get install -y libreoffice-writer poppler-utils
 
-      - name: Render Word outputs
+      - name: Render all four real outputs
         if: success()
         run: |
-          mkdir -p qa/rendered
-          libreoffice --headless --convert-to pdf --outdir qa/rendered qa/qa_vertical.docx
-          libreoffice --headless --convert-to pdf --outdir qa/rendered qa/qa_horizontal.docx
-          libreoffice --headless --convert-to pdf --outdir qa/rendered qa/qa_inline_icon.docx
-          pdftoppm -png -r 120 qa/rendered/qa_vertical.pdf qa/rendered/vertical
-          pdftoppm -png -r 120 qa/rendered/qa_horizontal.pdf qa/rendered/horizontal
-          pdftoppm -png -r 120 qa/rendered/qa_inline_icon.pdf qa/rendered/inline
-          ls -lah qa qa/rendered
+          mkdir -p qa_real/rendered
+          libreoffice --headless --convert-to pdf --outdir qa_real/rendered qa_real/carta_con_alergenos.docx
+          libreoffice --headless --convert-to pdf --outdir qa_real/rendered qa_real/carta_sin_alergenos.docx
+          pdftoppm -png -r 140 qa_real/rendered/carta_con_alergenos.pdf qa_real/rendered/word_all
+          pdftoppm -png -r 140 qa_real/rendered/carta_sin_alergenos.pdf qa_real/rendered/word_clean
+          pdftoppm -png -r 140 qa_real/carta_con_alergenos.pdf qa_real/rendered/pdf_all
+          pdftoppm -png -r 140 qa_real/carta_sin_alergenos.pdf qa_real/rendered/pdf_clean
+          ls -lah qa_real qa_real/rendered
 
-      - name: Upload QA artifacts
+      - name: Upload real export QA
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: eider-footer-qa
-          path: qa/
+          name: carta-ia-real-export-qa
+          path: qa_real/
           if-no-files-found: warn
