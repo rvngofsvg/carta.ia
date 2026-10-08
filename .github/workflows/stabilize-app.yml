@@ -1,0 +1,60 @@
+name: Stabilize Carta IA application
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/stabilize_app.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stabilize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply stabilization refactor
+        run: python scripts/stabilize_app.py
+
+      - name: Static QA
+        run: |
+          python -m py_compile app.py
+          python - <<'PY'
+          import ast
+          from collections import Counter
+          from pathlib import Path
+
+          src = Path('app.py').read_text(encoding='utf-8')
+          tree = ast.parse(src)
+          names = [n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+          dupes = sorted(name for name, count in Counter(names).items() if count > 1)
+          assert not dupes, f'Duplicate top-level functions remain: {dupes}'
+          assert 'doc[:6]' not in src, 'Scanned-PDF six-page truncation still exists'
+          assert 'def menu_preflight(' in src
+          assert 'def render_export_preflight(' in src
+          assert 'disabled=not can_export_allergens' in src
+          assert '✅ Revisar carta' in src and '📦 Descargas' in src and '🧰 Avanzado' in src
+          print('PASS static stabilization QA')
+          PY
+
+      - name: Commit stabilized application
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py AUDIT_STABILIZATION.md
+          if git diff --cached --quiet; then
+            echo 'Application already stabilized; nothing to commit.'
+            exit 0
+          fi
+          git commit -m 'Stabilize allergen validation, PDF import and client UX'
+          git push origin HEAD:main
