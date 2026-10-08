@@ -48,9 +48,14 @@ def _legend_bytes():
     if not parts:
         raise FileNotFoundError("No se encontró la leyenda de alérgenos de Eider")
 
-    encoded = "".join(p.read_text(encoding="ascii").strip() for p in parts)
+    # Los fragmentos pueden venir sin el padding '=' final o contener saltos de línea.
+    # Se normalizan sin alterar el payload antes de una decodificación estricta.
+    encoded = "".join("".join(p.read_text(encoding="ascii").split()) for p in parts)
+    encoded += "=" * (-len(encoded) % 4)
     raw = base64.b64decode(encoded, validate=True)
-    image = Image.open(BytesIO(raw)).convert("RGB")
+    image = Image.open(BytesIO(raw))
+    image.load()
+    image = image.convert("RGB")
     out = BytesIO()
     image.save(out, format="PNG", optimize=True)
     _LEGEND_BYTES = out.getvalue()
