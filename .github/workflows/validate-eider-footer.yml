@@ -1,0 +1,137 @@
+name: Validate Eider Word footer
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install focused dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install python-docx==1.2.0 Pillow==12.3.0
+          python -m pip install ./serval_eider_patch
+
+      - name: Generate and structurally validate Word outputs
+        run: |
+          mkdir -p qa
+          python - <<'PY'
+          from pathlib import Path
+          from io import BytesIO
+          import hashlib
+          import zipfile
+          from PIL import Image
+          from docx import Document
+          from docx.enum.section import WD_ORIENT
+          from docx.shared import Cm
+          import sitecustomize
+
+          qa = Path('qa')
+          raw = sitecustomize._legend_bytes()
+          digest = hashlib.sha256(raw).hexdigest()
+          img = Image.open(BytesIO(raw))
+          print('LEGEND_BYTES', len(raw))
+          print('LEGEND_SHA256', digest)
+          print('LEGEND_IMAGE', img.format, img.size, img.mode)
+          assert img.width > 100 and img.height > 20
+
+          # Portrait fixture: includes the old body legend on purpose so the patch must remove it.
+          p = Document()
+          p.sections[0].bottom_margin = Cm(1.0)
+          p.add_heading('QA VERTICAL', 0)
+          for i in range(46):
+              p.add_paragraph(f'Plato {i+1} ........................ 12,00€ — descripción de prueba para validar flujo y pie de página.')
+          p.add_paragraph('GUÍA DE ALÉRGENOS')
+          t = p.add_table(rows=2, cols=7)
+          labels = ['GLUTEN','CRUSTÁCEOS','HUEVOS','PESCADO','CACAHUETES','SOJA','LÁCTEOS','FRUTOS DE CÁSCARA','APIO','MOSTAZA','SÉSAMO','SULFITOS','ALTRAMUCES','MOLUSCOS']
+          for i, label in enumerate(labels):
+              t.cell(0 if i < 7 else 1, i if i < 7 else i-7).text = label
+          p.add_paragraph('Información orientativa basada en carta. Debe validarse con ingredientes reales.')
+          p.save(qa / 'qa_vertical.docx')
+
+          # Landscape/book fixture: includes a pre-existing footer that must be replaced.
+          l = Document()
+          s = l.sections[0]
+          s.orientation = WD_ORIENT.LANDSCAPE
+          s.page_width = Cm(29.7)
+          s.page_height = Cm(21.0)
+          s.left_margin = Cm(0.8)
+          s.right_margin = Cm(0.8)
+          s.bottom_margin = Cm(1.0)
+          s.footer.paragraphs[0].text = 'FOOTER ANTIGUO'
+          l.add_heading('QA HORIZONTAL / LIBRO', 0)
+          for i in range(44):
+              l.add_paragraph(f'{i+1}. Plato de prueba  [GLU] [HUE]                         14,50€')
+          l.save(qa / 'qa_horizontal.docx')
+
+          def check_docx(path, landscape=False):
+              with zipfile.ZipFile(path) as z:
+                  doc_xml = z.read('word/document.xml').decode('utf-8')
+                  assert 'GUÍA DE ALÉRGENOS' not in doc_xml, 'La leyenda antigua sigue en el body'
+                  footer_names = sorted(n for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml'))
+                  assert footer_names, 'No hay footer XML'
+                  footers = [z.read(n).decode('utf-8') for n in footer_names]
+                  drawings = max(f.count('<w:drawing') for f in footers)
+                  if landscape:
+                      assert drawings >= 2, f'Libro necesita dos leyendas; drawings={drawings}'
+                      assert any('<w:tbl>' in f for f in footers), 'Libro necesita tabla de dos lados en footer'
+                  else:
+                      assert drawings >= 1, f'Vertical necesita una leyenda; drawings={drawings}'
+                  media = [z.read(n) for n in z.namelist() if n.startswith('word/media/')]
+                  hashes = {hashlib.sha256(b).hexdigest() for b in media}
+                  assert digest in hashes, 'El PNG exacto reconstruido no está embebido en el DOCX'
+
+              reopened = Document(path)
+              for sec in reopened.sections:
+                  if landscape:
+                      assert sec.bottom_margin >= Cm(2.55)
+                  else:
+                      assert sec.bottom_margin >= Cm(3.15)
+              print('PASS', path)
+
+          check_docx(qa / 'qa_vertical.docx', landscape=False)
+          check_docx(qa / 'qa_horizontal.docx', landscape=True)
+          (qa / 'qa_report.txt').write_text(
+              f'PASS\nlegend_sha256={digest}\nlegend_bytes={len(raw)}\nimage={img.format} {img.width}x{img.height}\n',
+              encoding='utf-8'
+          )
+          PY
+
+      - name: Install renderer
+        if: success()
+        run: |
+          if ! command -v libreoffice >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y libreoffice-writer poppler-utils
+          fi
+
+      - name: Render Word outputs
+        if: success()
+        run: |
+          mkdir -p qa/rendered
+          libreoffice --headless --convert-to pdf --outdir qa/rendered qa/qa_vertical.docx
+          libreoffice --headless --convert-to pdf --outdir qa/rendered qa/qa_horizontal.docx
+          pdftoppm -png -r 120 qa/rendered/qa_vertical.pdf qa/rendered/vertical
+          pdftoppm -png -r 120 qa/rendered/qa_horizontal.pdf qa/rendered/horizontal
+          ls -lah qa qa/rendered
+
+      - name: Upload QA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eider-footer-qa
+          path: qa/
+          if-no-files-found: warn
