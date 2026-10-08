@@ -1445,8 +1445,8 @@ def add_docx_allergen_legend(doc, data, theme):
     legend_labels = {
         "gluten": "GLUTEN", "crustaceos": "CRUSTÁCEOS", "huevos": "HUEVOS", "pescado": "PESCADO",
         "cacahuetes": "CACAHUETES", "soja": "SOJA", "lacteos": "LÁCTEOS",
-        "frutos de cascara": "FRUTOS DE CÁSCARA", "apio": "APIO", "mostaza": "MOSTAZA",
-        "sesamo": "GRANOS DE SÉSAMO", "sulfitos": "DIÓXIDO DE AZUFRE Y SULFITOS",
+        "frutos de cascara": "FRUTOS DE\nCÁSCARA", "apio": "APIO", "mostaza": "MOSTAZA",
+        "sesamo": "GRANOS DE\nSÉSAMO", "sulfitos": "DIÓXIDO DE AZUFRE\nY SULFITOS",
         "altramuces": "ALTRAMUCES", "moluscos": "MOLUSCOS",
     }
 
@@ -1536,6 +1536,11 @@ def add_docx_allergen_legend(doc, data, theme):
                 r, c = divmod(idx, 7)
                 item = grid.cell(r, c)
                 set_cell_width(item, col_cm)
+                tc_pr = item._tc.get_or_add_tcPr()
+                no_wrap = tc_pr.find(qn("w:noWrap"))
+                if no_wrap is None:
+                    no_wrap = OxmlElement("w:noWrap")
+                    tc_pr.append(no_wrap)
                 item.text = ""
                 item.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
 
@@ -1551,7 +1556,7 @@ def add_docx_allergen_legend(doc, data, theme):
                 compact(lp)
                 lp.paragraph_format.space_before = Pt(1)
                 label = lp.add_run(legend_labels.get(allergen, ALLERGEN_LABELS.get(allergen, allergen)))
-                label.font.size = Pt(9.0)
+                label.font.size = Pt(8.6)
                 label.bold = True
                 set_run_color(label, theme.get("text", "111111"))
 
