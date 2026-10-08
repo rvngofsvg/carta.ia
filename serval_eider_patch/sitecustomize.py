@@ -403,8 +403,8 @@ def _install_document_footer_patch():
 
 
 def _install():
+    # El footer lo crea app.py directamente; aquí solo mantenemos el mínimo visual de iconos inline.
     _install_inline_icon_minimum()
-    _install_document_footer_patch()
 
 
 _install()

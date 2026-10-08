@@ -415,7 +415,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
 
     extra = html_escape(str(data.get("texto_extra") or ""))
     extra_html = f'<div class="extra">{extra}</div>' if extra else ""
-    return f'''<!doctype html><html><head><meta charset="utf-8"><style>
+    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
     @page{{size:A4;margin:15mm 15mm {page_bottom} 15mm;}}
     *{{box-sizing:border-box}} body{{font-family:Arial,Helvetica,sans-serif;color:{text};margin:0;background:#fff;font-size:10.5pt;}}
     h1{{font-size:24pt;text-align:center;color:{header};margin:0 0 8mm;letter-spacing:.3px;}}
@@ -429,7 +429,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
     .desc{{font-size:9.2pt;color:{muted};font-style:italic;margin-top:.5mm;}}
     .extra{{padding:2.5mm;background:{light};border:1px solid #ddd;margin-top:6mm;}}
     {footer_css}
-    </style></head><body><h1>{rest}</h1>{''.join(category_html)}{extra_html}{footer_html}</body></html>'''
+    </style></head><body><h1>{rest}</h1>{''.join(category_html)}{extra_html}{footer_html}</body></html>"""
 
 
 def create_client_pdf_bytes(data, theme_key="neutral", with_allergens=True):
