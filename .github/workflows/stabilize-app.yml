@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/stabilize_app.py'
+      - '.github/workflows/stabilize-app.yml'
   workflow_dispatch:
 
 permissions:
@@ -25,6 +26,20 @@ jobs:
       - name: Apply stabilization refactor
         run: python scripts/stabilize_app.py
 
+      - name: Hotfix runtime imports
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app.py')
+          src = path.read_text(encoding='utf-8')
+          if 'from collections import Counter' not in src:
+              anchor = 'import unicodedata\n'
+              if anchor not in src:
+                  raise SystemExit('Import anchor not found')
+              src = src.replace(anchor, anchor + 'from collections import Counter\n', 1)
+              path.write_text(src, encoding='utf-8')
+          PY
+
       - name: Static QA
         run: |
           python -m py_compile app.py
@@ -38,6 +53,8 @@ jobs:
           names = [n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
           dupes = sorted(name for name, count in Counter(names).items() if count > 1)
           assert not dupes, f'Duplicate top-level functions remain: {dupes}'
+          assert 'from collections import Counter' in src, 'Counter runtime import missing'
+          assert 'seen_names = Counter()' in src, 'Preflight Counter regression missing'
           assert 'doc[:6]' not in src, 'Scanned-PDF six-page truncation still exists'
           assert 'def menu_preflight(' in src
           assert 'def render_export_preflight(' in src
@@ -56,5 +73,5 @@ jobs:
             echo 'Application already stabilized; nothing to commit.'
             exit 0
           fi
-          git commit -m 'Stabilize allergen validation, PDF import and client UX'
+          git commit -m 'Fix preflight Counter runtime import'
           git push origin HEAD:main
