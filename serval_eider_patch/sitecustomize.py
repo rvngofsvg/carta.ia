@@ -163,6 +163,8 @@ def _add_picture(paragraph, width_cm):
 
 
 def _single_footer(section, usable_cm):
+    if section.bottom_margin < Cm(3.2):
+        section.bottom_margin = Cm(3.2)
     footer = section.footer
     footer.is_linked_to_previous = False
     footer.distance = Cm(0.18)
@@ -171,6 +173,8 @@ def _single_footer(section, usable_cm):
 
 
 def _book_footer(section, usable_cm):
+    if section.bottom_margin < Cm(2.7):
+        section.bottom_margin = Cm(2.7)
     footer = section.footer
     footer.is_linked_to_previous = False
     footer.distance = Cm(0.12)
