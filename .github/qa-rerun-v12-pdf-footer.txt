@@ -1,0 +1,2 @@
+QA marker for Carta IA v12 running-footer PDF validation.
+Created 2026-10-09 to force the real export workflow on the bot-produced app commit.
