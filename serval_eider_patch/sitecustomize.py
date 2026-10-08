@@ -1,6 +1,7 @@
 import base64
 from io import BytesIO
 from pathlib import Path
+import sys
 import unicodedata
 
 from PIL import Image
@@ -19,8 +20,20 @@ def _find_root():
     return Path.cwd()
 
 
-_ROOT = _find_root()
-_B64_DIR = _ROOT / "serval_eider_patch" / "legend_b64"
+def _find_legend_dir():
+    root = _find_root()
+    candidates = (
+        Path(__file__).resolve().parent / "serval_eider_legend",
+        Path(sys.prefix) / "serval_eider_legend",
+        root / "serval_eider_patch" / "legend_b64",
+    )
+    for path in candidates:
+        if path.exists() and list(path.glob("part*.txt")):
+            return path
+    return candidates[-1]
+
+
+_B64_DIR = _find_legend_dir()
 _LEGEND_BYTES = None
 _ORIGINAL_SAVE = None
 
@@ -129,7 +142,7 @@ def _footer_variants(section):
 
 
 def _single_footer(section, usable_cm):
-    # Pie real: la leyenda no forma parte del cuerpo y no empuja los platos.
+    # Pie real: la leyenda queda anclada abajo y fuera del flujo del contenido.
     if section.bottom_margin < Cm(3.15):
         section.bottom_margin = Cm(3.15)
     section.footer_distance = Cm(0.18)
@@ -140,7 +153,7 @@ def _single_footer(section, usable_cm):
 
 
 def _book_footer(section, usable_cm):
-    # Modo libro: un pie independiente visualmente para cada mitad de la hoja.
+    # Modo libro: una leyenda al pie de cada mitad, sin invadir el cuerpo.
     if section.bottom_margin < Cm(2.55):
         section.bottom_margin = Cm(2.55)
     section.footer_distance = Cm(0.12)
