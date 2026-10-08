@@ -1,0 +1,48 @@
+name: Polish Carta IA v12 exports
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/polish-v12-exports.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  polish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Repair polish source
+        run: python scripts/fix_v12_export_polish_source.py
+
+      - name: Compile polish source
+        run: python -m py_compile scripts/v12_export_polish.py
+
+      - name: Apply export polish
+        run: python scripts/v12_export_polish.py
+
+      - name: Compile app
+        run: python -m py_compile app.py
+
+      - name: Commit export polish
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py scripts/v12_export_polish.py scripts/fix_v12_export_polish_source.py
+          if git diff --cached --quiet; then
+            echo 'Nothing to commit.'
+            exit 0
+          fi
+          git commit -m 'Polish real Word and PDF exports'
+          git push origin HEAD:main
