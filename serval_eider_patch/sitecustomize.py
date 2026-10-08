@@ -1,8 +1,9 @@
+import base64
 from io import BytesIO
 from pathlib import Path
 import unicodedata
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image
 from docx.document import Document as _DocumentClass
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -12,110 +13,33 @@ from docx.shared import Cm, Pt
 
 
 def _find_root():
-    candidates = [Path.cwd(), *Path.cwd().parents]
-    for base in candidates:
+    for base in (Path.cwd(), *Path.cwd().parents):
         if (base / "Public" / "Iconos").exists():
             return base
     return Path.cwd()
 
 
 _ROOT = _find_root()
-_ASSET_PATH = _ROOT / "serval_eider_patch" / "leyenda_alergenos_eider.webp"
-_ICON_DIR = _ROOT / "Public" / "Iconos"
-_ORDER = [
-    "gluten", "crustaceos", "huevos", "pescado", "cacahuetes", "soja", "lacteos",
-    "frutos de cascara", "apio", "mostaza", "sesamo", "sulfitos", "altramuces", "moluscos",
-]
-_ICON_FILES = {
-    "gluten": "gluten.png", "crustaceos": "gambas.png", "huevos": "huevo.png",
-    "pescado": "pescado.png", "cacahuetes": "cacahuetes.png", "soja": "soja.png",
-    "lacteos": "lacteos.png", "frutos de cascara": "frutos_secos.png", "apio": "apio.png",
-    "mostaza": "mostaza.png", "sesamo": "sesamo.png", "sulfitos": "sulfitos.png",
-    "altramuces": "altramuces.png", "moluscos": "moluscos.png",
-}
-_LABELS = {
-    "gluten": "GLUTEN", "crustaceos": "CRUSTÁCEOS", "huevos": "HUEVOS", "pescado": "PESCADO",
-    "cacahuetes": "CACAHUETES", "soja": "SOJA", "lacteos": "LÁCTEOS", "frutos de cascara": "FRUTOS DE\nCÁSCARA",
-    "apio": "APIO", "mostaza": "MOSTAZA", "sesamo": "GRANOS DE\nSÉSAMO", "sulfitos": "DIÓXIDO DE\nAZUFRE\nY SULFITOS",
-    "altramuces": "ALTRAMUCES", "moluscos": "MOLUSCOS",
-}
-_NOTICE = (
-    "Informamos de acuerdo con el Reglamento de la U.E 1169/2011, "
-    "que nuestros productos contienen o pueden contener los siguientes alérgenos."
-)
+_B64_DIR = _ROOT / "serval_eider_patch" / "legend_b64"
 _LEGEND_BYTES = None
 _ORIGINAL_SAVE = None
 
 
-def _font(size):
-    for candidate in (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
-        "DejaVuSans-Bold.ttf",
-        "Arial Bold.ttf",
-    ):
-        try:
-            return ImageFont.truetype(candidate, size=size)
-        except Exception:
-            pass
-    return ImageFont.load_default()
-
-
-def _fit_font(draw, text, max_width, start=25, minimum=14):
-    for size in range(start, minimum - 1, -1):
-        font = _font(size)
-        box = draw.textbbox((0, 0), text, font=font)
-        if box[2] - box[0] <= max_width:
-            return font
-    return _font(minimum)
-
-
 def _legend_bytes():
+    """Carga el arte enviado por Eider y lo convierte a PNG para Word."""
     global _LEGEND_BYTES
     if _LEGEND_BYTES is not None:
         return _LEGEND_BYTES
 
-    # Prefer the exact artwork supplied by Eider. It is converted to PNG in memory
-    # because python-docx/Word handles PNG more consistently than WebP.
-    if _ASSET_PATH.exists():
-        try:
-            img = Image.open(_ASSET_PATH).convert("RGB")
-            out = BytesIO()
-            img.save(out, format="PNG", optimize=True)
-            _LEGEND_BYTES = out.getvalue()
-            return _LEGEND_BYTES
-        except Exception:
-            pass
+    parts = sorted(_B64_DIR.glob("part*.txt"))
+    if not parts:
+        raise FileNotFoundError("No se encontró la leyenda de alérgenos de Eider")
 
-    # Safe fallback if the packaged artwork is ever unavailable.
-    width, height = 1800, 280
-    canvas = Image.new("RGB", (width, height), "white")
-    draw = ImageDraw.Draw(canvas)
-    draw.rectangle((5, 5, width - 6, height - 6), outline="#3b1f12", width=5)
-    draw.text((40, 17), _NOTICE, fill="black", font=_fit_font(draw, _NOTICE, width - 80))
-
-    label_font = _font(16)
-    slot = (width - 54) / len(_ORDER)
-    resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
-    for index, allergen in enumerate(_ORDER):
-        center_x = 27 + slot * (index + 0.5)
-        icon_path = _ICON_DIR / _ICON_FILES[allergen]
-        if icon_path.exists():
-            try:
-                icon = Image.open(icon_path).convert("RGBA")
-                icon = ImageOps.contain(icon, (88, 88), method=resampling)
-                canvas.paste(icon, (int(center_x - icon.width / 2), int(67 + (88 - icon.height) / 2)), icon)
-            except Exception:
-                pass
-        label = _LABELS[allergen]
-        box = draw.multiline_textbbox((0, 0), label, font=label_font, spacing=0, align="center")
-        draw.multiline_text(
-            (int(center_x - (box[2] - box[0]) / 2), 166),
-            label, fill="black", font=label_font, spacing=0, align="center",
-        )
-
+    encoded = "".join(p.read_text(encoding="ascii").strip() for p in parts)
+    raw = base64.b64decode(encoded, validate=True)
+    image = Image.open(BytesIO(raw)).convert("RGB")
     out = BytesIO()
-    canvas.save(out, format="PNG", optimize=True)
+    image.save(out, format="PNG", optimize=True)
     _LEGEND_BYTES = out.getvalue()
     return _LEGEND_BYTES
 
@@ -133,6 +57,7 @@ def _remove_element(element):
 
 
 def _remove_old_body_legend(doc):
+    """Elimina la leyenda antigua cuando alguna salida la generaba dentro del body."""
     for paragraph in list(doc.paragraphs):
         text = _normalize(paragraph.text)
         if (
@@ -148,7 +73,7 @@ def _remove_old_body_legend(doc):
     }
     for table in list(doc.tables):
         joined = _normalize(" ".join(cell.text for row in table.rows for cell in row.cells))
-        if len(table.rows) <= 3 and sum(1 for term in terms if term in joined) >= 7:
+        if len(table.rows) <= 3 and sum(term in joined for term in terms) >= 7:
             _remove_element(table._element)
 
 
@@ -172,23 +97,22 @@ def _set_cell_width(cell, width_cm):
 def _set_table_grid_widths(table, widths_cm):
     grid_cols = table._tbl.tblGrid.findall(qn("w:gridCol"))
     for idx, width_cm in enumerate(widths_cm):
-        if idx >= len(grid_cols):
-            break
-        grid_cols[idx].set(qn("w:w"), str(int(Cm(width_cm).twips)))
+        if idx < len(grid_cols):
+            grid_cols[idx].set(qn("w:w"), str(int(Cm(width_cm).twips)))
 
 
-def _set_cell_margins(cell, top=0, start=0, bottom=0, end=0):
+def _set_cell_margins(cell):
     tc_pr = cell._tc.get_or_add_tcPr()
     tc_mar = tc_pr.first_child_found_in("w:tcMar")
     if tc_mar is None:
         tc_mar = OxmlElement("w:tcMar")
         tc_pr.append(tc_mar)
-    for name, value in {"top": top, "start": start, "bottom": bottom, "end": end}.items():
+    for name in ("top", "start", "bottom", "end"):
         node = tc_mar.find(qn(f"w:{name}"))
         if node is None:
             node = OxmlElement(f"w:{name}")
             tc_mar.append(node)
-        node.set(qn("w:w"), str(value))
+        node.set(qn("w:w"), "0")
         node.set(qn("w:type"), "dxa")
 
 
@@ -201,12 +125,11 @@ def _add_picture(paragraph, width_cm):
 
 
 def _footer_variants(section):
-    # Fill all variants so the legend stays in the real footer even if a template
-    # uses a different first page or odd/even footers.
-    return (section.footer, section.first_page_footer, section.even_page_footer)
+    return section.footer, section.first_page_footer, section.even_page_footer
 
 
 def _single_footer(section, usable_cm):
+    # Pie real: la leyenda no forma parte del cuerpo y no empuja los platos.
     if section.bottom_margin < Cm(3.15):
         section.bottom_margin = Cm(3.15)
     section.footer_distance = Cm(0.18)
@@ -217,18 +140,20 @@ def _single_footer(section, usable_cm):
 
 
 def _book_footer(section, usable_cm):
+    # Modo libro: un pie independiente visualmente para cada mitad de la hoja.
     if section.bottom_margin < Cm(2.55):
         section.bottom_margin = Cm(2.55)
     section.footer_distance = Cm(0.12)
     gutter_cm = 0.8
     side_cm = max(6.0, (usable_cm - gutter_cm) / 2.0)
+    widths = (side_cm, gutter_cm, side_cm)
+
     for footer in _footer_variants(section):
         footer.is_linked_to_previous = False
         _clear(footer)
         table = footer.add_table(rows=1, cols=3, width=Cm(usable_cm))
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
         table.autofit = False
-        widths = (side_cm, gutter_cm, side_cm)
         _set_table_grid_widths(table, widths)
         for idx, width in enumerate(widths):
             cell = table.cell(0, idx)
@@ -245,7 +170,10 @@ def _book_footer(section, usable_cm):
 def _prepare(doc):
     _remove_old_body_legend(doc)
     for section in doc.sections:
-        usable_cm = max(1.0, (section.page_width - section.left_margin - section.right_margin) / 360000.0)
+        usable_cm = max(
+            1.0,
+            (section.page_width - section.left_margin - section.right_margin) / 360000.0,
+        )
         if section.page_width > section.page_height:
             _book_footer(section, usable_cm)
         else:
@@ -259,10 +187,7 @@ def _install():
     _ORIGINAL_SAVE = _DocumentClass.save
 
     def save_with_eider_legend(self, path_or_stream):
-        try:
-            _prepare(self)
-        except Exception:
-            pass
+        _prepare(self)
         return _ORIGINAL_SAVE(self, path_or_stream)
 
     save_with_eider_legend._eider_legend_patch = True
