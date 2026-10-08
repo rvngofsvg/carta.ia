@@ -3187,9 +3187,15 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
             f'<section class="category"><h2>{html_escape(str(category.get("name") or "Categoría"))}</h2>{note_html}{"".join(dishes_html)}</section>'
         )
 
+    page_css = """
+    @page {
+        size: A4;
+        margin: 15mm 15mm 16mm 15mm;
+    }
+    """
     footer_html = ""
     footer_css = ""
-    page_bottom = "16mm"
+
     if with_allergens:
         labels = {
             "gluten": "GLUTEN", "crustaceos": "CRUSTÁCEOS", "huevos": "HUEVOS", "pescado": "PESCADO",
@@ -3200,40 +3206,99 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         items = []
         for allergen in ALLERGEN_ORDER:
             src = file_to_data_uri(ICON_MAP.get(allergen))
-            icon = f'<img src="{src}">' if src else ""
+            icon = f'<img src="{src}" alt="{html_escape(labels[allergen])}">' if src else ""
             items.append(f'<div class="legend-item">{icon}<span>{labels[allergen]}</span></div>')
+
         footer_html = (
             '<footer class="allergen-footer">'
             '<div class="legal">Informamos de acuerdo con el Reglamento de la UE 1169/2011, que nuestros productos contienen o pueden contener los siguientes alérgenos.</div>'
-            f'<div class="legend-grid">{"".join(items)}</div></footer>'
+            f'<div class="legend-grid">{"".join(items)}</div>'
+            '</footer>'
         )
-        page_bottom = "58mm"
-        footer_css = '''
-        .allergen-footer{position:fixed;left:0;right:0;bottom:-52mm;height:48mm;border:1.2px solid #4b4038;padding:2.5mm 3mm 2mm;box-sizing:border-box;background:#fff;overflow:visible;}
-        .legal{text-align:center;font-size:8.6pt;font-weight:700;margin-bottom:1.8mm;line-height:1.12;}
-        .legend-grid{display:flex;flex-wrap:wrap;align-content:flex-start;width:100%;}
-        .legend-item{width:14.285714%;height:17mm;text-align:center;font-size:7.8pt;font-weight:700;line-height:1.0;padding:.4mm .6mm;box-sizing:border-box;}
-        .legend-item img{display:block;width:9.5mm;height:9.5mm;object-fit:contain;margin:0 auto .7mm;}
-        .legend-item span{display:block;overflow-wrap:normal;word-break:normal;}
-        '''
+        page_css = """
+        @page {
+            size: A4;
+            margin: 15mm 15mm 58mm 15mm;
+            @bottom-center {
+                content: element(allergenFooter);
+                vertical-align: bottom;
+            }
+        }
+        """
+        footer_css = """
+        .allergen-footer {
+            position: running(allergenFooter);
+            width: 180mm;
+            height: 48mm;
+            border: 1.2px solid #4b4038;
+            padding: 2.5mm 3mm 2mm;
+            box-sizing: border-box;
+            background: #fff;
+            overflow: hidden;
+        }
+        .legal {
+            text-align: center;
+            font-size: 8.6pt;
+            font-weight: 700;
+            margin: 0 0 1.5mm;
+            line-height: 1.12;
+        }
+        .legend-grid {
+            display: flex;
+            flex-wrap: wrap;
+            align-content: flex-start;
+            width: 100%;
+        }
+        .legend-item {
+            width: 14.285714%;
+            height: 17mm;
+            text-align: center;
+            font-size: 7.6pt;
+            font-weight: 700;
+            line-height: 1.04;
+            padding: 0.3mm 0.5mm;
+            box-sizing: border-box;
+            hyphens: none;
+            word-break: normal;
+            overflow-wrap: normal;
+        }
+        .legend-item img {
+            display: block;
+            width: 9.2mm;
+            height: 9.2mm;
+            object-fit: contain;
+            margin: 0 auto 0.6mm;
+        }
+        .legend-item span {
+            display: block;
+            white-space: normal;
+            hyphens: none;
+            word-break: normal;
+            overflow-wrap: normal;
+        }
+        """
 
     extra = html_escape(str(data.get("texto_extra") or ""))
     extra_html = f'<div class="extra">{extra}</div>' if extra else ""
-    return f'''<!doctype html><html><head><meta charset="utf-8"><style>
-    @page{{size:A4;margin:15mm 15mm {page_bottom} 15mm;}}
-    *{{box-sizing:border-box}} body{{font-family:Arial,Helvetica,sans-serif;color:{text};margin:0;background:#fff;font-size:10.5pt;}}
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
+    {page_css}
+    *{{box-sizing:border-box}}
+    body{{font-family:Arial,Helvetica,sans-serif;color:{text};margin:0;background:#fff;font-size:10.5pt;}}
     h1{{font-size:24pt;text-align:center;color:{header};margin:0 0 8mm;letter-spacing:.3px;}}
     h2{{font-size:14pt;color:{cat};border-bottom:1px solid {cat};padding-bottom:1.5mm;margin:6mm 0 2.5mm;}}
     .cat-note,.extra{{color:{muted};font-size:9pt;margin:1.5mm 0 3mm;}}
     .dish{{margin:0 0 2.2mm;break-inside:avoid;}}
     .dish-main{{display:flex;align-items:center;gap:1.6mm;font-size:11pt;}}
-    .dish-name{{font-weight:700;}} .dish-icons{{display:inline-flex;gap:.8mm;align-items:center;}}
+    .dish-name{{font-weight:700;}}
+    .dish-icons{{display:inline-flex;gap:.8mm;align-items:center;}}
     .dish-icon{{width:7.5mm;height:7.5mm;object-fit:contain;}}
-    .dots{{flex:1;border-bottom:1px dotted {muted};height:0;min-width:8mm;}} .price{{font-weight:700;white-space:nowrap;}}
+    .dots{{flex:1;border-bottom:1px dotted {muted};height:0;min-width:8mm;}}
+    .price{{font-weight:700;white-space:nowrap;}}
     .desc{{font-size:9.2pt;color:{muted};font-style:italic;margin-top:.5mm;}}
     .extra{{padding:2.5mm;background:{light};border:1px solid #ddd;margin-top:6mm;}}
     {footer_css}
-    </style></head><body><h1>{rest}</h1>{''.join(category_html)}{extra_html}{footer_html}</body></html>'''
+    </style></head><body>{footer_html}<h1>{rest}</h1>{''.join(category_html)}{extra_html}</body></html>"""
 
 
 def create_client_pdf_bytes(data, theme_key="neutral", with_allergens=True):
