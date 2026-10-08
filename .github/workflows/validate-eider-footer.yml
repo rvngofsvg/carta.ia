@@ -1,5 +1,6 @@
 name: Validate real Carta IA exports
 
+# QA rerun after v12 Word/PDF export polish 2026-10-09
 on:
   push:
     branches: [main]
@@ -30,10 +31,12 @@ jobs:
         run: |
           mkdir -p qa_real
           python - <<'PY'
+          from io import BytesIO
           from pathlib import Path
           import zipfile
           from docx import Document
           from docx.shared import Cm
+          from pypdf import PdfReader
           import app
 
           qa = Path('qa_real')
@@ -72,6 +75,12 @@ jobs:
           assert pdf_all and pdf_all.startswith(b'%PDF'), 'PDF con alérgenos no se generó'
           assert pdf_clean and pdf_clean.startswith(b'%PDF'), 'PDF sin alérgenos no se generó'
 
+          pdf_all_text = '\n'.join((p.extract_text() or '') for p in PdfReader(BytesIO(pdf_all)).pages)
+          pdf_clean_text = '\n'.join((p.extract_text() or '') for p in PdfReader(BytesIO(pdf_clean)).pages)
+          assert 'Reglamento de la UE 1169/2011' in pdf_all_text, 'La leyenda legal no aparece en el PDF real con alérgenos'
+          assert 'GLUTEN' in pdf_all_text and 'MOLUSCOS' in pdf_all_text, 'Faltan etiquetas de la leyenda en el PDF real'
+          assert 'Reglamento de la UE 1169/2011' not in pdf_clean_text, 'El PDF sin alérgenos conserva la leyenda'
+
           (qa / 'carta_con_alergenos.docx').write_bytes(with_all.getvalue())
           (qa / 'carta_sin_alergenos.docx').write_bytes(without_all.getvalue())
           (qa / 'carta_con_alergenos.pdf').write_bytes(pdf_all)
@@ -91,6 +100,7 @@ jobs:
           assert 'GLUTEN' in richest and 'MOLUSCOS' in richest
           assert richest.count('<w:drawing') >= 14, richest.count('<w:drawing')
           assert not any('Reglamento de la UE 1169/2011' in f or 'GLUTEN' in f for f in clean_footers)
+          assert not any('<w:drawing' in f for f in clean_footers), 'El Word sin alérgenos conserva una imagen en el footer'
 
           reopened = Document(all_path)
           assert any(shape.width >= Cm(0.70) for shape in reopened.inline_shapes), 'Los iconos de plato siguen por debajo del mínimo visual'
@@ -110,7 +120,8 @@ jobs:
               'PASS real export path\n'
               'word_with_allergens=ok\nword_without_allergens=ok\n'
               'pdf_with_allergens=ok\npdf_without_allergens=ok\n'
-              'direct_word_footer=ok\nmanual_allergen_editor=present\n',
+              'direct_word_footer=ok\nclean_word_footer=clean\n'
+              'pdf_allergen_legend_text=present\nmanual_allergen_editor=present\n',
               encoding='utf-8',
           )
           print('PASS real Carta IA exports')
