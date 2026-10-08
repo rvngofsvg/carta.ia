@@ -1,4 +1,3 @@
-import base64
 from io import BytesIO
 from pathlib import Path
 import sys
@@ -20,39 +19,35 @@ def _find_root():
     return Path.cwd()
 
 
-def _find_legend_dir():
+def _find_legend_path():
     root = _find_root()
+    filename = "leyenda_alergenos_eider.webp"
     candidates = (
-        Path(__file__).resolve().parent / "serval_eider_legend",
-        Path(sys.prefix) / "serval_eider_legend",
-        root / "serval_eider_patch" / "legend_b64",
+        Path(sys.prefix) / "serval_eider_legend" / filename,
+        Path(__file__).resolve().parent / "serval_eider_legend" / filename,
+        root / "serval_eider_patch" / filename,
     )
     for path in candidates:
-        if path.exists() and list(path.glob("part*.txt")):
+        if path.is_file():
             return path
     return candidates[-1]
 
 
-_B64_DIR = _find_legend_dir()
+_LEGEND_PATH = _find_legend_path()
 _LEGEND_BYTES = None
 _ORIGINAL_SAVE = None
 
 
 def _legend_bytes():
-    """Carga el arte enviado por Eider y lo convierte a PNG para Word."""
+    """Carga el arte original enviado por Eider y lo convierte a PNG para Word."""
     global _LEGEND_BYTES
     if _LEGEND_BYTES is not None:
         return _LEGEND_BYTES
 
-    parts = sorted(_B64_DIR.glob("part*.txt"))
-    if not parts:
-        raise FileNotFoundError("No se encontró la leyenda de alérgenos de Eider")
+    if not _LEGEND_PATH.is_file():
+        raise FileNotFoundError(f"No se encontró la leyenda de alérgenos de Eider: {_LEGEND_PATH}")
 
-    # Los fragmentos pueden venir sin el padding '=' final o contener saltos de línea.
-    # Se normalizan sin alterar el payload antes de una decodificación estricta.
-    encoded = "".join("".join(p.read_text(encoding="ascii").split()) for p in parts)
-    encoded += "=" * (-len(encoded) % 4)
-    raw = base64.b64decode(encoded, validate=True)
+    raw = _LEGEND_PATH.read_bytes()
     image = Image.open(BytesIO(raw))
     image.load()
     image = image.convert("RGB")
