@@ -1437,7 +1437,7 @@ def add_docx_heading_block(doc, data, theme, subtitle='Plantilla editable sin ic
 
 
 def add_docx_allergen_legend(doc, data, theme):
-    """Crea directamente la leyenda en el pie real del Word, sin post-parches."""
+    """Leyenda nativa 2x7 insertada directamente en el footer real de Word."""
     legal_text = (
         "Informamos de acuerdo con el Reglamento de la UE 1169/2011, que nuestros productos "
         "contienen o pueden contener los siguientes alérgenos."
@@ -1458,6 +1458,23 @@ def add_docx_allergen_legend(doc, data, theme):
         p.paragraph_format.space_before = Pt(0)
         p.paragraph_format.space_after = Pt(0)
         p.paragraph_format.line_spacing = 1
+
+    def set_cell_width(cell, width_cm):
+        width = Cm(width_cm)
+        cell.width = width
+        tc_pr = cell._tc.get_or_add_tcPr()
+        tc_w = tc_pr.find(qn("w:tcW"))
+        if tc_w is None:
+            tc_w = OxmlElement("w:tcW")
+            tc_pr.append(tc_w)
+        tc_w.set(qn("w:w"), str(int(width.twips)))
+        tc_w.set(qn("w:type"), "dxa")
+
+    def set_grid_widths(table, widths_cm):
+        grid_cols = table._tbl.tblGrid.findall(qn("w:gridCol"))
+        for idx, width_cm in enumerate(widths_cm):
+            if idx < len(grid_cols):
+                grid_cols[idx].set(qn("w:w"), str(int(Cm(width_cm).twips)))
 
     def set_outer_border(table, color):
         tbl_pr = table._tbl.tblPr
@@ -1486,15 +1503,20 @@ def add_docx_allergen_legend(doc, data, theme):
             section.bottom_margin = Cm(5.2)
         section.footer_distance = Cm(0.18)
         usable_cm = max(12.0, (section.page_width - section.left_margin - section.right_margin) / 360000.0)
+
         for footer in (section.footer, section.first_page_footer, section.even_page_footer):
             footer.is_linked_to_previous = False
             clear(footer)
+
             wrapper = footer.add_table(rows=1, cols=1, width=Cm(usable_cm))
             wrapper.alignment = WD_TABLE_ALIGNMENT.CENTER
             wrapper.autofit = False
+            set_grid_widths(wrapper, [usable_cm])
             set_outer_border(wrapper, theme.get("cat", "444444"))
             cell = wrapper.cell(0, 0)
+            set_cell_width(cell, usable_cm)
             cell.text = ""
+
             legal = cell.paragraphs[0]
             legal.alignment = 1
             compact(legal)
@@ -1504,29 +1526,32 @@ def add_docx_allergen_legend(doc, data, theme):
             lr.bold = True
             set_run_color(lr, theme.get("text", "111111"))
 
+            col_cm = usable_cm / 7.0
             grid = cell.add_table(rows=2, cols=7)
             grid.alignment = WD_TABLE_ALIGNMENT.CENTER
-            grid.autofit = True
+            grid.autofit = False
+            set_grid_widths(grid, [col_cm] * 7)
+
             for idx, allergen in enumerate(ALLERGEN_ORDER):
                 r, c = divmod(idx, 7)
                 item = grid.cell(r, c)
+                set_cell_width(item, col_cm)
                 item.text = ""
                 item.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+
                 p = item.paragraphs[0]
                 p.alignment = 1
                 compact(p)
                 icon_path = ICON_MAP.get(allergen)
                 if icon_path and os.path.exists(icon_path):
-                    try:
-                        p.add_run().add_picture(icon_path, width=Cm(1.25))
-                    except Exception:
-                        pass
+                    p.add_run().add_picture(icon_path, width=Cm(1.25))
+
                 lp = item.add_paragraph()
                 lp.alignment = 1
                 compact(lp)
                 lp.paragraph_format.space_before = Pt(1)
                 label = lp.add_run(legend_labels.get(allergen, ALLERGEN_LABELS.get(allergen, allergen)))
-                label.font.size = Pt(9.3)
+                label.font.size = Pt(9.0)
                 label.bold = True
                 set_run_color(label, theme.get("text", "111111"))
 
@@ -2893,29 +2918,52 @@ def _add_allergen_icons_to_run(paragraph, allergens, width_cm=0.75):
 
 
 def _create_client_word(data, with_allergens=False, theme_key="neutral", two_columns=False):
-    """Mismo contenido base para las dos cartas finales. Solo cambia la capa de alérgenos."""
-    theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES["cafe"])
+    """Genera las dos cartas Word desde la misma plantilla visual.
+
+    La versión con alérgenos añade iconos y footer; la versión sin alérgenos
+    limpia cualquier leyenda heredada de la plantilla base.
+    """
+    theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES["neutral"])
     doc = new_doc_from_template() if not two_columns else Document()
-    section = doc.sections[0]
-    if two_columns:
-        set_docx_margins(section)
-        set_docx_two_columns(section)
-    else:
-        section.bottom_margin = MARGEN_INFERIOR_FORZADO
+
+    def clear_footer(footer):
+        footer.is_linked_to_previous = False
+        for child in list(footer._element):
+            footer._element.remove(child)
+
+    # La plantilla histórica llevaba una imagen de leyenda en el footer.
+    # Se elimina siempre y solo se reconstruye si la salida pide alérgenos.
+    for sec in doc.sections:
+        for footer in (sec.footer, sec.first_page_footer, sec.even_page_footer):
+            clear_footer(footer)
+        if two_columns:
+            set_docx_margins(sec)
+            set_docx_two_columns(sec)
+        else:
+            sec.bottom_margin = Cm(1.8)
 
     rest_name = data.get("restaurant_name", "MENÚ")
     p_title = doc.add_heading(rest_name, 0)
     release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
+    for run in p_title.runs:
+        run.bold = True
+        run.font.size = Pt(24)
+        set_run_color(run, theme["header"])
 
     for block in unique_text_blocks(data.get("texto_extra"), data.get("header_text"), data.get("footer_text"), data.get("notes")):
-        add_text_block_to_doc(doc, block, SANGRIA_CATEGORIA, font_size=10.5, italic=True)
+        add_text_block_to_doc(doc, block, SANGRIA_CATEGORIA, font_size=10.5, italic=True, color=theme["muted"])
 
     for category in data.get("categories", []):
         p_cat = doc.add_heading(category.get("name", "Categoría"), level=1)
         release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
         p_cat.paragraph_format.space_before = Pt(6)
+        for run in p_cat.runs:
+            run.bold = True
+            run.font.size = Pt(16)
+            set_run_color(run, theme["cat"])
+
         for block in unique_text_blocks(category.get("category_text"), category.get("texto_extra"), category.get("notes")):
-            add_text_block_to_doc(doc, block, SANGRIA_PLATOS, font_size=10.0, italic=True)
+            add_text_block_to_doc(doc, block, SANGRIA_PLATOS, font_size=10.0, italic=True, color=theme["muted"])
 
         for dish in category.get("dishes", []):
             p = doc.add_paragraph()
@@ -2924,24 +2972,27 @@ def _create_client_word(data, with_allergens=False, theme_key="neutral", two_col
             name_run = p.add_run(dish_display_name(dish))
             name_run.bold = True
             name_run.font.size = Pt(11.5)
+            set_run_color(name_run, theme["text"])
+
             if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
                 p.add_run("  ")
                 _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)
+
             price_run = p.add_run("\t" + format_price(dish.get("price", "")))
             price_run.bold = True
             price_run.font.size = Pt(11.2)
+            set_run_color(price_run, theme["cat"])
+
             if dish.get("description"):
                 pd = doc.add_paragraph()
                 release_paragraph_constraints(pd, SANGRIA_PLATOS, is_dish=True)
                 rd = pd.add_run(str(dish.get("description") or ""))
                 rd.italic = True
                 rd.font.size = Pt(10)
+                set_run_color(rd, theme["muted"])
 
     if with_allergens:
-        try:
-            add_docx_allergen_legend(doc, data, theme)
-        except Exception:
-            pass
+        add_docx_allergen_legend(doc, data, theme)
 
     buffer = BytesIO()
     doc.save(buffer)
@@ -3140,13 +3191,13 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
     footer_css = ""
     page_bottom = "16mm"
     if with_allergens:
-        items = []
         labels = {
             "gluten": "GLUTEN", "crustaceos": "CRUSTÁCEOS", "huevos": "HUEVOS", "pescado": "PESCADO",
             "cacahuetes": "CACAHUETES", "soja": "SOJA", "lacteos": "LÁCTEOS", "frutos de cascara": "FRUTOS DE CÁSCARA",
             "apio": "APIO", "mostaza": "MOSTAZA", "sesamo": "GRANOS DE SÉSAMO", "sulfitos": "DIÓXIDO DE AZUFRE Y SULFITOS",
             "altramuces": "ALTRAMUCES", "moluscos": "MOLUSCOS",
         }
+        items = []
         for allergen in ALLERGEN_ORDER:
             src = file_to_data_uri(ICON_MAP.get(allergen))
             icon = f'<img src="{src}">' if src else ""
@@ -3156,18 +3207,19 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
             '<div class="legal">Informamos de acuerdo con el Reglamento de la UE 1169/2011, que nuestros productos contienen o pueden contener los siguientes alérgenos.</div>'
             f'<div class="legend-grid">{"".join(items)}</div></footer>'
         )
-        page_bottom = "56mm"
-        footer_css = """
-        .allergen-footer{position:fixed;left:0;right:0;bottom:-50mm;height:46mm;border:1.2px solid #4b4038;padding:3mm 4mm 2mm;box-sizing:border-box;background:#fff;}
-        .legal{text-align:center;font-size:8.8pt;font-weight:700;margin-bottom:2.2mm;line-height:1.15;}
-        .legend-grid{display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(2,1fr);gap:1.2mm 1.5mm;}
-        .legend-item{text-align:center;font-size:8.2pt;font-weight:700;line-height:1.05;min-width:0;}
-        .legend-item img{display:block;width:10mm;height:10mm;object-fit:contain;margin:0 auto .7mm;}
-        """
+        page_bottom = "58mm"
+        footer_css = '''
+        .allergen-footer{position:fixed;left:0;right:0;bottom:-52mm;height:48mm;border:1.2px solid #4b4038;padding:2.5mm 3mm 2mm;box-sizing:border-box;background:#fff;overflow:visible;}
+        .legal{text-align:center;font-size:8.6pt;font-weight:700;margin-bottom:1.8mm;line-height:1.12;}
+        .legend-grid{display:flex;flex-wrap:wrap;align-content:flex-start;width:100%;}
+        .legend-item{width:14.285714%;height:17mm;text-align:center;font-size:7.8pt;font-weight:700;line-height:1.0;padding:.4mm .6mm;box-sizing:border-box;}
+        .legend-item img{display:block;width:9.5mm;height:9.5mm;object-fit:contain;margin:0 auto .7mm;}
+        .legend-item span{display:block;overflow-wrap:normal;word-break:normal;}
+        '''
 
     extra = html_escape(str(data.get("texto_extra") or ""))
     extra_html = f'<div class="extra">{extra}</div>' if extra else ""
-    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
+    return f'''<!doctype html><html><head><meta charset="utf-8"><style>
     @page{{size:A4;margin:15mm 15mm {page_bottom} 15mm;}}
     *{{box-sizing:border-box}} body{{font-family:Arial,Helvetica,sans-serif;color:{text};margin:0;background:#fff;font-size:10.5pt;}}
     h1{{font-size:24pt;text-align:center;color:{header};margin:0 0 8mm;letter-spacing:.3px;}}
@@ -3181,7 +3233,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
     .desc{{font-size:9.2pt;color:{muted};font-style:italic;margin-top:.5mm;}}
     .extra{{padding:2.5mm;background:{light};border:1px solid #ddd;margin-top:6mm;}}
     {footer_css}
-    </style></head><body><h1>{rest}</h1>{''.join(category_html)}{extra_html}{footer_html}</body></html>"""
+    </style></head><body><h1>{rest}</h1>{''.join(category_html)}{extra_html}{footer_html}</body></html>'''
 
 
 def create_client_pdf_bytes(data, theme_key="neutral", with_allergens=True):

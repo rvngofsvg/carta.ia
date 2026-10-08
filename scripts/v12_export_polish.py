@@ -227,7 +227,7 @@ def add_docx_allergen_legend(doc, data, theme):
 '''
 
 
-PDF_BUILDER = r'''
+PDF_BUILDER = r"""
 def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
     theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES["neutral"])
     cat = "#" + theme.get("cat", "374151")
@@ -282,14 +282,14 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
             f'<div class="legend-grid">{"".join(items)}</div></footer>'
         )
         page_bottom = "58mm"
-        footer_css = """
+        footer_css = '''
         .allergen-footer{position:fixed;left:0;right:0;bottom:-52mm;height:48mm;border:1.2px solid #4b4038;padding:2.5mm 3mm 2mm;box-sizing:border-box;background:#fff;overflow:visible;}
         .legal{text-align:center;font-size:8.6pt;font-weight:700;margin-bottom:1.8mm;line-height:1.12;}
         .legend-grid{display:flex;flex-wrap:wrap;align-content:flex-start;width:100%;}
         .legend-item{width:14.285714%;height:17mm;text-align:center;font-size:7.8pt;font-weight:700;line-height:1.0;padding:.4mm .6mm;box-sizing:border-box;}
         .legend-item img{display:block;width:9.5mm;height:9.5mm;object-fit:contain;margin:0 auto .7mm;}
         .legend-item span{display:block;overflow-wrap:normal;word-break:normal;}
-        """
+        '''
 
     extra = html_escape(str(data.get("texto_extra") or ""))
     extra_html = f'<div class="extra">{extra}</div>' if extra else ""
@@ -308,7 +308,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
     .extra{{padding:2.5mm;background:{light};border:1px solid #ddd;margin-top:6mm;}}
     {footer_css}
     </style></head><body><h1>{rest}</h1>{''.join(category_html)}{extra_html}{footer_html}</body></html>'''
-'''
+"""
 
 
 def main() -> None:
