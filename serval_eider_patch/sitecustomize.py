@@ -40,7 +40,7 @@ _LABELS = {
 }
 _NOTICE = (
     "Informamos de acuerdo con el Reglamento de la U.E 1169/2011, "
-    "que nuestros productos contienen o pueden contener los siguientes alérgenos."
+    "que nuestros productos contientos o pueden contener los siguientes alérgenos."
 )
 _LEGEND_BYTES = None
 _ORIGINAL_SAVE = None
