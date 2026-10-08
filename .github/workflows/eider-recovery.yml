@@ -1,66 +1,34 @@
-name: Eider exact artwork recovery
+name: Verify Eider source artwork
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  recover:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Recover exact artwork from Eider source DOCX
-        env:
-          EIDER_DOCX_URL: 'https://sdmntprukwest.oaiusercontent.com/files/00000000-52c8-8243-9ef9-f5b0a76a7cda/raw?se=2026-10-08T14%3A56%3A26Z&sp=r&sv=2026-02-06&sr=b&scid=0460008f-54b3-534a-9c90-694944633b4b&skoid=1d6acb5b-b3f4-43ec-a5ec-b05c4a7708c8&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-08T03%3A51%3A09Z&ske=2026-10-09T03%3A51%3A09Z&sks=b&skv=2026-02-06&sig=JDpMx/EYYGT2rqERJiMwoiHQnbKG6i6Tz/7R9ofDbIM%3D'
+      - name: Verify committed artwork
         run: |
-          set -euo pipefail
           python -m pip install --quiet Pillow==12.3.0
-          curl --fail --location --retry 3 "$EIDER_DOCX_URL" -o /tmp/eider-source.docx
-          echo '51698ab678165d0af8cc4976c8e40d706f89365b5908fcc7742545716ba4c68e  /tmp/eider-source.docx' | sha256sum -c -
-          rm -rf /tmp/eider-source
-          mkdir -p /tmp/eider-source
-          unzip -q /tmp/eider-source.docx -d /tmp/eider-source
-          echo '32615ecadc94d747e1d0d3f989152894c93a057ad9c2e0ff62b81de195c1af5e  /tmp/eider-source/word/media/image1.png' | sha256sum -c -
           python - <<'PY'
           from pathlib import Path
           from PIL import Image
-          src = Image.open('/tmp/eider-source/word/media/image1.png').convert('RGB')
-          if src.size != (1665, 555):
-              raise SystemExit(f'Unexpected source size: {src.size}')
-          # Lossless crop: remove only the blank white margin from Eider's original image.
-          # No resampling, redrawing or text/icon alteration.
-          crop = src.crop((7, 148, 1658, 387))
-          if crop.size != (1651, 239):
-              raise SystemExit(f'Unexpected crop size: {crop.size}')
-          out = Path('serval_eider_patch/leyenda_alergenos_eider.png')
-          crop.save(out, format='PNG', optimize=True)
-          print('saved', out, out.stat().st_size)
+          import hashlib
+
+          path = Path('serval_eider_patch/leyenda_alergenos_eider.png')
+          raw = path.read_bytes()
+          digest = hashlib.sha256(raw).hexdigest()
+          img = Image.open(path)
+          assert img.size == (1651, 239), img.size
+          assert digest == '795b8c438d81bd716bd1048787dc448345f424a6f030d59ebdacddb979cc8f91', digest
+          print('PASS', path, img.size, digest)
           PY
-
-      - name: Remove broken historical payloads
-        run: |
-          rm -rf serval_eider_patch/legend_b64
-          rm -f serval_eider_patch/leyenda_alergenos_eider.webp
-
-      - name: Commit recovered binary
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A serval_eider_patch
-          if git diff --cached --quiet; then
-            echo 'Exact artwork already present; nothing to commit.'
-            exit 0
-          fi
-          git commit -m 'Restore exact Eider allergen footer artwork'
-          git push origin HEAD:main

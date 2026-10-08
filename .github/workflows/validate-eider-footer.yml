@@ -30,30 +30,30 @@ jobs:
           mkdir -p qa
           python - <<'PY'
           from pathlib import Path
-          from io import BytesIO
-          import hashlib
           import zipfile
-          from PIL import Image
           from docx import Document
           from docx.enum.section import WD_ORIENT
           from docx.shared import Cm
           import sitecustomize
 
           qa = Path('qa')
-          raw = sitecustomize._legend_bytes()
-          digest = hashlib.sha256(raw).hexdigest()
-          img = Image.open(BytesIO(raw))
-          print('LEGEND_BYTES', len(raw))
-          print('LEGEND_SHA256', digest)
-          print('LEGEND_IMAGE', img.format, img.size, img.mode)
-          assert img.width > 100 and img.height > 20
+          assert sitecustomize._ICON_DIR is not None, 'Los iconos empaquetados no se localizaron'
+          assert all((sitecustomize._ICON_DIR / filename).is_file() for _, filename in sitecustomize.LEGEND_ITEMS)
+          print('ICON_DIR', sitecustomize._ICON_DIR)
 
-          # Portrait fixture: includes the old body legend on purpose so the patch must remove it.
+          # Verifica el problema real de los iconos junto a platos: nunca deben quedar minúsculos.
+          icon_test = Document()
+          p_icon = icon_test.add_paragraph('Queso Manchego Viejo  ')
+          shape = p_icon.add_run().add_picture('Public/Iconos/lacteos.png', width=Cm(0.34))
+          assert shape.width >= Cm(sitecustomize.INLINE_ICON_MIN_CM), (shape.width, Cm(sitecustomize.INLINE_ICON_MIN_CM))
+          icon_test.save(qa / 'qa_inline_icon.docx')
+
+          # Portrait fixture con la antigua leyenda en body: el parche debe reemplazarla.
           p = Document()
           p.sections[0].bottom_margin = Cm(1.0)
           p.add_heading('QA VERTICAL', 0)
-          for i in range(46):
-              p.add_paragraph(f'Plato {i+1} ........................ 12,00€ — descripción de prueba para validar flujo y pie de página.')
+          for i in range(36):
+              p.add_paragraph(f'Plato {i+1} ........................ 12,00€ — descripción de prueba.')
           p.add_paragraph('GUÍA DE ALÉRGENOS')
           t = p.add_table(rows=2, cols=7)
           labels = ['GLUTEN','CRUSTÁCEOS','HUEVOS','PESCADO','CACAHUETES','SOJA','LÁCTEOS','FRUTOS DE CÁSCARA','APIO','MOSTAZA','SÉSAMO','SULFITOS','ALTRAMUCES','MOLUSCOS']
@@ -62,7 +62,7 @@ jobs:
           p.add_paragraph('Información orientativa basada en carta. Debe validarse con ingredientes reales.')
           p.save(qa / 'qa_vertical.docx')
 
-          # Landscape/book fixture: includes a pre-existing footer that must be replaced.
+          # Landscape/book fixture: dos leyendas, una por cada mitad.
           l = Document()
           s = l.sections[0]
           s.orientation = WD_ORIENT.LANDSCAPE
@@ -71,41 +71,65 @@ jobs:
           s.left_margin = Cm(0.8)
           s.right_margin = Cm(0.8)
           s.bottom_margin = Cm(1.0)
-          s.footer.paragraphs[0].text = 'FOOTER ANTIGUO'
           l.add_heading('QA HORIZONTAL / LIBRO', 0)
-          for i in range(44):
+          for i in range(30):
               l.add_paragraph(f'{i+1}. Plato de prueba  [GLU] [HUE]                         14,50€')
+          l.add_paragraph('GUÍA DE ALÉRGENOS')
+          lt = l.add_table(rows=2, cols=7)
+          for i, label in enumerate(labels):
+              lt.cell(0 if i < 7 else 1, i if i < 7 else i-7).text = label
           l.save(qa / 'qa_horizontal.docx')
 
-          def check_docx(path, landscape=False):
+          # Documento sin alérgenos: no debe ser alterado por sitecustomize.
+          clean = Document()
+          clean.sections[0].bottom_margin = Cm(1.0)
+          clean.sections[0].footer.paragraphs[0].text = 'FOOTER LIMPIO'
+          clean.add_paragraph('Carta final sin alérgenos')
+          clean.save(qa / 'qa_clean.docx')
+
+          def footer_xml(path):
+              with zipfile.ZipFile(path) as z:
+                  return [z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml')]
+
+          def check_allergen_docx(path, landscape=False):
               with zipfile.ZipFile(path) as z:
                   doc_xml = z.read('word/document.xml').decode('utf-8')
                   assert 'GUÍA DE ALÉRGENOS' not in doc_xml, 'La leyenda antigua sigue en el body'
-                  footer_names = sorted(n for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml'))
-                  assert footer_names, 'No hay footer XML'
-                  footers = [z.read(n).decode('utf-8') for n in footer_names]
-                  drawings = max(f.count('<w:drawing') for f in footers)
+                  footers = [z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml')]
+                  assert footers, 'No hay footer XML'
+                  richest = max(footers, key=lambda x: x.count('<w:drawing'))
+                  drawings = richest.count('<w:drawing')
+                  assert sitecustomize.LEGAL_TEXT.split(',')[0] in richest
+                  assert 'GLUTEN' in richest and 'MOLUSCOS' in richest
                   if landscape:
-                      assert drawings >= 2, f'Libro necesita dos leyendas; drawings={drawings}'
-                      assert any('<w:tbl>' in f for f in footers), 'Libro necesita tabla de dos lados en footer'
+                      assert drawings >= 28, f'Libro necesita 28 iconos en el footer principal; drawings={drawings}'
                   else:
-                      assert drawings >= 1, f'Vertical necesita una leyenda; drawings={drawings}'
-                  media = [z.read(n) for n in z.namelist() if n.startswith('word/media/')]
-                  hashes = {hashlib.sha256(b).hexdigest() for b in media}
-                  assert digest in hashes, 'El PNG exacto reconstruido no está embebido en el DOCX'
+                      assert drawings >= 14, f'Vertical necesita 14 iconos; drawings={drawings}'
 
               reopened = Document(path)
               for sec in reopened.sections:
                   if landscape:
-                      assert sec.bottom_margin >= Cm(2.55)
+                      assert sec.bottom_margin >= Cm(4.7)
                   else:
-                      assert sec.bottom_margin >= Cm(3.15)
+                      assert sec.bottom_margin >= Cm(5.0)
               print('PASS', path)
 
-          check_docx(qa / 'qa_vertical.docx', landscape=False)
-          check_docx(qa / 'qa_horizontal.docx', landscape=True)
+          check_allergen_docx(qa / 'qa_vertical.docx', landscape=False)
+          check_allergen_docx(qa / 'qa_horizontal.docx', landscape=True)
+
+          clean_reopened = Document(qa / 'qa_clean.docx')
+          assert clean_reopened.sections[0].bottom_margin < Cm(2.0), 'El Word sin alérgenos fue modificado'
+          clean_footers = footer_xml(qa / 'qa_clean.docx')
+          assert any('FOOTER LIMPIO' in f for f in clean_footers)
+          assert not any('GLUTEN' in f or sitecustomize.LEGAL_TEXT.split(',')[0] in f for f in clean_footers)
+          print('PASS clean document isolation')
+
           (qa / 'qa_report.txt').write_text(
-              f'PASS\nlegend_sha256={digest}\nlegend_bytes={len(raw)}\nimage={img.format} {img.width}x{img.height}\n',
+              'PASS\n'
+              f'icon_dir={sitecustomize._ICON_DIR}\n'
+              f'inline_min_cm={sitecustomize.INLINE_ICON_MIN_CM}\n'
+              'portrait_footer=2x7 native icons\n'
+              'clean_doc_untouched=yes\n',
               encoding='utf-8'
           )
           PY
@@ -124,8 +148,10 @@ jobs:
           mkdir -p qa/rendered
           libreoffice --headless --convert-to pdf --outdir qa/rendered qa/qa_vertical.docx
           libreoffice --headless --convert-to pdf --outdir qa/rendered qa/qa_horizontal.docx
+          libreoffice --headless --convert-to pdf --outdir qa/rendered qa/qa_inline_icon.docx
           pdftoppm -png -r 120 qa/rendered/qa_vertical.pdf qa/rendered/vertical
           pdftoppm -png -r 120 qa/rendered/qa_horizontal.pdf qa/rendered/horizontal
+          pdftoppm -png -r 120 qa/rendered/qa_inline_icon.pdf qa/rendered/inline
           ls -lah qa qa/rendered
 
       - name: Upload QA artifacts

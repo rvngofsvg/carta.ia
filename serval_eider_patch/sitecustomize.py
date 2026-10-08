@@ -9,6 +9,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
+from docx.text.run import Run as _RunClass
 
 
 LEGAL_TEXT = (
@@ -33,6 +34,9 @@ LEGEND_ITEMS = (
     ("MOLUSCOS", "moluscos.png"),
 )
 
+_ALLERGEN_ICON_FILENAMES = {filename.lower() for _, filename in LEGEND_ITEMS}
+INLINE_ICON_MIN_CM = 0.52
+
 
 def _find_root():
     for base in (Path.cwd(), *Path.cwd().parents):
@@ -56,8 +60,12 @@ def _find_legend_path():
 
 
 def _find_icon_dir():
+    """Localiza primero los iconos empaquetados y solo después el árbol del proyecto."""
     root = _find_root()
     candidates = (
+        Path(sys.prefix) / "serval_eider_icons",
+        Path(__file__).resolve().parent / "serval_eider_icons",
+        root / "serval_eider_patch" / "icons",
         root / "Public" / "Iconos",
         Path(__file__).resolve().parent.parent / "Public" / "Iconos",
     )
@@ -71,10 +79,11 @@ _LEGEND_PATH = _find_legend_path()
 _ICON_DIR = _find_icon_dir()
 _LEGEND_BYTES = None
 _ORIGINAL_SAVE = None
+_ORIGINAL_RUN_ADD_PICTURE = None
 
 
 def _legend_bytes():
-    """Fallback: PNG exacto extraído del documento original de Eider."""
+    """Fallback visual original de Eider; la salida normal usa la leyenda Word nativa."""
     global _LEGEND_BYTES
     if _LEGEND_BYTES is not None:
         return _LEGEND_BYTES
@@ -101,8 +110,30 @@ def _remove_element(element):
         parent.remove(element)
 
 
+def _looks_like_allergen_legend_table(table):
+    terms = {
+        "GLUTEN", "CRUSTACEOS", "HUEVOS", "PESCADO", "CACAHUETES", "SOJA", "LACTEOS",
+        "FRUTOS DE CASCARA", "APIO", "MOSTAZA", "SESAMO", "SULFITOS", "ALTRAMUCES", "MOLUSCOS",
+    }
+    joined = _normalize(" ".join(cell.text for row in table.rows for cell in row.cells))
+    return len(table.rows) <= 4 and sum(term in joined for term in terms) >= 7
+
+
+def _document_requests_allergen_footer(doc):
+    """Evita modificar Word limpios o cartas finales sin alérgenos."""
+    for paragraph in doc.paragraphs:
+        text = _normalize(paragraph.text)
+        if (
+            "GUIA DE ALERGENOS" in text
+            or "INFORMACION ORIENTATIVA BASADA EN CARTA" in text
+            or "DEBE VALIDARSE CON INGREDIENTES REALES" in text
+        ):
+            return True
+    return any(_looks_like_allergen_legend_table(table) for table in doc.tables)
+
+
 def _remove_old_body_legend(doc):
-    """Elimina la leyenda antigua cuando alguna salida la generaba dentro del body."""
+    """Elimina la leyenda antigua del body antes de crear el pie real."""
     for paragraph in list(doc.paragraphs):
         text = _normalize(paragraph.text)
         if (
@@ -112,13 +143,8 @@ def _remove_old_body_legend(doc):
         ):
             _remove_element(paragraph._element)
 
-    terms = {
-        "GLUTEN", "CRUSTACEOS", "HUEVOS", "PESCADO", "CACAHUETES", "SOJA", "LACTEOS",
-        "FRUTOS DE CASCARA", "APIO", "MOSTAZA", "SESAMO", "SULFITOS", "ALTRAMUCES", "MOLUSCOS",
-    }
     for table in list(doc.tables):
-        joined = _normalize(" ".join(cell.text for row in table.rows for cell in row.cells))
-        if len(table.rows) <= 3 and sum(term in joined for term in terms) >= 7:
+        if _looks_like_allergen_legend_table(table):
             _remove_element(table._element)
 
 
@@ -168,8 +194,7 @@ def _set_cell_border(cell, size=10, color="3F332B"):
         borders = OxmlElement("w:tcBorders")
         tc_pr.append(borders)
     for edge in ("top", "start", "bottom", "end"):
-        tag = qn(f"w:{edge}")
-        node = borders.find(tag)
+        node = borders.find(qn(f"w:{edge}"))
         if node is None:
             node = OxmlElement(f"w:{edge}")
             borders.append(node)
@@ -199,26 +224,29 @@ def _compact_paragraph(paragraph):
     paragraph.paragraph_format.line_spacing = 1
 
 
-def _add_picture(paragraph, width_cm):
+def _add_fallback_picture(paragraph, width_cm):
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _compact_paragraph(paragraph)
     paragraph.add_run().add_picture(BytesIO(_legend_bytes()), width=Cm(width_cm))
 
 
 def _fill_native_legend(cell, width_cm, icon_cm, label_pt, legal_pt):
-    """Leyenda Word nativa en 2 filas de 7 para que texto e iconos sean legibles."""
+    """Leyenda en 2 filas de 7 para que iconos y etiquetas sean realmente legibles."""
+    if _ICON_DIR is None:
+        raise FileNotFoundError("No se encontraron los 14 iconos empaquetados de alérgenos")
+
     cell.text = ""
     cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-    _set_cell_margins(cell, 55)
+    _set_cell_margins(cell, 45)
     _set_cell_border(cell)
 
     legal = cell.paragraphs[0]
     legal.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _compact_paragraph(legal)
     legal.paragraph_format.space_after = Pt(2)
-    run = legal.add_run(LEGAL_TEXT)
-    run.font.size = Pt(legal_pt)
-    run.bold = True
+    legal_run = legal.add_run(LEGAL_TEXT)
+    legal_run.font.size = Pt(legal_pt)
+    legal_run.bold = True
 
     grid = cell.add_table(rows=2, cols=7)
     grid.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -234,13 +262,12 @@ def _fill_native_legend(cell, width_cm, icon_cm, label_pt, legal_pt):
         item_cell.text = ""
         item_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
         _set_cell_width(item_cell, col_cm)
-        _set_cell_margins(item_cell, 20)
+        _set_cell_margins(item_cell, 16)
 
         icon_p = item_cell.paragraphs[0]
         icon_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         _compact_paragraph(icon_p)
-        icon_path = _ICON_DIR / filename
-        icon_p.add_run().add_picture(str(icon_path), width=Cm(icon_cm))
+        icon_p.add_run().add_picture(str(_ICON_DIR / filename), width=Cm(icon_cm))
 
         label_p = item_cell.add_paragraph()
         label_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -256,37 +283,35 @@ def _footer_variants(section):
 
 
 def _single_footer(section, usable_cm):
-    # Más alto que antes porque la leyenda se compone en 2 filas con texto legible.
-    if section.bottom_margin < Cm(5.65):
-        section.bottom_margin = Cm(5.65)
-    section.footer_distance = Cm(0.16)
+    if section.bottom_margin < Cm(5.0):
+        section.bottom_margin = Cm(5.0)
+    section.footer_distance = Cm(0.15)
 
     for footer in _footer_variants(section):
         footer.is_linked_to_previous = False
         _clear(footer)
         width_cm = min(18.2, usable_cm)
-        if _ICON_DIR is None:
-            _add_picture(footer.add_paragraph(), width_cm)
-            continue
-
         wrapper = footer.add_table(rows=1, cols=1, width=Cm(width_cm))
         wrapper.alignment = WD_TABLE_ALIGNMENT.CENTER
         wrapper.autofit = False
         _set_table_grid_widths(wrapper, [width_cm])
         _set_cell_width(wrapper.cell(0, 0), width_cm)
-        _fill_native_legend(
-            wrapper.cell(0, 0),
-            width_cm=width_cm,
-            icon_cm=1.18,
-            label_pt=8.5,
-            legal_pt=8.2,
-        )
+        try:
+            _fill_native_legend(
+                wrapper.cell(0, 0),
+                width_cm=width_cm,
+                icon_cm=1.05,
+                label_pt=8.8,
+                legal_pt=8.8,
+            )
+        except Exception:
+            _clear(footer)
+            _add_fallback_picture(footer.add_paragraph(), width_cm)
 
 
 def _book_footer(section, usable_cm):
-    # Modo libro: leyenda completa y legible debajo de cada mitad.
-    if section.bottom_margin < Cm(5.55):
-        section.bottom_margin = Cm(5.55)
+    if section.bottom_margin < Cm(4.7):
+        section.bottom_margin = Cm(4.7)
     section.footer_distance = Cm(0.12)
     gutter_cm = 0.8
     side_cm = max(6.0, (usable_cm - gutter_cm) / 2.0)
@@ -307,23 +332,27 @@ def _book_footer(section, usable_cm):
             _set_cell_margins(cell, 0)
             cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
 
-        if _ICON_DIR is None:
-            for idx in (0, 2):
-                table.cell(0, idx).text = ""
-                _add_picture(table.cell(0, idx).paragraphs[0], max(5.5, side_cm - 0.35))
-        else:
+        try:
             for idx in (0, 2):
                 _fill_native_legend(
                     table.cell(0, idx),
                     width_cm=side_cm,
-                    icon_cm=0.92,
-                    label_pt=7.3,
+                    icon_cm=0.82,
+                    label_pt=7.2,
                     legal_pt=7.0,
                 )
+        except Exception:
+            for idx in (0, 2):
+                table.cell(0, idx).text = ""
+                _add_fallback_picture(table.cell(0, idx).paragraphs[0], max(5.5, side_cm - 0.35))
         table.cell(0, 1).text = ""
 
 
 def _prepare(doc):
+    # Solo las cartas que ya incluyen la guía de alérgenos solicitan este footer.
+    if not _document_requests_allergen_footer(doc):
+        return
+
     _remove_old_body_legend(doc)
     for section in doc.sections:
         usable_cm = max(
@@ -336,7 +365,30 @@ def _prepare(doc):
             _single_footer(section, usable_cm)
 
 
-def _install():
+def _install_inline_icon_minimum():
+    """Corrige todos los iconos inline minúsculos del generador sin tocar iconos grandes de leyenda."""
+    global _ORIGINAL_RUN_ADD_PICTURE
+    if getattr(_RunClass.add_picture, "_serval_allergen_icon_patch", False):
+        return
+
+    _ORIGINAL_RUN_ADD_PICTURE = _RunClass.add_picture
+
+    def add_picture_with_minimum(self, image_path_or_stream, width=None, height=None):
+        adjusted_width = width
+        try:
+            if width is not None and isinstance(image_path_or_stream, (str, Path)):
+                filename = Path(image_path_or_stream).name.lower()
+                if filename in _ALLERGEN_ICON_FILENAMES and int(width) < int(Cm(INLINE_ICON_MIN_CM)):
+                    adjusted_width = Cm(INLINE_ICON_MIN_CM)
+        except Exception:
+            adjusted_width = width
+        return _ORIGINAL_RUN_ADD_PICTURE(self, image_path_or_stream, width=adjusted_width, height=height)
+
+    add_picture_with_minimum._serval_allergen_icon_patch = True
+    _RunClass.add_picture = add_picture_with_minimum
+
+
+def _install_document_footer_patch():
     global _ORIGINAL_SAVE
     if getattr(_DocumentClass.save, "_eider_legend_patch", False):
         return
@@ -348,6 +400,11 @@ def _install():
 
     save_with_eider_legend._eider_legend_patch = True
     _DocumentClass.save = save_with_eider_legend
+
+
+def _install():
+    _install_inline_icon_minimum()
+    _install_document_footer_patch()
 
 
 _install()
