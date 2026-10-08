@@ -25,7 +25,7 @@ from docx.oxml.ns import qn
 # ======================================================
 # CONFIGURACIÓN GENERAL
 # ======================================================
-st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v11.1", layout="wide")
+st.set_page_config(page_title="Sistema Integral de Cartas - Serval TECH · v11.2", layout="wide")
 
 MODELO_A_USAR = "gemini-3.6-flash"
 
@@ -348,55 +348,8 @@ def add_allergen(current, key):
     return current
 
 
-def apply_allergen_rules_to_dish(dish):
-    name = dish.get("name") or ""
-    desc = dish.get("description") or ""
-    text = normalize_text(f"{name} {desc}")
-    current = get_ordered_allergens(dish.get("allergens", []))
-    notes = []
-
-    for allergen, keywords in RULES_STRONG.items():
-        for keyword in keywords:
-            if normalize_text(keyword) in text:
-                current = add_allergen(current, allergen)
-                break
-
-    for pattern, allergens in COMPOUND_RULES:
-        if re.search(pattern, text, flags=re.IGNORECASE):
-            for allergen in allergens:
-                current = add_allergen(current, allergen)
-
-    for pattern, allergen in NEGATIVE_REMOVALS:
-        if re.search(pattern, text, flags=re.IGNORECASE):
-            current = [a for a in current if a != allergen]
-            if allergen == "gluten":
-                notes.append("Marcado como sin gluten: confirmar ficha técnica y manipulación separada.")
-
-    for pattern, note in REVIEW_WARNING_PATTERNS:
-        if re.search(pattern, text, flags=re.IGNORECASE):
-            if note not in notes:
-                notes.append(note)
-
-    # Casos específicos para no inventar: hamburguesa sola no fuerza lácteos/huevo/sésamo.
-    # El pan/burger sí aporta gluten; queso aporta lácteos; sésamo solo si aparece.
-    dish["allergens"] = get_ordered_allergens(current)
-    if notes:
-        old = dish.get("review_notes", []) or []
-        merged = []
-        for n in old + notes:
-            if n and n not in merged:
-                merged.append(n)
-        dish["review_notes"] = merged
-    else:
-        dish["review_notes"] = dish.get("review_notes", []) or []
-    return dish
 
 
-def apply_allergen_rules(data):
-    for category in data.get("categories", []):
-        for dish in category.get("dishes", []):
-            apply_allergen_rules_to_dish(dish)
-    return data
 
 # ======================================================
 # API KEY
@@ -460,92 +413,82 @@ def extract_text_from_docx(file):
 
 
 def extract_text_from_pdf_scanned_with_gemini(file):
-    """Opcional: usa PyMuPDF si está instalado para renderizar PDF escaneado a imágenes."""
+    """Renderiza y transcribe TODAS las páginas de un PDF escaneado.
+
+    La versión anterior truncaba silenciosamente a seis páginas. Esta versión
+    procesa el documento completo, mantiene el número de página y continúa si
+    una página aislada falla, avisando al usuario de cuáles requieren revisión.
+    """
+    doc = None
     try:
         import fitz  # PyMuPDF
         file.seek(0)
         pdf_bytes = file.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        total_pages = len(doc)
+        if total_pages == 0:
+            file.seek(0)
+            return ""
+
         model = _GeminiModelCompat(MODELO_A_USAR)
         chunks = []
-        for i, page in enumerate(doc[:6]):  # límite de seguridad
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
-            img = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
-            img.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), Image.Resampling.LANCZOS)
-            response = model.generate_content(
-                ["Transcribe literalmente todo el texto visible de esta página de menú. No resumas. No inventes. Devuelve texto plano.", img],
-                request_options={"timeout": 120}
-            )
-            chunks.append(f"\n--- PÁGINA {i+1} ---\n" + response.text)
+        failed_pages = []
+        progress = st.progress(0, text=f"Procesando PDF escaneado · 0/{total_pages} páginas")
+
+        for i in range(total_pages):
+            try:
+                page = doc.load_page(i)
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                img = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
+                img.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), Image.Resampling.LANCZOS)
+                response = model.generate_content(
+                    [
+                        "Transcribe literalmente todo el texto visible de esta página de menú. "
+                        "No resumas. No inventes. Devuelve texto plano.",
+                        img,
+                    ],
+                    request_options={"timeout": 120},
+                )
+                page_text = (response.text or "").strip()
+                if page_text:
+                    chunks.append(f"\n--- PÁGINA {i + 1} ---\n{page_text}")
+                else:
+                    failed_pages.append(i + 1)
+            except Exception:
+                failed_pages.append(i + 1)
+            finally:
+                progress.progress(
+                    (i + 1) / total_pages,
+                    text=f"Procesando PDF escaneado · {i + 1}/{total_pages} páginas",
+                )
+
+        progress.empty()
         file.seek(0)
+        if failed_pages:
+            st.warning(
+                "No se pudo leer completamente "
+                + ("la página " if len(failed_pages) == 1 else "las páginas ")
+                + ", ".join(map(str, failed_pages))
+                + ". Revisa esas páginas antes de entregar la carta."
+            )
         return "\n".join(chunks)
-    except Exception:
+    except Exception as exc:
+        try:
+            file.seek(0)
+        except Exception:
+            pass
+        st.error(f"No se pudo procesar el PDF escaneado: {exc}")
         return None
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
 
 # ======================================================
 # ANÁLISIS IA + REGLAS UNIFICADAS
 # ======================================================
-def build_ai_prompt():
-    allergen_keys = ", ".join(ALLERGEN_ORDER)
-    return f"""
-Eres un transcriptor profesional de cartas de restaurante y un revisor técnico de alérgenos para hostelería en España/UE.
-
-OBJETIVO:
-Extraer la carta literalmente y asignar alérgenos con criterio realista: ni quedarse corto con alérgenos evidentes, ni marcar todo por miedo.
-
-ALÉRGENOS PERMITIDOS:
-Usa únicamente estas claves exactas: {allergen_keys}
-
-REGLAS DE TRANSCRIPCIÓN:
-- Extrae Nombre, Categorías, Platos, Descripción, Precio y TODO el texto auxiliar exactamente como aparece.
-- Conserva numeración literal de los platos cuando exista en la carta original: 1, 01, 1., 1), Nº 1, etc. Ponla en el campo number y no la inventes.
-- Si no hay numeración visible, deja number vacío.
-- No traduzcas. Si la carta es bilingüe, conserva lo que aparezca.
-- No inventes platos ni precios.
-- No elimines textos que no sean platos: teléfonos, dirección, horarios, redes, notas, suplementos, menús, avisos, condiciones, encabezados, pies, recomendaciones, etc.
-- Pon esos textos no pertenecientes a platos en texto_extra, separados por saltos de línea.
-- Si un texto auxiliar pertenece claramente a una categoría concreta, ponlo también en category_text de esa categoría.
-
-REGLAS DE ALÉRGENOS:
-- Marca alérgenos cuando el nombre, descripción o preparación habitual del plato lo indique claramente.
-- Ejemplos:
-  - cerveza/caña/tercio/radler: gluten, salvo que indique sin gluten.
-  - vinos, cava, vermut, tinto de verano, sidra: sulfitos.
-  - café con leche, cortado, cappuccino, queso, nata, bechamel: lacteos.
-  - mayonesa, alioli, tortilla, rebozado, empanado, croqueta: huevos si la receta habitual lo implica.
-  - croquetas comunes: gluten, lacteos, huevos; añade pescado/crustáceos/moluscos solo si el relleno lo indica.
-  - calamares/rabas: moluscos; si dice rebozado/frito/a la romana, añade gluten y huevos.
-  - salsa de soja/teriyaki: soja y gluten salvo que indique sin gluten/tamari sin gluten.
-  - hummus/tahini/sésamo: sesamo.
-  - pesto/romesco/ajoblanco/frutos secos/nueces/pistacho/almendra: frutos de cascara.
-  - ensalada/salsa César: huevos, pescado, lacteos, mostaza y posiblemente gluten si hay croutons/pan.
-  - caldo/fondo/pastilla de caldo/salsa española: apio si aparece o es preparación típica de base.
-- No marques todos los alérgenos solo por ser frito. La contaminación cruzada debe ir como nota de revisión, no como presencia automática de todos los alérgenos.
-- Si un producto dice sin gluten, no marques gluten, pero añade nota de revisión.
-- Si dice sin lactosa, recuerda que puede seguir siendo alérgeno leche; si hay leche/queso/nata, marca lacteos.
-
-SALIDA JSON PURO, SIN MARKDOWN:
-{{
-  "restaurant_name": "Nombre detectado o MENÚ",
-  "texto_extra": "todo texto suelto literal que no sea plato, incluyendo teléfonos, horarios, dirección, notas y avisos",
-  "categories": [
-    {{
-      "name": "Categoría",
-      "category_text": "texto auxiliar literal dentro de esta categoría, si aparece",
-      "dishes": [
-        {{
-          "number": "1",
-          "name": "Plato sin quitar palabras importantes",
-          "description": "Descripción literal",
-          "price": "10,50",
-          "allergens": ["gluten", "lacteos"],
-          "review_notes": ["nota breve si requiere revisar ficha/proveedor o contaminación cruzada"]
-        }}
-      ]
-    }}
-  ]
-}}
-"""
 
 
 def parse_json_response(text):
@@ -557,24 +500,6 @@ def parse_json_response(text):
     return json.loads(text)
 
 
-def analyze_content(content, content_type="image"):
-    model = _GeminiModelCompat(MODELO_A_USAR)
-    prompt = build_ai_prompt()
-    try:
-        with st.spinner(f"🧠 Analizando menú con {MODELO_A_USAR} + reglas Serval TECH..."):
-            if content_type == "image":
-                response = model.generate_content([prompt, content], request_options={"timeout": 120})
-            else:
-                response = model.generate_content(prompt + "\n\nMENÚ:\n" + str(content), request_options={"timeout": 120})
-
-            data = parse_json_response(response.text)
-            data = apply_allergen_rules(data)
-            data["_generated_at"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-            data["_system_mode"] = "Revisión unificada IA + reglas Serval TECH"
-            return data
-    except Exception as e:
-        st.error(f"Error IA/análisis: {e}")
-        return None
 
 # ======================================================
 # WORD
@@ -663,53 +588,6 @@ def add_text_block_to_doc(doc, text, indent=None, font_size=10.5, italic=True, c
                 pass
 
 
-def create_word(data):
-    doc = new_doc_from_template()
-    for section in doc.sections:
-        section.bottom_margin = MARGEN_INFERIOR_FORZADO
-
-    rest_name = data.get("restaurant_name", "MENÚ")
-    try:
-        p_title = doc.add_heading(rest_name, 0)
-        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
-    except Exception:
-        p_title = doc.add_paragraph(rest_name)
-        p_title.add_run(rest_name).bold = True
-        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
-
-    for category in data.get("categories", []):
-        p_cat = doc.add_heading(category.get("name", "Categoría"), level=1)
-        release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
-        p_cat.paragraph_format.space_before = Pt(6)
-        for dish in category.get("dishes", []):
-            p = doc.add_paragraph()
-            release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
-            p.paragraph_format.tab_stops.add_tab_stop(Cm(13.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            p.add_run(dish_display_name(dish)).bold = True
-            p.add_run(f"\t{format_price(dish.get('price', ''))}\t")
-            run_icons = p.add_run()
-            for allergen in get_ordered_allergens(dish.get("allergens", [])):
-                path = ICON_MAP.get(allergen)
-                if path and os.path.exists(path):
-                    try:
-                        run_icons.add_picture(path, width=Cm(0.38))
-                    except Exception:
-                        pass
-            if dish.get("description"):
-                p_desc = doc.add_paragraph()
-                release_paragraph_constraints(p_desc, SANGRIA_PLATOS, is_dish=True)
-                p_desc.add_run(dish["description"]).italic = True
-
-    if data.get("texto_extra"):
-        doc.add_paragraph()
-        p_extra = doc.add_paragraph()
-        release_paragraph_constraints(p_extra, SANGRIA_CATEGORIA)
-        p_extra.add_run(data["texto_extra"]).italic = True
-
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
 
 
 def create_clean_word(data):
@@ -2093,79 +1971,6 @@ def render_editor(data):
     return data
 
 
-def render_visual_downloads(data):
-    st.subheader("🎨 Plantillas premium en dos columnas")
-    st.caption(
-        "La clienta prefiere el estilo premium y trabajar en dos columnas. Por eso esta versión sustituye las plantillas más distintas "
-        "por una familia visual premium: todas mantienen dos columnas, iconos reales y una guía inferior más grande."
-    )
-
-    colA, colB, colC = st.columns([1.15, 1.15, 1])
-    with colA:
-        logo_file = st.file_uploader("Subir logo del restaurante", type=["png", "jpg", "jpeg", "webp"], key="logo_visual")
-    with colB:
-        qr_file = st.file_uploader("Subir QR del menú", type=["png", "jpg", "jpeg", "webp"], key="qr_visual")
-    with colC:
-        qr_url = st.text_input("O generar QR desde URL", placeholder="https://...")
-
-    logo_src = uploaded_image_to_data_uri(logo_file, max_side=900) if logo_file else None
-    qr_src = uploaded_image_to_data_uri(qr_file, max_side=700) if qr_file else generate_qr_data_uri(qr_url)
-
-    show_dish_icons = st.checkbox("Mostrar iconos junto a cada plato", value=False, key="show_dish_icons_v8")
-
-    template = st.selectbox("Elige plantilla final", [
-        "Premium café/bistró · 2 columnas",
-        "Premium claro · 2 columnas",
-        "Premium compacto · 2 columnas",
-        "Premium técnico · 2 columnas",
-        "Premium mesa QR · 2 columnas"
-    ])
-
-    if template == "Premium café/bistró · 2 columnas":
-        html_code = create_modern_html(data, logo_src=logo_src, qr_src=qr_src)
-        base_name = "Carta_Premium_Bistro_" + slugify_filename(data.get("restaurant_name", "menu"))
-    elif template == "Premium claro · 2 columnas":
-        html_code = create_premium_clean_html(data, logo_src=logo_src, qr_src=qr_src)
-        base_name = "Carta_Premium_Claro_" + slugify_filename(data.get("restaurant_name", "menu"))
-    elif template == "Premium compacto · 2 columnas":
-        html_code = create_premium_compact_html(data, logo_src=logo_src, qr_src=qr_src)
-        base_name = "Carta_Premium_Compacta_" + slugify_filename(data.get("restaurant_name", "menu"))
-    elif template == "Premium técnico · 2 columnas":
-        html_code = create_premium_table_html(data, logo_src=logo_src, qr_src=qr_src)
-        base_name = "Carta_Premium_Tecnica_" + slugify_filename(data.get("restaurant_name", "menu"))
-    else:
-        html_code = create_qr_mesa_html(data, logo_src=logo_src, qr_src=qr_src)
-        base_name = "Carta_Premium_Mesa_QR_" + slugify_filename(data.get("restaurant_name", "menu"))
-
-    st.markdown("#### Descargas")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.download_button(
-            "⬇️ HTML imprimible",
-            html_code.encode("utf-8"),
-            file_name=f"{base_name}.html",
-            mime="text/html"
-        )
-    with c2:
-        pdf_bytes = html_to_pdf_bytes(html_code)
-        if pdf_bytes:
-            st.download_button("⬇️ PDF visual", pdf_bytes, file_name=f"{base_name}.pdf", mime="application/pdf")
-        else:
-            st.info("PDF directo no activo. Abre el HTML y usa Imprimir → Guardar como PDF, o instala WeasyPrint.")
-    with c3:
-        st.download_button(
-            "⬇️ Word editable",
-            create_premium_editable_word(data),
-            file_name=f"{base_name}_editable.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-
-    st.info(
-        "Para edición manual real, descarga el Word editable. El HTML/PDF mantiene mejor el diseño visual; el DOCX permite cambiar textos, precios, categorías e iconos desde Word o Google Docs."
-    )
-
-    with st.expander("👀 Vista previa", expanded=True):
-        st.components.v1.html(html_code, height=840, scrolling=True)
 
 
 
@@ -3079,9 +2884,104 @@ def render_allergen_validation(data):
     st.warning("Antes de entregar una carta de alérgenos debe validarse con la receta real, fichas técnicas y protocolo del establecimiento. Las dudas quedan como avisos de revisión, no como iconos confirmados.")
 
 
+def menu_preflight(data):
+    """Auditoría previa a exportación centrada en riesgos que sí afectan al cliente."""
+    blocking = []
+    warnings = []
+    review_items = []
+    dishes = []
+
+    for category in data.get("categories", []):
+        category_name = str(category.get("name") or "Sin categoría").strip()
+        seen_names = Counter()
+        for dish in category.get("dishes", []):
+            dishes.append(dish)
+            name = str(dish.get("name") or "").strip()
+            label = dish_display_name(dish) if name else "Plato sin nombre"
+            if not name:
+                blocking.append(f"{category_name}: hay un plato sin nombre.")
+            else:
+                seen_names[normalize_text(name)] += 1
+            if not str(dish.get("price") or "").strip():
+                warnings.append(f"{category_name} · {label}: sin precio detectado.")
+
+            notes = [str(n).strip() for n in (dish.get("review_notes") or []) if str(n).strip()]
+            if notes:
+                review_items.append({
+                    "category": category_name,
+                    "dish": label,
+                    "notes": notes,
+                })
+
+        for normalized_name, count in seen_names.items():
+            if normalized_name and count > 1:
+                warnings.append(
+                    f"{category_name}: hay {count} platos con el mismo nombre; comprobar si es un duplicado real."
+                )
+
+    if not dishes:
+        blocking.append("No hay platos detectados en la carta.")
+
+    return {
+        "dishes": len(dishes),
+        "blocking": list(dict.fromkeys(blocking)),
+        "warnings": list(dict.fromkeys(warnings)),
+        "review_items": review_items,
+        "review_count": len(review_items),
+    }
+
+
+def render_export_preflight(data, key_prefix="export", compact=False):
+    """Muestra el preflight y devuelve True solo si la salida con alérgenos es entregable."""
+    report = menu_preflight(data)
+    signature = menu_signature(data)[:16]
+    ack_key = f"{key_prefix}_allergen_review_ack_{signature}"
+
+    if not compact:
+        st.markdown("#### Control previo a descarga")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Platos", report["dishes"])
+        c2.metric("Revisiones pendientes", report["review_count"])
+        c3.metric("Avisos de contenido", len(report["warnings"]))
+
+    if report["blocking"]:
+        for issue in report["blocking"]:
+            st.error(f"⛔ {issue}")
+
+    if report["warnings"]:
+        with st.expander(f"⚠️ Avisos de contenido ({len(report['warnings'])})", expanded=False):
+            for issue in report["warnings"]:
+                st.write(f"• {issue}")
+
+    acknowledged = True
+    if report["review_items"]:
+        with st.expander(
+            f"🧾 Platos que requieren validar receta/proveedor ({report['review_count']})",
+            expanded=True,
+        ):
+            for item in report["review_items"]:
+                st.markdown(f"**{item['category']} · {item['dish']}**")
+                for note in item["notes"]:
+                    st.caption(f"• {note}")
+        acknowledged = st.checkbox(
+            "He revisado estos casos con la receta, ficha técnica o responsable del establecimiento.",
+            key=ack_key,
+            help="Esta confirmación se reinicia automáticamente si cambia el contenido de la carta.",
+        )
+        if not acknowledged:
+            st.warning("La descarga final con alérgenos permanece bloqueada hasta confirmar esta revisión.")
+
+    can_export = not report["blocking"] and acknowledged
+    if can_export and (report["review_items"] or report["warnings"]):
+        st.success("Preflight superado para la salida con alérgenos.")
+    return can_export
+
+
 def render_quick_outputs(data):
-    st.subheader("⚡ Salidas rápidas")
-    st.caption("Separamos el Word de trabajo de las dos cartas finales para evitar confusiones.")
+    st.subheader("📦 Descargas")
+    st.caption("Tres salidas claras: trabajo editable, carta final sin alérgenos y carta final validada con alérgenos.")
+    can_export_allergens = render_export_preflight(data, key_prefix="quick")
+
     c1, c2, c3 = st.columns(3)
     restaurant = slugify_filename(data.get("restaurant_name", "menu"))
     with c1:
@@ -3092,7 +2992,7 @@ def render_quick_outputs(data):
             create_clean_word(data),
             file_name=f"Texto_Limpio_{restaurant}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="v11_1_quick_clean",
+            key="v11_2_quick_clean",
         )
     with c2:
         st.markdown("**2 · Carta final sin alérgenos**")
@@ -3102,17 +3002,22 @@ def render_quick_outputs(data):
             create_client_word_without_allergens(data),
             file_name=f"Carta_Sin_Alergenos_{restaurant}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="v11_1_quick_no_allergens",
+            key="v11_2_quick_no_allergens",
         )
     with c3:
         st.markdown("**3 · Carta final con alérgenos**")
-        st.caption("Plato → símbolos confirmados → precio.")
+        st.caption(
+            "Disponible cuando el control previo está validado."
+            if not can_export_allergens
+            else "Plato → símbolos confirmados → precio."
+        )
         st.download_button(
             "⬇️ Descargar con alérgenos",
             create_word(data),
             file_name=f"Carta_Con_Alergenos_{restaurant}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="v11_1_quick_allergens",
+            key="v11_2_quick_allergens",
+            disabled=not can_export_allergens,
         )
 
 
@@ -3292,9 +3197,9 @@ def render_translation(data):
     target = st.selectbox(
         "Idioma de salida",
         ["Catalán", "Inglés", "Francés", "Italiano", "Alemán", "Portugués"],
-        key="v11_1_translate_target",
+        key="v11_2_translate_target",
     )
-    if st.button("🌍 Traducir carta", type="primary", key="v11_1_translate_button"):
+    if st.button("🌍 Traducir carta", type="primary", key="v11_2_translate_button"):
         try:
             with st.spinner(f"Traduciendo al {target}..."):
                 translated = translate_menu_data(data, target)
@@ -3316,6 +3221,12 @@ def render_translation(data):
             for dish in category.get("dishes", [])[:5]:
                 preview_lines.append(f"- {dish_display_name(dish)} · {format_price(dish.get('price', ''))}")
         st.markdown("\n".join(preview_lines) if preview_lines else "Sin platos detectados.")
+
+        can_export_allergens = render_export_preflight(
+            translated,
+            key_prefix=f"translation_{slugify_filename(language)}",
+            compact=True,
+        )
         c1, c2 = st.columns(2)
         slug = slugify_filename(language)
         with c1:
@@ -3324,7 +3235,7 @@ def render_translation(data):
                 create_client_word_without_allergens(translated),
                 file_name=f"Carta_{slug}_Sin_Alergenos.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key="v11_1_translate_no_allergens",
+                key="v11_2_translate_no_allergens",
             )
         with c2:
             st.download_button(
@@ -3332,7 +3243,8 @@ def render_translation(data):
                 create_word(translated),
                 file_name=f"Carta_{slug}_Con_Alergenos.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key="v11_1_translate_allergens",
+                key="v11_2_translate_allergens",
+                disabled=not can_export_allergens,
             )
 
 
@@ -3345,7 +3257,7 @@ app_mode = st.sidebar.radio("Navegación", ["📝 Generador de Cartas", "📡 Ra
 
 if app_mode == "📝 Generador de Cartas":
     st.title("Sistema Integral de Cartas 🥘")
-    st.caption("v11.1 · Dictado por voz estabilizado + revisión prudente de alérgenos + salidas y traducción protegidas.")
+    st.caption("v11.2 · Preflight de alérgenos + PDFs completos + interfaz simplificada + núcleo sin funciones duplicadas.")
 
     if "menu_data" not in st.session_state:
         st.session_state.menu_data = None
@@ -3398,7 +3310,13 @@ if app_mode == "📝 Generador de Cartas":
 
     if st.session_state.menu_data:
         st.markdown("---")
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(["✅ Revisar carta", "⚡ Salidas rápidas", "🌍 Traducción", "🍤 Word con iconos", "📄 Word limpio", "📝 Plantillas editables", "📖 Word horizontal", "🎨 Plantillas visuales"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "✅ Revisar carta",
+            "📦 Descargas",
+            "🌍 Traducción",
+            "🎨 Diseños",
+            "🧰 Avanzado",
+        ])
         data = st.session_state.menu_data
 
         with tab1:
@@ -3417,19 +3335,21 @@ if app_mode == "📝 Generador de Cartas":
             render_translation(data)
 
         with tab4:
-            st.download_button("⬇️ DESCARGAR CARTA WORD CON ALÉRGENOS", create_word(data), "Carta_Alergenos.docx")
+            st.markdown("#### Plantillas editables")
+            render_editable_clean_templates(data)
+            st.markdown("---")
+            st.markdown("#### Plantillas visuales con información de alérgenos")
+            if render_export_preflight(data, key_prefix="visual", compact=True):
+                render_visual_downloads(data)
+            else:
+                st.info("Valida los casos pendientes para habilitar las plantillas visuales con alérgenos.")
 
         with tab5:
-            st.download_button("⬇️ DESCARGAR TEXTO LIMPIO WORD", create_clean_word(data), "Carta_Limpia.docx")
-
-        with tab6:
-            render_editable_clean_templates(data)
-
-        with tab7:
-            render_landscape_book_word(data)
-
-        with tab8:
-            render_visual_downloads(data)
+            st.markdown("#### Formato horizontal / libro")
+            if render_export_preflight(data, key_prefix="advanced", compact=True):
+                render_landscape_book_word(data)
+            else:
+                st.info("Valida los casos pendientes para habilitar la salida horizontal con alérgenos.")
 
 elif app_mode == "📡 Radar de Clientes":
     st.title("Radar de Redes y Mapas 📡")
