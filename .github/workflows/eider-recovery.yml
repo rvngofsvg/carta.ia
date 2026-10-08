@@ -1,138 +1,66 @@
-name: Eider asset recovery
+name: Eider exact artwork recovery
 
 on:
   push:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   recover:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install recovery tools
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Recover exact artwork from Eider source DOCX
+        env:
+          EIDER_DOCX_URL: 'https://sdmntprukwest.oaiusercontent.com/files/00000000-52c8-8243-9ef9-f5b0a76a7cda/raw?se=2026-10-08T14%3A56%3A26Z&sp=r&sv=2026-02-06&sr=b&scid=0460008f-54b3-534a-9c90-694944633b4b&skoid=1d6acb5b-b3f4-43ec-a5ec-b05c4a7708c8&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-08T03%3A51%3A09Z&ske=2026-10-09T03%3A51%3A09Z&sks=b&skv=2026-02-06&sig=JDpMx/EYYGT2rqERJiMwoiHQnbKG6i6Tz/7R9ofDbIM%3D'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y webp ffmpeg unzip libreoffice-writer poppler-utils
-      - name: Recover and inspect assets
-        shell: bash
-        run: |
-          set -u
-          mkdir -p qa/template_media qa/template_xml qa/rendered
+          set -euo pipefail
+          python -m pip install --quiet Pillow==12.3.0
+          curl --fail --location --retry 3 "$EIDER_DOCX_URL" -o /tmp/eider-source.docx
+          echo '51698ab678165d0af8cc4976c8e40d706f89365b5908fcc7742545716ba4c68e  /tmp/eider-source.docx' | sha256sum -c -
+          rm -rf /tmp/eider-source
+          mkdir -p /tmp/eider-source
+          unzip -q /tmp/eider-source.docx -d /tmp/eider-source
+          echo '32615ecadc94d747e1d0d3f989152894c93a057ad9c2e0ff62b81de195c1af5e  /tmp/eider-source/word/media/image1.png' | sha256sum -c -
           python - <<'PY'
           from pathlib import Path
-          import base64, hashlib
-
-          parts = sorted(Path('serval_eider_patch/legend_b64').glob('part*.txt'))
-          texts = [''.join(p.read_text(encoding='ascii').split()) for p in parts]
-          before = ''.join(texts[:5])  # through truncated part04
-          after = texts[5]
-          encoded = before + after
-          padded = encoded + '=' * (-len(encoded) % 4)
-          raw = base64.b64decode(padded, validate=True)
-          Path('qa/partial_legend.webp').write_bytes(raw)
-
-          blob_path = Path('serval_eider_patch/leyenda_alergenos_eider.webp')
-          blob = blob_path.read_bytes() if blob_path.exists() else b''
-          blob64 = base64.b64encode(blob).decode('ascii') if blob else ''
-          Path('qa/historical_blob.bin').write_bytes(blob)
-          Path('qa/historical_blob.b64.txt').write_text(blob64, encoding='ascii')
-
-          # If the historical binary is actually a decoded slice of the original Base64,
-          # a segment crossing the gap will have exact overlap with before/after.
-          max_left = 0
-          for n in range(1, min(len(before), len(blob64)) + 1):
-              if blob64[:n] == before[-n:]:
-                  max_left = n
-          max_right = 0
-          for n in range(1, min(len(after), len(blob64)) + 1):
-              if blob64[-n:] == after[:n]:
-                  max_right = n
-
-          # Also find the strongest exact local match of blob64 against the known sides.
-          def longest_prefix_match_at(text, needle):
-              best = (0, -1)
-              seed = needle[:24]
-              start = 0
-              while seed and True:
-                  pos = text.find(seed, start)
-                  if pos < 0:
-                      break
-                  n = 0
-                  lim = min(len(needle), len(text) - pos)
-                  while n < lim and text[pos+n] == needle[n]:
-                      n += 1
-                  if n > best[0]:
-                      best = (n, pos)
-                  start = pos + 1
-              return best
-
-          pref_before = longest_prefix_match_at(before, blob64) if blob64 else (0,-1)
-          pref_after = longest_prefix_match_at(after, blob64) if blob64 else (0,-1)
-
-          report = [
-              'parts=' + ','.join(f'{p.name}:{p.stat().st_size}' for p in parts),
-              f'known_base64_chars={len(encoded)}',
-              f'expected_base64_chars=57136',
-              f'missing_base64_chars={57136-len(encoded)}',
-              f'raw_bytes={len(raw)}',
-              f'header={raw[:32].hex()}',
-              f'blob_bytes={len(blob)}',
-              f'blob_sha256={hashlib.sha256(blob).hexdigest() if blob else ""}',
-              f'blob64_chars={len(blob64)}',
-              f'gap_cross_left_overlap={max_left}',
-              f'gap_cross_right_overlap={max_right}',
-              f'blob_prefix_match_before_len={pref_before[0]} pos={pref_before[1]}',
-              f'blob_prefix_match_after_len={pref_after[0]} pos={pref_after[1]}',
-          ]
-
-          missing_len = 57136 - len(encoded)
-          if max_left and max_right and len(blob64) - max_left - max_right == missing_len:
-              missing = blob64[max_left:len(blob64)-max_right]
-              rebuilt = before + missing + after
-              rebuilt_raw = base64.b64decode(rebuilt, validate=True)
-              Path('qa/rebuilt_legend.webp').write_bytes(rebuilt_raw)
-              Path('qa/recovered_missing_part.txt').write_text(missing, encoding='ascii')
-              report += [
-                  'RECOVERY=EXACT_GAP_MATCH',
-                  f'recovered_chars={len(missing)}',
-                  f'rebuilt_bytes={len(rebuilt_raw)}',
-                  f'rebuilt_sha256={hashlib.sha256(rebuilt_raw).hexdigest()}',
-              ]
-          else:
-              report += ['RECOVERY=NO_EXACT_GAP_MATCH']
-
-          Path('qa/recovery_report.txt').write_text('\n'.join(report) + '\n', encoding='utf-8')
+          from PIL import Image
+          src = Image.open('/tmp/eider-source/word/media/image1.png').convert('RGB')
+          if src.size != (1665, 555):
+              raise SystemExit(f'Unexpected source size: {src.size}')
+          # Lossless crop: remove only the blank white margin from Eider's original image.
+          # No resampling, redrawing or text/icon alteration.
+          crop = src.crop((7, 148, 1658, 387))
+          if crop.size != (1651, 239):
+              raise SystemExit(f'Unexpected crop size: {crop.size}')
+          out = Path('serval_eider_patch/leyenda_alergenos_eider.png')
+          crop.save(out, format='PNG', optimize=True)
+          print('saved', out, out.stat().st_size)
           PY
 
-          file qa/partial_legend.webp | tee -a qa/recovery_report.txt || true
-          webpinfo qa/partial_legend.webp >> qa/recovery_report.txt 2>&1 || true
-          dwebp qa/partial_legend.webp -o qa/partial_dwebp.png >> qa/recovery_report.txt 2>&1 || true
-          ffmpeg -v warning -err_detect ignore_err -i qa/partial_legend.webp -frames:v 1 -y qa/partial_ffmpeg.png >> qa/recovery_report.txt 2>&1 || true
-          if [ -f qa/rebuilt_legend.webp ]; then
-            file qa/rebuilt_legend.webp | tee -a qa/recovery_report.txt || true
-            webpinfo qa/rebuilt_legend.webp >> qa/recovery_report.txt 2>&1 || true
-            dwebp qa/rebuilt_legend.webp -o qa/rebuilt_legend.png >> qa/recovery_report.txt 2>&1 || true
-          fi
+      - name: Remove broken historical payloads
+        run: |
+          rm -rf serval_eider_patch/legend_b64
+          rm -f serval_eider_patch/leyenda_alergenos_eider.webp
 
-          rm -rf /tmp/template_docx
-          mkdir -p /tmp/template_docx
-          unzip -q Public/Plantilla/plantilla_menu.docx -d /tmp/template_docx
-          cp -av /tmp/template_docx/word/media/. qa/template_media/ >> qa/recovery_report.txt 2>&1 || true
-          cp -av /tmp/template_docx/word/footer*.xml qa/template_xml/ >> qa/recovery_report.txt 2>&1 || true
-          if [ -d /tmp/template_docx/word/_rels ]; then cp -av /tmp/template_docx/word/_rels/footer*.rels qa/template_xml/ >> qa/recovery_report.txt 2>&1 || true; fi
-          find qa/template_media -type f -maxdepth 1 -printf '%f %s bytes\n' >> qa/recovery_report.txt
-
-          libreoffice --headless --convert-to pdf --outdir qa/rendered Public/Plantilla/plantilla_menu.docx >> qa/recovery_report.txt 2>&1 || true
-          if [ -f qa/rendered/plantilla_menu.pdf ]; then
-            pdftoppm -png -r 130 qa/rendered/plantilla_menu.pdf qa/rendered/template >> qa/recovery_report.txt 2>&1 || true
+      - name: Commit recovered binary
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A serval_eider_patch
+          if git diff --cached --quiet; then
+            echo 'Exact artwork already present; nothing to commit.'
+            exit 0
           fi
-          cat qa/recovery_report.txt
-      - name: Upload recovery assets
-        uses: actions/upload-artifact@v4
-        with:
-          name: eider-recovery-assets
-          path: qa/
-          if-no-files-found: error
+          git commit -m 'Restore exact Eider allergen footer artwork'
+          git push origin HEAD:main
