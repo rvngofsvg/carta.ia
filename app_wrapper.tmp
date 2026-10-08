@@ -1,7 +1,0 @@
-from pathlib import Path
-
-from word_legend_patch import install_patch
-
-install_patch()
-_core_path = Path(__file__).with_name("app_core.py")
-exec(compile(_core_path.read_text(encoding="utf-8"), str(_core_path), "exec"), globals(), globals())
