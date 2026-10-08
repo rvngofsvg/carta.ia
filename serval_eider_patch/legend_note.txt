@@ -1,0 +1,1 @@
+Exact legend asset will be loaded from the packaged PNG footer resource.
