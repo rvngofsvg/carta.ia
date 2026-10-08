@@ -1,0 +1,60 @@
+name: Eider asset recovery
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install recovery tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y webp ffmpeg unzip libreoffice-writer poppler-utils
+      - name: Recover and inspect assets
+        shell: bash
+        run: |
+          set -u
+          mkdir -p qa/template_media qa/template_xml qa/rendered
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+          parts = sorted(Path('serval_eider_patch/legend_b64').glob('part*.txt'))
+          encoded = ''.join(''.join(p.read_text(encoding='ascii').split()) for p in parts)
+          encoded += '=' * (-len(encoded) % 4)
+          raw = base64.b64decode(encoded, validate=True)
+          Path('qa/partial_legend.webp').write_bytes(raw)
+          Path('qa/recovery_report.txt').write_text(
+              'parts=' + ','.join(f'{p.name}:{p.stat().st_size}' for p in parts) + '\n' +
+              f'base64_chars={len(encoded)}\nraw_bytes={len(raw)}\n' +
+              f'header={raw[:32].hex()}\n', encoding='utf-8')
+          PY
+          file qa/partial_legend.webp | tee -a qa/recovery_report.txt || true
+          webpinfo qa/partial_legend.webp >> qa/recovery_report.txt 2>&1 || true
+          dwebp qa/partial_legend.webp -o qa/partial_dwebp.png >> qa/recovery_report.txt 2>&1 || true
+          ffmpeg -v warning -err_detect ignore_err -i qa/partial_legend.webp -frames:v 1 -y qa/partial_ffmpeg.png >> qa/recovery_report.txt 2>&1 || true
+
+          rm -rf /tmp/template_docx
+          mkdir -p /tmp/template_docx
+          unzip -q Public/Plantilla/plantilla_menu.docx -d /tmp/template_docx
+          cp -av /tmp/template_docx/word/media/. qa/template_media/ >> qa/recovery_report.txt 2>&1 || true
+          cp -av /tmp/template_docx/word/footer*.xml qa/template_xml/ >> qa/recovery_report.txt 2>&1 || true
+          if [ -d /tmp/template_docx/word/_rels ]; then cp -av /tmp/template_docx/word/_rels/footer*.rels qa/template_xml/ >> qa/recovery_report.txt 2>&1 || true; fi
+          find qa/template_media -type f -maxdepth 1 -printf '%f %s bytes\n' >> qa/recovery_report.txt
+
+          libreoffice --headless --convert-to pdf --outdir qa/rendered Public/Plantilla/plantilla_menu.docx >> qa/recovery_report.txt 2>&1 || true
+          if [ -f qa/rendered/plantilla_menu.pdf ]; then
+            pdftoppm -png -r 130 qa/rendered/plantilla_menu.pdf qa/rendered/template >> qa/recovery_report.txt 2>&1 || true
+          fi
+          cat qa/recovery_report.txt
+      - name: Upload recovery assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: eider-recovery-assets
+          path: qa/
+          if-no-files-found: error
