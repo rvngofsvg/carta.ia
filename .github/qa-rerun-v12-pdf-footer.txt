@@ -1,2 +1,2 @@
 QA marker for Carta IA real export validation.
-Rerun 2026-10-09 after refining the approved compact 2x7 legend frame, legal text weight and dotted price leaders.
+Rerun 2026-10-09 after migrating the AI core to Qwen, hiding internal AI cost/provider details from the client UI, and locking PRICE -> ALLERGENS ordering.
