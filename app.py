@@ -22,6 +22,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from ai_design import render_ai_design_mode
 
 # ======================================================
 # CONFIGURACIÓN GENERAL
@@ -3673,6 +3674,8 @@ if app_mode == "📝 Generador de Cartas":
             with st.expander("🌍 Traducir la carta", expanded=False):
                 render_translation(st.session_state.menu_data)
             with st.expander("🎨 Diseños y plantillas", expanded=False):
+                render_ai_design_mode(st.session_state.menu_data, ICON_MAP)
+                st.divider()
                 render_editable_clean_templates(st.session_state.menu_data)
                 st.markdown("---")
                 render_visual_downloads(st.session_state.menu_data)
