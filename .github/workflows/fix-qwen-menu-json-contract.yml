@@ -1,0 +1,82 @@
+name: Fix Qwen menu JSON contract
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/fix-qwen-menu-json-contract.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply Qwen JSON contract fix
+        run: python scripts/fix_qwen_menu_json_contract.py
+      - name: Compile
+        run: python -m py_compile qwen_core.py app.py ai_design.py
+      - name: Validate normalizer
+        run: |
+          python - <<'PY'
+          import ast, json
+          from pathlib import Path
+
+          src = Path('qwen_core.py').read_text(encoding='utf-8')
+          tree = ast.parse(src)
+          wanted = {'parse_json_text', '_as_text', '_normalize_menu_payload'}
+          nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
+          ns = {'json': json}
+          exec(compile(ast.Module(body=nodes, type_ignores=[]), '<normalizer>', 'exec'), ns)
+          parse = ns['parse_json_text']
+          norm = ns['_normalize_menu_payload']
+
+          assert isinstance(parse('[{"name":"x"}]'), list)
+          direct = norm({
+              'restaurant_name':'QA', 'texto_extra':'',
+              'categories':[{'name':'Entrantes','category_text':'','dishes':[{'number':'1','name':'Croquetas','description':'','price':'9,50','allergens':['gluten'],'review_notes':[]}]}]
+          })
+          assert direct['categories'][0]['dishes'][0]['name'] == 'Croquetas'
+
+          cat_array = norm([
+              {'name':'Entrantes','dishes':[{'name':'Croquetas','precio':'9,50','alergenos':['gluten']}]}
+          ])
+          assert cat_array['categories'][0]['dishes'][0]['price'] == '9,50'
+
+          dish_array = norm([
+              {'nombre':'Croquetas','precio':'9,50'},
+              {'nombre':'Tiramisú','precio':'6,50'}
+          ])
+          assert len(dish_array['categories'][0]['dishes']) == 2
+
+          wrapped = norm({'data': {'restaurant_name':'QA','categories':[{'name':'Postres','dishes':[{'name':'Tiramisú','price':'6,50'}]}]}})
+          assert wrapped['categories'][0]['name'] == 'Postres'
+
+          try:
+              norm([])
+          except ValueError:
+              pass
+          else:
+              raise AssertionError('Una lista vacía no debe producir una carta vacía')
+
+          assert 'La raíz DEBE ser un objeto JSON, NUNCA un array' in src
+          print('Normalizer contract tests OK')
+          PY
+      - name: Commit fix
+        run: |
+          if git diff --quiet; then
+            echo 'No changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add qwen_core.py
+          git commit -m 'Fix Qwen menu JSON response normalization'
+          git push
