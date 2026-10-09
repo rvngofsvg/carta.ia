@@ -1,6 +1,6 @@
 name: Validate real Carta IA exports
 
-# QA v13: real Word/PDF exports with approved compact 2x7 allergen legend
+# QA v14: Qwen runtime + real Word/PDF exports + approved compact 2x7 legend
 on:
   push:
     branches: [main]
@@ -12,7 +12,7 @@ jobs:
   qa:
     runs-on: ubuntu-latest
     env:
-      GEMINI_API_KEY: dummy-qa-key
+      DASHSCOPE_API_KEY: dummy-qa-key
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,8 +63,8 @@ jobs:
               ],
           }
 
-          assert app.MODELO_A_USAR == 'gemini-3.8-flash'
-          assert app.MODELO_ALERGENOS == 'gemini-3.1-pro-preview'
+          assert app.MODELO_A_USAR == 'qwen3.8-flash'
+          assert app.MODELO_ALERGENOS == 'qwen3.8-max'
           assert 'neutral' in app.EDITABLE_WORD_THEMES
 
           with_all = app.create_word(data, theme_key='neutral')
@@ -111,6 +111,10 @@ jobs:
           with zipfile.ZipFile(all_path) as z:
               body = z.read('word/document.xml').decode('utf-8')
               assert 'GUÍA DE ALÉRGENOS' not in body, 'La leyenda volvió al body en lugar del footer'
+              # En el primer plato, el texto del precio debe aparecer antes que el primer dibujo de alérgeno.
+              price_pos = body.find('9,50')
+              drawing_pos = body.find('<w:drawing', price_pos)
+              assert price_pos >= 0 and drawing_pos > price_pos, 'Word no mantiene PRECIO → ALÉRGENOS'
 
           source = Path('app.py').read_text(encoding='utf-8')
           assert 'st.multiselect(' in source and '"Alérgenos"' in source, 'Se perdió la edición manual de alérgenos'
@@ -118,20 +122,34 @@ jobs:
           assert 'WORD SIN ALÉRGENOS' in source and 'PDF SIN ALÉRGENOS' in source
           assert 'grid = cell.add_table(rows=2, cols=7)' in source, 'La leyenda dejó de ser 2x7'
           assert 'width=Cm(1.18)' in source, 'Tamaño de icono compacto no aplicado'
-          assert 'lr.font.size = Pt(9.0)' in source, 'Tipografía legal compacta no aplicada'
+          assert 'lr.font.size = Pt(9.0)' in source and 'lr.bold = True' in source, 'Texto legal debe ser compacto y negrita'
           assert 'label.font.size = Pt(8.6)' in source, 'Tipografía de etiquetas compacta no aplicada'
           assert 'col_weights = [1.00, 1.15, 0.90, 1.00, 1.15, 1.05, 1.00]' in source, 'No se aplicaron anchos ponderados'
           assert 'DIÓXIDO DE AZUFRE\\nY SULFITOS' in source, 'Sulfitos debe mantenerse en dos líneas'
 
+          word_price = source.index('price_run = p.add_run("\\t" + format_price(dish.get("price", "")))')
+          word_icons = source.index('_add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)', word_price)
+          assert word_price < word_icons, 'Código Word no mantiene PRECIO → ALÉRGENOS'
+          pdf_price = source.index('f\'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span>\'')
+          pdf_icons = source.index('f\'<span class="dish-icons">{icons}</span></div>{desc_html}</div>\'', pdf_price)
+          assert pdf_price < pdf_icons, 'Código PDF no mantiene PRECIO → ALÉRGENOS'
+
+          qwen_source = Path('qwen_core.py').read_text(encoding='utf-8')
+          assert 'CARTA_IA_QWEN_USAGE' in qwen_source
+          assert 'st.metric' not in qwen_source and 'st.write' not in qwen_source
+          assert 'GEMINI_API_KEY' not in source and 'GENAI_CLIENT' not in source
+
           (qa / 'qa_report.txt').write_text(
               'PASS real export path\n'
+              'qwen_runtime=ok\nprivate_usage_logging=ok\n'
               'word_with_allergens=ok\nword_without_allergens=ok\n'
               'pdf_with_allergens=ok\npdf_without_allergens=ok\n'
+              'price_then_allergens=ok\n'
               'direct_word_footer=ok\nclean_word_footer=clean\n'
               'compact_2x7_legend=ok\nweighted_columns=ok\nmanual_allergen_editor=present\n',
               encoding='utf-8',
           )
-          print('PASS real Carta IA exports with compact legend')
+          print('PASS Qwen Carta IA exports and price→allergen ordering')
           PY
 
       - name: Install renderers
