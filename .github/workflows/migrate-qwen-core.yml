@@ -23,7 +23,11 @@ jobs:
         run: python scripts/migrate_qwen_core.py
       - name: Compile application
         run: |
-          python -m py_compile app.py qwen_core.py ai_design.py
+          python -m py_compile app.py qwen_core.py ai_design.py || {
+            echo '--- app.py around reported failure ---'
+            nl -ba app.py | sed -n '3635,3705p'
+            exit 1
+          }
       - name: Verify Alibaba-only AI runtime and allergen order
         run: |
           python - <<'PY'
