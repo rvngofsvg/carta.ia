@@ -1,0 +1,101 @@
+name: Restore allergens after price
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-allergens-after-price.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore price then allergen order
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app.py')
+          s = p.read_text(encoding='utf-8')
+
+          # Main Word export: dotted leaders end at price; allergens close the line.
+          old = '''            if with_allergens and get_ordered_allergens(dish.get("allergens", [])):\n                p.add_run("  ")\n                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)\n\n            price_run = p.add_run("\\t" + format_price(dish.get("price", "")))\n            price_run.bold = True\n            price_run.font.size = Pt(11.2)\n            set_run_color(price_run, theme["cat"])\n'''
+          new = '''            price_run = p.add_run("\\t" + format_price(dish.get("price", "")))\n            price_run.bold = True\n            price_run.font.size = Pt(11.2)\n            set_run_color(price_run, theme["cat"])\n\n            if with_allergens and get_ordered_allergens(dish.get("allergens", [])):\n                p.add_run("  ")\n                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)\n'''
+          if s.count(old) != 1:
+              raise SystemExit(f'Main Word allergen/price block expected once, found {s.count(old)}')
+          s = s.replace(old, new, 1)
+
+          # Reserve a right-side zone for price + icons while keeping dotted leaders.
+          old_tab = '''            p.paragraph_format.tab_stops.add_tab_stop(Cm(15.0 if not two_columns else 7.8), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)'''
+          new_tab = '''            price_tab_cm = (12.6 if not two_columns else 5.6) if with_allergens else (15.0 if not two_columns else 7.8)\n            p.paragraph_format.tab_stops.add_tab_stop(Cm(price_tab_cm), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)'''
+          if s.count(old_tab) != 1:
+              raise SystemExit(f'Main Word tab block expected once, found {s.count(old_tab)}')
+          s = s.replace(old_tab, new_tab, 1)
+
+          # Main PDF: dish -> dotted leader -> price -> allergens.
+          old_pdf = '''                f'<div class="dish-main"><span class="dish-name">{html_escape(dish_display_name(dish))}</span>'\n                f'<span class="dish-icons">{icons}</span><span class="dots"></span>'\n                f'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span></div>{desc_html}</div>'\n'''
+          new_pdf = '''                f'<div class="dish-main"><span class="dish-name">{html_escape(dish_display_name(dish))}</span>'\n                f'<span class="dots"></span>'\n                f'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span>'\n                f'<span class="dish-icons">{icons}</span></div>{desc_html}</div>'\n'''
+          if s.count(old_pdf) != 1:
+              raise SystemExit(f'Main PDF row expected once, found {s.count(old_pdf)}')
+          s = s.replace(old_pdf, new_pdf, 1)
+
+          old_css = '''    .dish-icons{{display:inline-flex;gap:.8mm;align-items:center;}}'''
+          new_css = '''    .dish-icons{{display:inline-flex;gap:.8mm;align-items:center;flex-shrink:0;}}'''
+          if s.count(old_css) < 1:
+              raise SystemExit('PDF dish-icons CSS not found')
+          s = s.replace(old_css, new_css, 1)
+
+          # Horizontal/book Word follows the same convention.
+          old_book = '''            if icons_after_dish:\n                p.add_run('  ')\n                for allergen in get_ordered_allergens(dish.get('allergens', [])):\n                    icon_path = ICON_MAP.get(allergen)\n                    if icon_path and os.path.exists(icon_path):\n                        try:\n                            p.add_run().add_picture(icon_path, width=Cm(0.75))\n                            p.add_run(' ')\n                        except Exception:\n                            fb = p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ')\n                            fb.font.size = Pt(max(6, dish_font_size - 4))\n                    else:\n                        fb = p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ')\n                        fb.font.size = Pt(max(6, dish_font_size - 4))\n                        set_run_color(fb, theme['cat'])\n\n            price_run = p.add_run('\\t' + format_price(dish.get('price', '')))\n            price_run.bold = True\n            price_run.font.size = Pt(dish_font_size)\n            set_run_color(price_run, theme['text'])\n'''
+          new_book = '''            price_run = p.add_run('\\t' + format_price(dish.get('price', '')))\n            price_run.bold = True\n            price_run.font.size = Pt(dish_font_size)\n            set_run_color(price_run, theme['text'])\n\n            if icons_after_dish:\n                p.add_run('  ')\n                for allergen in get_ordered_allergens(dish.get('allergens', [])):\n                    icon_path = ICON_MAP.get(allergen)\n                    if icon_path and os.path.exists(icon_path):\n                        try:\n                            p.add_run().add_picture(icon_path, width=Cm(0.75))\n                            p.add_run(' ')\n                        except Exception:\n                            fb = p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ')\n                            fb.font.size = Pt(max(6, dish_font_size - 4))\n                    else:\n                        fb = p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ')\n                        fb.font.size = Pt(max(6, dish_font_size - 4))\n                        set_run_color(fb, theme['cat'])\n'''
+          if s.count(old_book) != 1:
+              raise SystemExit(f'Book Word block expected once, found {s.count(old_book)}')
+          s = s.replace(old_book, new_book, 1)
+
+          old_book_tab = '''                Cm(12.35), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS'''
+          new_book_tab = '''                Cm(9.2), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS'''
+          if s.count(old_book_tab) != 1:
+              raise SystemExit(f'Book tab expected once, found {s.count(old_book_tab)}')
+          s = s.replace(old_book_tab, new_book_tab, 1)
+
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Compile and verify ordering
+        shell: bash
+        run: |
+          python -m py_compile app.py
+          python - <<'PY'
+          from pathlib import Path
+          s = Path('app.py').read_text(encoding='utf-8')
+          assert "price_tab_cm = (12.6 if not two_columns else 5.6) if with_allergens" in s
+          assert "<span class=\"dots\"></span>'" in s
+          assert "<span class=\"price\">" in s
+          assert "Cm(9.2), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS" in s
+          main = s[s.index('def _create_client_word'):s.index('def create_word')]
+          assert main.index('price_run = p.add_run') < main.index('_add_allergen_icons_to_run')
+          book = s[s.index('def create_landscape_book_word'):s.index('def render_landscape_book_word')]
+          assert book.index("price_run = p.add_run") < book.index("for allergen in get_ordered_allergens")
+          print('PASS price before allergens')
+          PY
+
+      - name: Commit ordering fix
+        shell: bash
+        run: |
+          if git diff --quiet -- app.py; then
+            echo 'No app changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py
+          git commit -m 'Restore allergen icons after price'
+          git push
