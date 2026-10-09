@@ -1912,13 +1912,18 @@ def create_landscape_book_word(
             p.paragraph_format.space_after = Pt(2)
             p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
             p.paragraph_format.tab_stops.add_tab_stop(
-                Cm(12.35), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS
+                Cm(9.2), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS
             )
 
             name_run = p.add_run(dish_display_name(dish))
             name_run.bold = True
             name_run.font.size = Pt(dish_font_size)
             set_run_color(name_run, theme['text'])
+
+            price_run = p.add_run('\t' + format_price(dish.get('price', '')))
+            price_run.bold = True
+            price_run.font.size = Pt(dish_font_size)
+            set_run_color(price_run, theme['text'])
 
             if icons_after_dish:
                 p.add_run('  ')
@@ -1935,11 +1940,6 @@ def create_landscape_book_word(
                         fb = p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ')
                         fb.font.size = Pt(max(6, dish_font_size - 4))
                         set_run_color(fb, theme['cat'])
-
-            price_run = p.add_run('\t' + format_price(dish.get('price', '')))
-            price_run.bold = True
-            price_run.font.size = Pt(dish_font_size)
-            set_run_color(price_run, theme['text'])
 
             if include_descriptions and dish.get('description'):
                 pd = doc.add_paragraph()
@@ -2999,20 +2999,21 @@ def _create_client_word(data, with_allergens=False, theme_key="neutral", two_col
         for dish in category.get("dishes", []):
             p = doc.add_paragraph()
             release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
-            p.paragraph_format.tab_stops.add_tab_stop(Cm(15.0 if not two_columns else 7.8), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            price_tab_cm = (12.6 if not two_columns else 5.6) if with_allergens else (15.0 if not two_columns else 7.8)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(price_tab_cm), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             name_run = p.add_run(dish_display_name(dish))
             name_run.bold = True
             name_run.font.size = Pt(11.5)
             set_run_color(name_run, theme["text"])
 
-            if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
-                p.add_run("  ")
-                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)
-
             price_run = p.add_run("\t" + format_price(dish.get("price", "")))
             price_run.bold = True
             price_run.font.size = Pt(11.2)
             set_run_color(price_run, theme["cat"])
+
+            if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
+                p.add_run("  ")
+                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)
 
             if dish.get("description"):
                 pd = doc.add_paragraph()
@@ -3209,8 +3210,9 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
             dishes_html.append(
                 '<div class="dish">'
                 f'<div class="dish-main"><span class="dish-name">{html_escape(dish_display_name(dish))}</span>'
-                f'<span class="dish-icons">{icons}</span><span class="dots"></span>'
-                f'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span></div>{desc_html}</div>'
+                f'<span class="dots"></span>'
+                f'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span>'
+                f'<span class="dish-icons">{icons}</span></div>{desc_html}</div>'
             )
         cat_note = html_escape(str(category.get("category_text") or ""))
         note_html = f'<div class="cat-note">{cat_note}</div>' if cat_note else ""
@@ -3322,7 +3324,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
     .dish{{margin:0 0 2.2mm;break-inside:avoid;}}
     .dish-main{{display:flex;align-items:center;gap:1.6mm;font-size:11pt;}}
     .dish-name{{font-weight:700;}}
-    .dish-icons{{display:inline-flex;gap:.8mm;align-items:center;}}
+    .dish-icons{{display:inline-flex;gap:.8mm;align-items:center;flex-shrink:0;}}
     .dish-icon{{width:7.5mm;height:7.5mm;object-fit:contain;}}
     .dots{{flex:1;border-bottom:1px dotted {muted};height:0;min-width:8mm;}}
     .price{{font-weight:700;white-space:nowrap;}}
