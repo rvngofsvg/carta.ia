@@ -2558,7 +2558,7 @@ Eres un transcriptor experto de cartas de restaurante en España y la UE.
 OBJETIVO:
 1) Transcribe fielmente categorías, platos, descripciones, precios, numeración y textos auxiliares.
 2) No inventes platos, precios ni ingredientes que no aparezcan.
-3) Puedes proponer una primera estimación de alérgenos entre estas claves: {allergen_keys}.
+3) Debes proponer una primera estimación razonada de alérgenos entre estas claves: {allergen_keys}; no los dejes vacíos por defecto si la receta habitual permite una inferencia razonable.
 4) Una segunda pasada especializada revisará los alérgenos con mayor capacidad de razonamiento, así que prioriza la fidelidad de la carta.
 
 REGLAS:
@@ -2642,8 +2642,8 @@ La selección podrá ser corregida manualmente después por el establecimiento.
             return data
         raise ValueError("Qwen Max no devolvió platos clasificables")
     except Exception as exc:
-        data["_allergen_model"] = "reglas locales (fallback)"
-        data["_allergen_model_error"] = str(exc)[-800:]
+        data["_allergen_model"] = "estimación inicial + reglas locales"
+        data["_allergen_model_error"] = str(exc)[-1200:]
         return data
 
 def _word_or_phrase(text, phrase):

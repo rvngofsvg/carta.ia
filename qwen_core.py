@@ -44,9 +44,27 @@ def api_key():
     return _secret("DASHSCOPE_API_KEY")
 
 
+def _api_host():
+    host = _secret("DASHSCOPE_API_HOST")
+    if not host:
+        return ""
+    host = host.strip().rstrip("/")
+    # Accept either the bare API Host shown by Alibaba or a copied compatible-mode URL.
+    for suffix in ("/compatible-mode/v1/chat/completions", "/compatible-mode/v1", "/api/v1"):
+        if host.endswith(suffix):
+            host = host[:-len(suffix)].rstrip("/")
+            break
+    return host
+
+
 def chat_endpoint():
     configured = _secret("DASHSCOPE_TEXT_ENDPOINT")
-    return (configured or _DEFAULT_CHAT_ENDPOINT).rstrip("/")
+    if configured:
+        return configured.rstrip("/")
+    host = _api_host()
+    if host:
+        return host + "/compatible-mode/v1/chat/completions"
+    return _DEFAULT_CHAT_ENDPOINT.rstrip("/")
 
 
 def ensure_configured():
@@ -71,7 +89,10 @@ def _post_json(payload, timeout=240):
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Alibaba Model Studio respondió HTTP {exc.code}: {detail[:1200]}") from exc
+        hint = ""
+        if exc.code in (401, 403, 404):
+            hint = " Comprueba que DASHSCOPE_API_HOST corresponde a la misma región/workspace que DASHSCOPE_API_KEY."
+        raise RuntimeError(f"Alibaba Model Studio respondió HTTP {exc.code}: {detail[:900]}{hint}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"No se pudo conectar con Alibaba Model Studio: {exc.reason}") from exc
 
@@ -207,36 +228,62 @@ def transcribe_menu_page(image):
 
 
 def allergen_reasoning_json(system_instruction, prompt):
-    # Max performs the culinary reasoning. We intentionally do not request JSON
-    # mode while thinking is enabled because Alibaba documents compatibility
-    # limitations between thinking and structured output on some routes.
-    text, _ = chat(
-        [
-            {"role": "user", "content": system_instruction.strip() + "\n\n" + prompt.strip() + "\n\nAl final devuelve exclusivamente un objeto JSON con la clave items."},
-        ],
-        model=QWEN_MAX,
-        purpose="allergen_reasoning",
-        enable_thinking=True,
-        reasoning_effort="xhigh",
-        json_object=False,
-        timeout=300,
-    )
+    """Classify allergens with bounded reasoning and a fast automatic fallback.
+
+    Qwen 3.8 xhigh can allocate an extremely large reasoning budget and is not
+    appropriate for an interactive restaurant menu. Medium keeps strong
+    reasoning while avoiding multi-minute stalls. Qwen 3.8 supports JSON Object
+    output in thinking mode, so request valid JSON directly.
+    """
+    messages = [
+        {"role": "system", "content": system_instruction.strip()},
+        {"role": "user", "content": prompt.strip() + "\n\nDevuelve exclusivamente JSON válido con la clave items."},
+    ]
+    errors = []
+
+    # Primary: strongest model, bounded reasoning.
     try:
-        return parse_json_text(text), QWEN_MAX
-    except Exception:
-        # Cheap deterministic repair pass; no extra reasoning and no semantic rewrite.
-        repair_prompt = (
-            "Convierte la respuesta siguiente a JSON válido SIN cambiar ninguna decisión semántica. "
-            "Debe conservar category_index, dish_index, allergens, confidence y reason. Devuelve JSON válido.\n\n" + text
-        )
-        fixed, _ = chat(
-            [{"role": "user", "content": repair_prompt}],
-            model=QWEN_FLASH,
-            purpose="allergen_json_repair",
-            enable_thinking=False,
+        text, _ = chat(
+            messages,
+            model=QWEN_MAX,
+            purpose="allergen_reasoning",
+            enable_thinking=True,
+            reasoning_effort="medium",
             json_object=True,
+            timeout=120,
         )
-        return parse_json_text(fixed), QWEN_MAX
+        result = parse_json_text(text)
+        if isinstance(result, dict) and isinstance(result.get("items"), list):
+            return result, QWEN_MAX
+        raise ValueError("respuesta JSON sin items")
+    except Exception as exc:
+        errors.append(f"{QWEN_MAX}: {exc}")
+
+    # Automatic fallback: Flash still uses culinary reasoning, but without a
+    # long thinking pass. This prevents a blank allergen export if Max is
+    # temporarily unavailable or not enabled for the API key.
+    try:
+        fallback_messages = [
+            {"role": "system", "content": system_instruction.strip()},
+            {"role": "user", "content": prompt.strip() + "\n\nResuelve con criterio culinario y devuelve exclusivamente JSON válido con la clave items."},
+        ]
+        text, _ = chat(
+            fallback_messages,
+            model=QWEN_FLASH,
+            purpose="allergen_reasoning_fallback",
+            enable_thinking=True,
+            reasoning_effort="medium",
+            json_object=True,
+            timeout=90,
+        )
+        result = parse_json_text(text)
+        if isinstance(result, dict) and isinstance(result.get("items"), list):
+            return result, QWEN_FLASH
+        raise ValueError("respuesta JSON sin items")
+    except Exception as exc:
+        errors.append(f"{QWEN_FLASH}: {exc}")
+
+    raise RuntimeError("No se pudo completar la clasificación automática de alérgenos. " + " | ".join(errors)[-1400:])
 
 
 def translate_json(prompt):

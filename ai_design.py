@@ -54,11 +54,20 @@ def _dashscope_key():
 
 
 def _dashscope_endpoint():
-    # Permite fijar un endpoint regional/workspace-specific en Secrets sin tocar código.
+    # Endpoint explícito de imagen tiene prioridad.
     configured = _secret("DASHSCOPE_IMAGE_ENDPOINT")
     if configured:
         return configured.rstrip("/")
-    # Endpoint internacional heredado de Singapore; Alibaba indica que sigue operativo.
+    # Un único API Host regional puede alimentar texto e imagen.
+    host = _secret("DASHSCOPE_API_HOST")
+    if host:
+        host = host.strip().rstrip("/")
+        for suffix in ("/compatible-mode/v1/chat/completions", "/compatible-mode/v1", "/api/v1"):
+            if host.endswith(suffix):
+                host = host[:-len(suffix)].rstrip("/")
+                break
+        return host + "/api/v1/services/aigc/multimodal-generation/generation"
+    # Compatibilidad legacy para claves creadas en Singapore.
     return "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 
 
