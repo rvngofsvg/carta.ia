@@ -44,8 +44,8 @@ if n != 1:
     raise SystemExit("No se pudo sustituir el bloque de API Gemini")
 
 # 3) Scanned PDF: Qwen vision instead of Gemini compatibility wrapper.
-s = s.replace("def extract_text_from_pdf_scanned_with_gemini(file):", "def extract_text_from_pdf_scanned_with_qwen(file):")
-s = s.replace("        model = _GeminiModelCompat(MODELO_A_USAR)\n", "")
+s = s.replace("extract_text_from_pdf_scanned_with_gemini", "extract_text_from_pdf_scanned_with_qwen")
+s = s.replace("        model = _GeminiModelCompat(MODELO_A_USAR)\n", "", 1)
 old_scan = '''                response = model.generate_content(
                     [
                         "Transcribe literalmente todo el texto visible de esta página de menú. "
@@ -59,7 +59,22 @@ new_scan = '''                page_text = (transcribe_menu_page(img) or "").stri
 if old_scan not in s:
     raise SystemExit("No se encontró el bloque de transcripción escaneada")
 s = s.replace(old_scan, new_scan, 1)
-s = s.replace("extract_text_from_pdf_scanned_with_gemini(uploaded_file)", "extract_text_from_pdf_scanned_with_qwen(uploaded_file)")
+
+# Universal text extractor image path also used the old Gemini compatibility object.
+old_universal = '''            elif ext in ["jpg", "jpeg", "png"]:
+                model = _GeminiModelCompat(MODELO_A_USAR)
+                img, _ = prepare_image_for_ai(up_any)
+                response = model.generate_content([
+                    "Transcribe literalmente de arriba a abajo todo el texto que veas en esta imagen. No inventes. Devuelve solo texto plano.",
+                    img
+                ], request_options={"timeout": 120})
+                texto_extraido = response.text'''
+new_universal = '''            elif ext in ["jpg", "jpeg", "png"]:
+                img, _ = prepare_image_for_ai(up_any)
+                texto_extraido = transcribe_menu_page(img) or ""'''
+if old_universal not in s:
+    raise SystemExit("No se encontró el extractor universal Gemini")
+s = s.replace(old_universal, new_universal, 1)
 
 # 4) Remove Gemini structured helper. Qwen helpers live in qwen_core.py.
 pattern = re.compile(r"\ndef _gemini_menu_json\(contents\):\n.*?\n\nALLERGEN_AI_SCHEMA =", re.S)
@@ -174,20 +189,18 @@ for frag in required_fragments:
     if frag not in s:
         raise SystemExit(f"Falta guardrail de precio/alérgenos: {frag}")
 
-# Verify ordering within main Word function.
 word_anchor = s.index('price_run = p.add_run("\\t" + format_price(dish.get("price", "")))')
 icon_anchor = s.index('_add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)', word_anchor)
 if not word_anchor < icon_anchor:
     raise SystemExit("Los alérgenos Word no están después del precio")
 
-# Verify PDF ordering.
 pdf_price = s.index('f\'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span>\'')
 pdf_icons = s.index('f\'<span class="dish-icons">{icons}</span></div>{desc_html}</div>\'', pdf_price)
 if not pdf_price < pdf_icons:
     raise SystemExit("Los alérgenos PDF no están después del precio")
 
 # No Gemini runtime remnants should remain.
-for forbidden in ("GENAI_CLIENT", "genai_types", "GEMINI_API_KEY", "_GeminiModelCompat", "_gemini_menu_json"):
+for forbidden in ("GENAI_CLIENT", "genai_types", "GEMINI_API_KEY", "_GeminiModelCompat", "_gemini_menu_json", "extract_text_from_pdf_scanned_with_gemini"):
     if forbidden in s:
         raise SystemExit(f"Quedó una dependencia Gemini activa: {forbidden}")
 
