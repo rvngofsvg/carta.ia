@@ -1,4 +1,5 @@
 name: Migrate Carta IA core to Qwen
+# rerun after fixing universal extractor
 
 on:
   workflow_dispatch:
