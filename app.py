@@ -1513,9 +1513,9 @@ def add_docx_allergen_legend(doc, data, theme):
             node.set(qn("w:val"), "nil")
 
     for section in doc.sections:
-        if section.bottom_margin < Cm(4.0):
-            section.bottom_margin = Cm(4.0)
-        section.footer_distance = Cm(0.12)
+        if section.bottom_margin < Cm(3.8):
+            section.bottom_margin = Cm(3.8)
+        section.footer_distance = Cm(0.10)
         usable_cm = max(12.0, (section.page_width - section.left_margin - section.right_margin) / 360000.0)
 
         for footer in (section.footer, section.first_page_footer, section.even_page_footer):
@@ -1529,29 +1529,33 @@ def add_docx_allergen_legend(doc, data, theme):
             set_outer_border(wrapper, theme.get("cat", "444444"))
             cell = wrapper.cell(0, 0)
             set_cell_width(cell, usable_cm)
-            set_cell_vertical_padding(cell, top_twips=18, bottom_twips=18)
+            set_cell_vertical_padding(cell, top_twips=10, bottom_twips=10)
             cell.text = ""
 
             legal = cell.paragraphs[0]
             legal.alignment = 1
             compact(legal)
-            legal.paragraph_format.space_after = Pt(1.5)
+            legal.paragraph_format.space_after = Pt(1.0)
             lr = legal.add_run(legal_text)
-            lr.font.size = Pt(9.75)
-            lr.bold = True
+            lr.font.size = Pt(9.0)
+            lr.bold = False
             set_run_color(lr, theme.get("text", "111111"))
 
-            col_cm = usable_cm / 7.0
+            # Mismo ancho total, pero columnas ponderadas para evitar cortes feos
+            # en CRUSTÁCEOS, CACAHUETES y ALTRAMUCES sin agrandar la leyenda.
+            col_weights = [1.00, 1.15, 0.90, 1.00, 1.15, 1.05, 1.00]
+            weight_total = sum(col_weights)
+            col_widths = [usable_cm * weight / weight_total for weight in col_weights]
             grid = cell.add_table(rows=2, cols=7)
             grid.alignment = WD_TABLE_ALIGNMENT.CENTER
             grid.autofit = False
-            set_grid_widths(grid, [col_cm] * 7)
+            set_grid_widths(grid, col_widths)
 
             for idx, allergen in enumerate(ALLERGEN_ORDER):
                 r, c = divmod(idx, 7)
                 item = grid.cell(r, c)
-                set_cell_width(item, col_cm)
-                set_cell_vertical_padding(item, top_twips=12, bottom_twips=12)
+                set_cell_width(item, col_widths[c])
+                set_cell_vertical_padding(item, top_twips=8, bottom_twips=8)
                 tc_pr = item._tc.get_or_add_tcPr()
                 no_wrap = tc_pr.find(qn("w:noWrap"))
                 if no_wrap is None:
@@ -1565,14 +1569,14 @@ def add_docx_allergen_legend(doc, data, theme):
                 compact(p)
                 icon_path = ICON_MAP.get(allergen)
                 if icon_path and os.path.exists(icon_path):
-                    p.add_run().add_picture(icon_path, width=Cm(1.20))
+                    p.add_run().add_picture(icon_path, width=Cm(1.18))
 
                 lp = item.add_paragraph()
                 lp.alignment = 1
                 compact(lp)
-                lp.paragraph_format.space_before = Pt(0.5)
+                lp.paragraph_format.space_before = Pt(0)
                 label = lp.add_run(legend_labels.get(allergen, ALLERGEN_LABELS.get(allergen, allergen)))
-                label.font.size = Pt(9.0)
+                label.font.size = Pt(8.6)
                 label.bold = True
                 set_run_color(label, theme.get("text", "111111"))
 
