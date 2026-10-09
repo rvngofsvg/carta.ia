@@ -1502,7 +1502,7 @@ def add_docx_allergen_legend(doc, data, theme):
                 node = OxmlElement(f"w:{edge}")
                 borders.append(node)
             node.set(qn("w:val"), "single")
-            node.set(qn("w:sz"), "10")
+            node.set(qn("w:sz"), "14")
             node.set(qn("w:space"), "0")
             node.set(qn("w:color"), color)
         for edge in ("insideH", "insideV"):
@@ -1538,7 +1538,7 @@ def add_docx_allergen_legend(doc, data, theme):
             legal.paragraph_format.space_after = Pt(1.0)
             lr = legal.add_run(legal_text)
             lr.font.size = Pt(9.0)
-            lr.bold = False
+            lr.bold = True
             set_run_color(lr, theme.get("text", "111111"))
 
             # Mismo ancho total, pero columnas ponderadas para evitar cortes feos
@@ -1550,6 +1550,12 @@ def add_docx_allergen_legend(doc, data, theme):
             grid.alignment = WD_TABLE_ALIGNMENT.CENTER
             grid.autofit = False
             set_grid_widths(grid, col_widths)
+
+            # Word exige un párrafo final dentro de la celda tras una tabla anidada.
+            # Si se deja con el estilo Normal añade altura vacía al rectángulo del footer.
+            trailing = cell.paragraphs[-1]
+            compact(trailing)
+            trailing.paragraph_format.line_spacing = Pt(1)
 
             for idx, allergen in enumerate(ALLERGEN_ORDER):
                 r, c = divmod(idx, 7)
@@ -1906,7 +1912,7 @@ def create_landscape_book_word(
             p.paragraph_format.space_after = Pt(2)
             p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
             p.paragraph_format.tab_stops.add_tab_stop(
-                Cm(12.35), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.SPACES
+                Cm(12.35), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS
             )
 
             name_run = p.add_run(dish_display_name(dish))
