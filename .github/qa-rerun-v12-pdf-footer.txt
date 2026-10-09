@@ -1,2 +1,2 @@
-QA marker for Carta IA v12 real export validation.
-Final rerun 2026-10-09 after PDF running footer and Word legend no-wrap fixes.
+QA marker for Carta IA real export validation.
+Rerun 2026-10-09 after applying the approved compact 2x7 allergen legend to the real Word generator.
