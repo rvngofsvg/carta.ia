@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
@@ -7,6 +8,9 @@ from html import escape as html_escape
 from io import BytesIO
 
 import streamlit as st
+
+_PRIVATE_LOG = logging.getLogger("carta_ia.private_usage")
+_PRIVATE_LOG.setLevel(logging.INFO)
 
 
 ALLERGEN_ORDER = [
@@ -149,6 +153,7 @@ def generate_qwen_backgrounds(data, style_name, colors="", brief="", n=4, model=
         },
     }
     response = _post_json(_dashscope_endpoint(), payload, api_key)
+    _PRIVATE_LOG.info(json.dumps({"event":"CARTA_IA_QWEN_IMAGE_USAGE","model":model,"purpose":"design_proposals","images_requested":int(max(1, min(6, n))),"usage":response.get("usage") or {}}, ensure_ascii=False, sort_keys=True))
     urls = _extract_image_urls(response)
     if not urls:
         raise RuntimeError("Alibaba no devolvió ninguna imagen. Revisa la región de la API key o el endpoint configurado.")
@@ -178,6 +183,7 @@ def refine_qwen_background(image_bytes, data, style_name, colors="", brief=""):
         },
     }
     response = _post_json(_dashscope_endpoint(), payload, api_key)
+    _PRIVATE_LOG.info(json.dumps({"event":"CARTA_IA_QWEN_IMAGE_USAGE","model":"qwen-image-3.0-pro","purpose":"design_refine","images_requested":1,"usage":response.get("usage") or {}}, ensure_ascii=False, sort_keys=True))
     urls = _extract_image_urls(response)
     if not urls:
         raise RuntimeError("Qwen Image Pro no devolvió una imagen refinada.")
@@ -302,11 +308,11 @@ def create_ai_menu_pdf(data, background_bytes, icon_map, with_allergens=True):
 
 
 def render_ai_design_mode(data, icon_map):
-    st.markdown("### ✨ Diseño IA · Qwen Image")
+    st.markdown("### ✨ Diseño IA")
     st.caption("La IA crea el fondo y la dirección artística. Carta IA coloca después platos, precios y alérgenos reales para no alterar datos.")
 
     if not _dashscope_key():
-        st.warning("Añade DASHSCOPE_API_KEY en Streamlit Secrets para activar esta función.")
+        st.warning("El modo Diseño IA no está configurado. Contacta con el administrador.")
         return
 
     c1, c2 = st.columns([1, 1])
@@ -321,17 +327,16 @@ def render_ai_design_mode(data, icon_map):
         key="ai_design_brief",
     )
 
-    st.caption("Coste orientativo actual: 4 propuestas con Qwen Image 3.0 ≈ 0,09 €; refinado Pro ≈ 0,03 € a esta resolución. La tarifa puede cambiar.")
-
     if st.button("✨ GENERAR 4 PROPUESTAS", key="ai_design_generate", use_container_width=True):
         try:
-            with st.spinner("Qwen está creando cuatro direcciones visuales..."):
+            with st.spinner("Creando cuatro propuestas visuales..."):
                 images = generate_qwen_backgrounds(data, style_name, colors, brief, n=4)
             st.session_state["ai_design_images"] = images
             st.session_state["ai_design_selected"] = 0
             st.session_state.pop("ai_design_final", None)
         except Exception as exc:
-            st.error(str(exc))
+            _PRIVATE_LOG.exception("Fallo interno en Diseño IA: %s", exc)
+            st.error("No se pudo generar el diseño. Inténtalo de nuevo en unos instantes.")
 
     images = st.session_state.get("ai_design_images") or []
     if not images:
@@ -363,14 +368,14 @@ def render_ai_design_mode(data, icon_map):
     with c2:
         if st.button("✨ REFINAR ESTA PROPUESTA CON PRO", key="ai_design_refine", use_container_width=True):
             try:
-                with st.spinner("Qwen Image Pro está refinando el concepto..."):
+                with st.spinner("Refinando el concepto seleccionado..."):
                     st.session_state["ai_design_final"] = refine_qwen_background(chosen, data, style_name, colors, brief)
             except Exception as exc:
                 st.error(str(exc))
 
     final_bg = st.session_state.get("ai_design_final") or chosen
     if st.session_state.get("ai_design_final"):
-        st.image(final_bg, caption="Versión final refinada con Qwen Image 3.0 Pro", use_container_width=True)
+        st.image(final_bg, caption="Versión final refinada", use_container_width=True)
 
     try:
         pdf_all = create_ai_menu_pdf(data, final_bg, icon_map, with_allergens=True)
@@ -394,6 +399,6 @@ def render_ai_design_mode(data, icon_map):
                 key="ai_pdf_clean",
                 use_container_width=True,
             )
-        st.info("Los textos, precios y alérgenos de estos PDF no los escribe Qwen: se colocan desde los datos reales de Carta IA encima del diseño generado.")
+        st.info("Los textos, precios y alérgenos se colocan desde los datos reales de Carta IA encima del diseño generado.")
     except Exception as exc:
         st.error(f"No se pudo construir el PDF final: {exc}")

@@ -3306,7 +3306,7 @@ def render_quick_outputs(data):
 
     with c1:
         st.markdown("### 🛡️ Con alérgenos")
-        st.caption(f"Alérgenos calculados por {data.get('_allergen_model', MODELO_ALERGENOS)} y editables en Revisar.")
+        st.caption("Alérgenos calculados automáticamente y editables en Revisar.")
         word_all = create_word(data, theme_key=theme_key)
         pdf_all = create_client_pdf_bytes(data, theme_key=theme_key, with_allergens=True)
         st.download_button("⬇️ WORD CON ALÉRGENOS", word_all, file_name=f"Carta_Con_Alergenos_{restaurant}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="v12_word_all", use_container_width=True)

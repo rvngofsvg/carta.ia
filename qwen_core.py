@@ -14,6 +14,7 @@ QWEN_MAX = "qwen3.8-max"
 QWEN_OMNI = "qwen3.8-omni-flash"
 
 _LOG = logging.getLogger("carta_ia.private_usage")
+_LOG.setLevel(logging.INFO)
 
 # Singapore / International public compatibility endpoint. A workspace-specific
 # endpoint can be provided in Streamlit Secrets without changing source code.
