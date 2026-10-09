@@ -1,0 +1,94 @@
+name: Refine legend frame and price leaders
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-legend-frame-and-leaders.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply legend frame and dotted leader fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app.py')
+          s = path.read_text(encoding='utf-8')
+
+          # Legal header: bold for print readability.
+          old = '            lr.font.size = Pt(9.0)\n            lr.bold = False\n'
+          new = '            lr.font.size = Pt(9.0)\n            lr.bold = True\n'
+          if s.count(old) != 1:
+              raise SystemExit(f'Expected one legal bold block, found {s.count(old)}')
+          s = s.replace(old, new, 1)
+
+          # Slightly thicker outer frame: Word w:sz uses eighths of a point.
+          old = '            node.set(qn("w:sz"), "10")\n            node.set(qn("w:space"), "0")\n            node.set(qn("w:color"), color)\n'
+          new = '            node.set(qn("w:sz"), "14")\n            node.set(qn("w:space"), "0")\n            node.set(qn("w:color"), color)\n'
+          if s.count(old) != 1:
+              raise SystemExit(f'Expected one footer border block, found {s.count(old)}')
+          s = s.replace(old, new, 1)
+
+          # Word requires a trailing paragraph after a nested table in a cell.
+          # Compress that mandatory paragraph so the frame hugs the approved 2x7 legend.
+          anchor = '''            grid = cell.add_table(rows=2, cols=7)\n            grid.alignment = WD_TABLE_ALIGNMENT.CENTER\n            grid.autofit = False\n            set_grid_widths(grid, col_widths)\n\n            for idx, allergen in enumerate(ALLERGEN_ORDER):\n'''
+          replacement = '''            grid = cell.add_table(rows=2, cols=7)\n            grid.alignment = WD_TABLE_ALIGNMENT.CENTER\n            grid.autofit = False\n            set_grid_widths(grid, col_widths)\n\n            # Word exige un párrafo final dentro de la celda tras una tabla anidada.\n            # Si se deja con el estilo Normal añade altura vacía al rectángulo del footer.\n            trailing = cell.paragraphs[-1]\n            compact(trailing)\n            trailing.paragraph_format.line_spacing = Pt(1)\n\n            for idx, allergen in enumerate(ALLERGEN_ORDER):\n'''
+          if s.count(anchor) != 1:
+              raise SystemExit(f'Expected one nested legend grid anchor, found {s.count(anchor)}')
+          s = s.replace(anchor, replacement, 1)
+
+          # Horizontal/book mode had spaces while the other Word exports already used dotted leaders.
+          old = 'Cm(12.35), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.SPACES'
+          new = 'Cm(12.35), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS'
+          if s.count(old) != 1:
+              raise SystemExit(f'Expected one landscape space leader, found {s.count(old)}')
+          s = s.replace(old, new, 1)
+
+          path.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Compile and verify
+        shell: bash
+        run: |
+          python -m py_compile app.py
+          python - <<'PY'
+          from pathlib import Path
+          s = Path('app.py').read_text(encoding='utf-8')
+          checks = [
+              'lr.bold = True',
+              'node.set(qn("w:sz"), "14")',
+              'trailing.paragraph_format.line_spacing = Pt(1)',
+              'Cm(12.35), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS',
+              'grid = cell.add_table(rows=2, cols=7)',
+              'width=Cm(1.18)',
+          ]
+          missing = [x for x in checks if x not in s]
+          if missing:
+              raise SystemExit('Missing expected refinements: ' + repr(missing))
+          print('Legend frame + dotted leaders: PASS')
+          PY
+
+      - name: Commit refinements
+        shell: bash
+        run: |
+          if git diff --quiet -- app.py; then
+            echo 'No app changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py
+          git commit -m 'Refine allergen legend frame and dotted price leaders'
+          git push
