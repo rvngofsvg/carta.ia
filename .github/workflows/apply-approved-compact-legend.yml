@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Apply approved compact Word legend
+      - name: Refine approved compact Word legend
         shell: bash
         run: |
           python - <<'PY'
@@ -27,14 +27,20 @@ jobs:
           s = path.read_text(encoding='utf-8')
 
           replacements = {
-              'if section.bottom_margin < Cm(5.2):\n            section.bottom_margin = Cm(5.2)':
-              'if section.bottom_margin < Cm(4.0):\n            section.bottom_margin = Cm(4.0)',
-              'section.footer_distance = Cm(0.18)': 'section.footer_distance = Cm(0.12)',
-              'legal.paragraph_format.space_after = Pt(3)': 'legal.paragraph_format.space_after = Pt(1.5)',
-              'lr.font.size = Pt(9.0)': 'lr.font.size = Pt(9.75)',
-              'p.add_run().add_picture(icon_path, width=Cm(1.25))': 'p.add_run().add_picture(icon_path, width=Cm(1.20))',
-              'lp.paragraph_format.space_before = Pt(1)': 'lp.paragraph_format.space_before = Pt(0.5)',
-              'label.font.size = Pt(8.6)': 'label.font.size = Pt(9.0)',
+              'if section.bottom_margin < Cm(4.0):\n            section.bottom_margin = Cm(4.0)':
+              'if section.bottom_margin < Cm(3.8):\n            section.bottom_margin = Cm(3.8)',
+              'section.footer_distance = Cm(0.12)': 'section.footer_distance = Cm(0.10)',
+              'set_cell_vertical_padding(cell, top_twips=18, bottom_twips=18)':
+              'set_cell_vertical_padding(cell, top_twips=10, bottom_twips=10)',
+              'legal.paragraph_format.space_after = Pt(1.5)': 'legal.paragraph_format.space_after = Pt(1.0)',
+              'lr.font.size = Pt(9.75)\n            lr.bold = True':
+              'lr.font.size = Pt(9.0)\n            lr.bold = False',
+              'set_cell_vertical_padding(item, top_twips=12, bottom_twips=12)':
+              'set_cell_vertical_padding(item, top_twips=8, bottom_twips=8)',
+              'p.add_run().add_picture(icon_path, width=Cm(1.20))':
+              'p.add_run().add_picture(icon_path, width=Cm(1.18))',
+              'lp.paragraph_format.space_before = Pt(0.5)': 'lp.paragraph_format.space_before = Pt(0)',
+              'label.font.size = Pt(9.0)': 'label.font.size = Pt(8.6)',
           }
 
           for old, new in replacements.items():
@@ -43,24 +49,17 @@ jobs:
                   raise SystemExit(f'Expected exactly one occurrence of {old!r}, found {count}')
               s = s.replace(old, new, 1)
 
-          anchor = '''    def set_grid_widths(table, widths_cm):\n        grid_cols = table._tbl.tblGrid.findall(qn("w:gridCol"))\n        for idx, width_cm in enumerate(widths_cm):\n            if idx < len(grid_cols):\n                grid_cols[idx].set(qn("w:w"), str(int(Cm(width_cm).twips)))\n\n'''
-          addition = '''    def set_cell_vertical_padding(cell, top_twips=20, bottom_twips=20):\n        tc_pr = cell._tc.get_or_add_tcPr()\n        tc_mar = tc_pr.find(qn("w:tcMar"))\n        if tc_mar is None:\n            tc_mar = OxmlElement("w:tcMar")\n            tc_pr.append(tc_mar)\n        for edge, value in (("top", top_twips), ("bottom", bottom_twips)):\n            node = tc_mar.find(qn(f"w:{edge}"))\n            if node is None:\n                node = OxmlElement(f"w:{edge}")\n                tc_mar.append(node)\n            node.set(qn("w:w"), str(value))\n            node.set(qn("w:type"), "dxa")\n\n'''
-          if addition not in s:
-              if s.count(anchor) != 1:
-                  raise SystemExit('Could not locate footer grid-width helper anchor')
-              s = s.replace(anchor, anchor + addition, 1)
+          old_grid = '''            col_cm = usable_cm / 7.0\n            grid = cell.add_table(rows=2, cols=7)\n            grid.alignment = WD_TABLE_ALIGNMENT.CENTER\n            grid.autofit = False\n            set_grid_widths(grid, [col_cm] * 7)\n'''
+          new_grid = '''            # Mismo ancho total, pero columnas ponderadas para evitar cortes feos\n            # en CRUSTÁCEOS, CACAHUETES y ALTRAMUCES sin agrandar la leyenda.\n            col_weights = [1.00, 1.15, 0.90, 1.00, 1.15, 1.05, 1.00]\n            weight_total = sum(col_weights)\n            col_widths = [usable_cm * weight / weight_total for weight in col_weights]\n            grid = cell.add_table(rows=2, cols=7)\n            grid.alignment = WD_TABLE_ALIGNMENT.CENTER\n            grid.autofit = False\n            set_grid_widths(grid, col_widths)\n'''
+          if s.count(old_grid) != 1:
+              raise SystemExit('Could not locate equal-width allergen grid block')
+          s = s.replace(old_grid, new_grid, 1)
 
-          wrapper_anchor = '''            cell = wrapper.cell(0, 0)\n            set_cell_width(cell, usable_cm)\n            cell.text = ""\n'''
-          wrapper_new = '''            cell = wrapper.cell(0, 0)\n            set_cell_width(cell, usable_cm)\n            set_cell_vertical_padding(cell, top_twips=18, bottom_twips=18)\n            cell.text = ""\n'''
-          if s.count(wrapper_anchor) != 1:
-              raise SystemExit('Could not locate wrapper cell block')
-          s = s.replace(wrapper_anchor, wrapper_new, 1)
-
-          item_anchor = '''                item = grid.cell(r, c)\n                set_cell_width(item, col_cm)\n                tc_pr = item._tc.get_or_add_tcPr()\n'''
-          item_new = '''                item = grid.cell(r, c)\n                set_cell_width(item, col_cm)\n                set_cell_vertical_padding(item, top_twips=12, bottom_twips=12)\n                tc_pr = item._tc.get_or_add_tcPr()\n'''
-          if s.count(item_anchor) != 1:
-              raise SystemExit('Could not locate allergen grid cell block')
-          s = s.replace(item_anchor, item_new, 1)
+          old_width = '                set_cell_width(item, col_cm)\n'
+          new_width = '                set_cell_width(item, col_widths[c])\n'
+          if s.count(old_width) != 1:
+              raise SystemExit('Could not locate allergen cell width assignment')
+          s = s.replace(old_width, new_width, 1)
 
           path.write_text(s, encoding='utf-8')
           PY
@@ -68,25 +67,26 @@ jobs:
       - name: Compile application
         run: python -m py_compile app.py
 
-      - name: Verify compact legend constants
+      - name: Verify approved compact legend constants
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           s = Path('app.py').read_text(encoding='utf-8')
           checks = [
-              'Cm(4.0)', 'Cm(0.12)', 'Pt(9.75)', 'Cm(1.20)', 'Pt(9.0)',
-              'set_cell_vertical_padding(item, top_twips=12, bottom_twips=12)',
+              'Cm(3.8)', 'Cm(0.10)', 'Pt(9.0)', 'Cm(1.18)', 'Pt(8.6)',
+              'set_cell_vertical_padding(item, top_twips=8, bottom_twips=8)',
+              'col_weights = [1.00, 1.15, 0.90, 1.00, 1.15, 1.05, 1.00]',
               '"sulfitos": "DIÓXIDO DE AZUFRE\\nY SULFITOS"',
               'grid = cell.add_table(rows=2, cols=7)',
           ]
           missing = [x for x in checks if x not in s]
           if missing:
               raise SystemExit('Missing compact legend checks: ' + repr(missing))
-          print('Approved compact legend checks: PASS')
+          print('Approved compact legend refinement checks: PASS')
           PY
 
-      - name: Commit compact legend
+      - name: Commit compact legend refinement
         shell: bash
         run: |
           if git diff --quiet -- app.py; then
@@ -96,5 +96,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add app.py
-          git commit -m 'Apply approved compact allergen legend'
+          git commit -m 'Refine approved compact allergen legend'
           git push
