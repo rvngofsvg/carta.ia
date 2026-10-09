@@ -86,7 +86,12 @@ def _post_json(payload, timeout=240):
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+            parsed = json.loads(response.read().decode("utf-8"))
+            if not isinstance(parsed, dict):
+                raise RuntimeError(
+                    f"Alibaba devolvió un wrapper API inesperado ({type(parsed).__name__}); se esperaba un objeto JSON."
+                )
+            return parsed
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         hint = ""
@@ -171,11 +176,192 @@ def chat(messages, model=QWEN_FLASH, purpose="general", enable_thinking=False,
 
 def parse_json_text(text):
     raw = (text or "").replace("```json", "").replace("```", "").strip()
-    start = raw.find("{")
-    end = raw.rfind("}") + 1
-    if start != -1 and end > start:
-        raw = raw[start:end]
-    return json.loads(raw)
+    if not raw:
+        raise ValueError("La IA devolvió una respuesta JSON vacía.")
+
+    # Primero respeta el JSON completo. Esto permite detectar correctamente
+    # arrays de nivel raíz en vez de recortarlos desde el primer '{'.
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    # Recuperación conservadora cuando el modelo añade texto antes/después.
+    obj_start = raw.find("{")
+    obj_end = raw.rfind("}") + 1
+    if obj_start != -1 and obj_end > obj_start:
+        return json.loads(raw[obj_start:obj_end])
+    arr_start = raw.find("[")
+    arr_end = raw.rfind("]") + 1
+    if arr_start != -1 and arr_end > arr_start:
+        return json.loads(raw[arr_start:arr_end])
+    raise ValueError("No se encontró JSON válido en la respuesta de la IA.")
+
+
+_MENU_JSON_CONTRACT = r"""
+CONTRATO JSON OBLIGATORIO PARA CARTA IA:
+- La raíz DEBE ser un objeto JSON, NUNCA un array.
+- Usa EXACTAMENTE estas claves en inglés:
+{
+  "restaurant_name": "Nombre del restaurante o MENÚ si no aparece",
+  "texto_extra": "Texto auxiliar o cadena vacía",
+  "categories": [
+    {
+      "name": "Nombre de categoría",
+      "category_text": "Nota de categoría o cadena vacía",
+      "dishes": [
+        {
+          "number": "Número o cadena vacía",
+          "name": "Nombre del plato",
+          "description": "Descripción o cadena vacía",
+          "price": "Precio sin inventar o cadena vacía",
+          "allergens": [],
+          "review_notes": []
+        }
+      ]
+    }
+  ]
+}
+No devuelvas una lista como raíz. No renombres categories/dishes/price/allergens.
+""".strip()
+
+
+def _as_text(value, default=""):
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        return default
+    return str(value).strip()
+
+
+def _normalize_menu_payload(payload):
+    """Normaliza respuestas razonables de Qwen al contrato interno de Carta IA.
+
+    El objetivo es tolerar wrappers o arrays de categorías/platos sin permitir
+    que una forma JSON inesperada llegue a app.py y provoque `.get` sobre listas.
+    """
+    if isinstance(payload, list):
+        # Caso frecuente: [{restaurant_name, categories, ...}]
+        if len(payload) == 1 and isinstance(payload[0], dict) and any(
+            key in payload[0] for key in ("categories", "categorias", "menu", "data", "result")
+        ):
+            payload = payload[0]
+        # Array de categorías.
+        elif payload and all(
+            isinstance(item, dict) and any(k in item for k in ("dishes", "platos"))
+            for item in payload
+        ):
+            payload = {"restaurant_name": "MENÚ", "texto_extra": "", "categories": payload}
+        # Array de platos: lo conservamos dentro de una categoría genérica.
+        elif payload and all(isinstance(item, dict) for item in payload):
+            payload = {
+                "restaurant_name": "MENÚ",
+                "texto_extra": "",
+                "categories": [{"name": "Carta", "category_text": "", "dishes": payload}],
+            }
+        else:
+            raise ValueError("Qwen devolvió un array que no contiene categorías o platos reconocibles.")
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Qwen devolvió {type(payload).__name__}; se esperaba un objeto de carta.")
+
+    # Algunos modelos añaden un wrapper aunque se solicite JSON Object.
+    if not any(k in payload for k in ("categories", "categorias", "dishes", "platos")):
+        for wrapper in ("menu", "data", "result"):
+            wrapped = payload.get(wrapper)
+            if isinstance(wrapped, (dict, list)):
+                payload = _normalize_menu_payload(wrapped)
+                break
+
+    categories = payload.get("categories")
+    if categories is None:
+        categories = payload.get("categorias")
+    if categories is None and any(k in payload for k in ("dishes", "platos")):
+        categories = [payload]
+    if isinstance(categories, dict):
+        categories = [categories]
+    if not isinstance(categories, list):
+        raise ValueError("La respuesta de Qwen no contiene una lista de categorías válida.")
+
+    normalized_categories = []
+    total_dishes = 0
+    for cat in categories:
+        if not isinstance(cat, dict):
+            continue
+        dishes = cat.get("dishes")
+        if dishes is None:
+            dishes = cat.get("platos")
+        if dishes is None:
+            dishes = cat.get("items", [])
+        if isinstance(dishes, dict):
+            dishes = [dishes]
+        if not isinstance(dishes, list):
+            dishes = []
+
+        normalized_dishes = []
+        for dish in dishes:
+            if isinstance(dish, str):
+                dish = {"name": dish}
+            if not isinstance(dish, dict):
+                continue
+
+            allergens = dish.get("allergens")
+            if allergens is None:
+                allergens = dish.get("alergenos", [])
+            if isinstance(allergens, str):
+                allergens = [a.strip() for a in allergens.split(",") if a.strip()]
+            if not isinstance(allergens, list):
+                allergens = []
+
+            notes = dish.get("review_notes")
+            if notes is None:
+                notes = dish.get("notas_revision", [])
+            if isinstance(notes, str):
+                notes = [notes] if notes.strip() else []
+            if not isinstance(notes, list):
+                notes = []
+
+            name = _as_text(dish.get("name") if "name" in dish else dish.get("nombre"))
+            if not name:
+                continue
+            normalized_dishes.append({
+                "number": _as_text(dish.get("number") if "number" in dish else dish.get("numero")),
+                "name": name,
+                "description": _as_text(dish.get("description") if "description" in dish else dish.get("descripcion")),
+                "price": _as_text(dish.get("price") if "price" in dish else dish.get("precio")),
+                "allergens": [str(a).strip() for a in allergens if str(a).strip()],
+                "review_notes": [str(n).strip() for n in notes if str(n).strip()],
+            })
+
+        if not normalized_dishes:
+            continue
+        total_dishes += len(normalized_dishes)
+        normalized_categories.append({
+            "name": _as_text(
+                cat.get("name") if "name" in cat else cat.get("nombre"),
+                "Categoría",
+            ) or "Categoría",
+            "category_text": _as_text(
+                cat.get("category_text") if "category_text" in cat else cat.get("texto_categoria")
+            ),
+            "dishes": normalized_dishes,
+        })
+
+    if not normalized_categories or total_dishes == 0:
+        raise ValueError("Qwen respondió, pero no devolvió ningún plato utilizable. No se generará una carta vacía.")
+
+    restaurant_name = _as_text(payload.get("restaurant_name"))
+    if not restaurant_name:
+        restaurant_name = _as_text(payload.get("nombre_restaurante")) or "MENÚ"
+    texto_extra = _as_text(payload.get("texto_extra"))
+    if not texto_extra:
+        texto_extra = _as_text(payload.get("extra_text"))
+
+    return {
+        "restaurant_name": restaurant_name,
+        "texto_extra": texto_extra,
+        "categories": normalized_categories,
+    }
 
 
 def _pil_data_uri(image):
@@ -189,18 +375,18 @@ def _pil_data_uri(image):
 
 def menu_json_from_text(prompt, menu_text):
     text, _ = chat(
-        [{"role": "user", "content": prompt + "\n\nMENÚ:\n" + str(menu_text) + "\n\nDevuelve JSON válido."}],
+        [{"role": "user", "content": prompt + "\n\nMENÚ:\n" + str(menu_text) + "\n\n" + _MENU_JSON_CONTRACT + "\n\nDevuelve únicamente ese objeto JSON válido."}],
         model=QWEN_FLASH,
         purpose="menu_structure_text",
         enable_thinking=False,
         json_object=True,
     )
-    return parse_json_text(text)
+    return _normalize_menu_payload(parse_json_text(text))
 
 
 def menu_json_from_image(prompt, image):
     content = [
-        {"type": "text", "text": prompt + "\n\nAnaliza esta carta y devuelve JSON válido."},
+        {"type": "text", "text": prompt + "\n\n" + _MENU_JSON_CONTRACT + "\n\nAnaliza esta carta y devuelve únicamente ese objeto JSON válido."},
         {"type": "image_url", "image_url": {"url": _pil_data_uri(image)}},
     ]
     text, _ = chat(
@@ -210,7 +396,7 @@ def menu_json_from_image(prompt, image):
         enable_thinking=False,
         json_object=True,
     )
-    return parse_json_text(text)
+    return _normalize_menu_payload(parse_json_text(text))
 
 
 def transcribe_menu_page(image):
@@ -307,7 +493,7 @@ def audio_menu_json(prompt, audio_bytes, mime_type="audio/wav"):
             "type": "input_audio",
             "input_audio": {"data": data_uri, "format": fmt},
         },
-        {"type": "text", "text": prompt + "\n\nDevuelve únicamente JSON válido."},
+        {"type": "text", "text": prompt + "\n\n" + _MENU_JSON_CONTRACT + "\n\nDevuelve únicamente ese objeto JSON válido."},
     ]
     text, _ = chat(
         [{"role": "user", "content": content}],
@@ -318,7 +504,7 @@ def audio_menu_json(prompt, audio_bytes, mime_type="audio/wav"):
         timeout=300,
     )
     try:
-        return parse_json_text(text)
+        return _normalize_menu_payload(parse_json_text(text))
     except Exception:
         repair, _ = chat(
             [{"role": "user", "content": "Convierte esto a JSON válido sin añadir información:\n\n" + text + "\n\nDevuelve JSON válido."}],
@@ -327,4 +513,4 @@ def audio_menu_json(prompt, audio_bytes, mime_type="audio/wav"):
             enable_thinking=False,
             json_object=True,
         )
-        return parse_json_text(repair)
+        return _normalize_menu_payload(parse_json_text(repair))
