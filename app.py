@@ -1,6 +1,4 @@
 import streamlit as st
-from google import genai
-from google.genai import types as genai_types
 import os
 import json
 import re
@@ -23,14 +21,19 @@ from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from ai_design import render_ai_design_mode
+from qwen_core import (
+    QWEN_FLASH, QWEN_MAX, QWEN_OMNI, ensure_configured,
+    menu_json_from_text, menu_json_from_image, transcribe_menu_page,
+    allergen_reasoning_json, translate_json, audio_menu_json,
+)
 
 # ======================================================
 # CONFIGURACIÓN GENERAL
 # ======================================================
 st.set_page_config(page_title="Carta IA · Serval TECH", layout="wide")
 
-MODELO_A_USAR = "gemini-3.8-flash"
-MODELO_ALERGENOS = "gemini-3.1-pro-preview"
+MODELO_A_USAR = QWEN_FLASH
+MODELO_ALERGENOS = QWEN_MAX
 
 SANGRIA_CATEGORIA = Cm(0.8)
 SANGRIA_PLATOS = Cm(0.8)
@@ -114,7 +117,7 @@ ICON_FILENAMES = {
 # MOTOR DE REGLAS DE ALÉRGENOS - UNIFICADO
 # ======================================================
 # Reglas fuertes: se aplican cuando el nombre/descripcion contiene términos bastante inequívocos.
-# No sustituyen la revisión del restaurante: sirven para reforzar a Gemini y evitar omisiones.
+# No sustituyen la revisión del restaurante: sirven para reforzar a la IA y evitar omisiones.
 RULES_STRONG = {
     "gluten": [
         "pan", "trigo", "harina", "pasta", "galleta", "bizcocho", "rebozado", "empanado", "tempura", "panko", "lasaña", "fideos",
@@ -355,32 +358,14 @@ def add_allergen(current, key):
 
 
 # ======================================================
-# API KEY
+# QWEN / ALIBABA MODEL STUDIO
 # ======================================================
+# La clave permanece exclusivamente en Streamlit Secrets. No se muestra al cliente.
 try:
-    API_KEY = st.secrets["GEMINI_API_KEY"]
-except Exception:
-    API_KEY = os.getenv("GEMINI_API_KEY", "")
-
-if not API_KEY:
-    st.error("❌ Falta la GEMINI_API_KEY en los Secrets.")
+    ensure_configured()
+except RuntimeError as exc:
+    st.error(f"❌ {exc}")
     st.stop()
-
-GENAI_CLIENT = genai.Client(api_key=API_KEY)
-
-
-class _GeminiModelCompat:
-    """Compatibilidad temporal para las funciones v9 que aún llaman model.generate_content().
-    Internamente usa exclusivamente el SDK google-genai actual.
-    """
-    def __init__(self, model_name):
-        self.model_name = model_name
-
-    def generate_content(self, contents, request_options=None):
-        return GENAI_CLIENT.models.generate_content(
-            model=self.model_name,
-            contents=contents,
-        )
 
 
 # ======================================================
@@ -415,7 +400,7 @@ def extract_text_from_docx(file):
         return None
 
 
-def extract_text_from_pdf_scanned_with_gemini(file):
+def extract_text_from_pdf_scanned_with_qwen(file):
     """Renderiza y transcribe TODAS las páginas de un PDF escaneado.
 
     La versión anterior truncaba silenciosamente a seis páginas. Esta versión
@@ -433,7 +418,6 @@ def extract_text_from_pdf_scanned_with_gemini(file):
             file.seek(0)
             return ""
 
-        model = _GeminiModelCompat(MODELO_A_USAR)
         chunks = []
         failed_pages = []
         progress = st.progress(0, text=f"Procesando PDF escaneado · 0/{total_pages} páginas")
@@ -444,15 +428,7 @@ def extract_text_from_pdf_scanned_with_gemini(file):
                 pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
                 img = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
                 img.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), Image.Resampling.LANCZOS)
-                response = model.generate_content(
-                    [
-                        "Transcribe literalmente todo el texto visible de esta página de menú. "
-                        "No resumas. No inventes. Devuelve texto plano.",
-                        img,
-                    ],
-                    request_options={"timeout": 120},
-                )
-                page_text = (response.text or "").strip()
+                page_text = (transcribe_menu_page(img) or "").strip()
                 if page_text:
                     chunks.append(f"\n--- PÁGINA {i + 1} ---\n{page_text}")
                 else:
@@ -562,7 +538,7 @@ def dish_display_name(dish):
     if not number:
         return name
     number_clean = number.strip()
-    # Evita duplicar si Gemini ya dejó el número dentro del nombre.
+    # Evita duplicar si la IA ya dejó el número dentro del nombre.
     name_norm = normalize_text(name)
     number_norm = normalize_text(number_clean).rstrip(".)-ºª")
     if name_norm.startswith(number_norm + " ") or name_norm.startswith(number_norm + ".") or name_norm.startswith(number_norm + ")"):
@@ -2594,19 +2570,6 @@ REGLAS:
 """
 
 
-def _gemini_menu_json(contents):
-    response = GENAI_CLIENT.models.generate_content(
-        model=MODELO_A_USAR,
-        contents=contents,
-        config=genai_types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_json_schema=MENU_JSON_SCHEMA,
-            thinking_config=genai_types.ThinkingConfig(thinking_level="medium"),
-        ),
-    )
-    return parse_json_response(response.text)
-
-
 ALLERGEN_AI_SCHEMA = {
     "type": "object",
     "properties": {
@@ -2649,50 +2612,39 @@ Tu trabajo es estimar qué alérgenos contiene normalmente cada plato usando TOD
 No te limites a buscar palabras literales: razona sobre la composición habitual de platos reconocibles (por ejemplo croquetas, tiramisú, carbonara, rebozados, pesto, hummus, salsas, panes y masas).
 No inventes contaminación cruzada ni trazas si no están indicadas. Respeta expresiones explícitas como "sin gluten". Distingue cacahuete de frutos de cáscara y crustáceos de moluscos.
 Si una receta tiene variantes razonables, elige la clasificación más probable y baja la confianza, en vez de omitir automáticamente todos los alérgenos.
-Devuelve únicamente los 14 grupos permitidos por el esquema. La selección podrá ser corregida manualmente después por el establecimiento.
+Los únicos valores permitidos son: gluten, crustaceos, huevos, pescado, cacahuetes, soja, lacteos, frutos de cascara, apio, mostaza, sesamo, sulfitos, altramuces, moluscos.
+La selección podrá ser corregida manualmente después por el establecimiento.
 """
     prompt = (
-        "Analiza todos estos platos en una sola pasada y devuelve la clasificación más probable de alérgenos. "
+        "Analiza todos estos platos en una sola pasada. Devuelve un objeto JSON con una clave items. "
+        "Cada item debe contener category_index, dish_index, allergens, confidence (alta/media/baja) y reason. "
         "Mantén category_index y dish_index exactamente.\n\n" + json.dumps(dishes, ensure_ascii=False)
     )
 
-    errors = []
-    for model_name in (MODELO_ALERGENOS, MODELO_A_USAR):
-        try:
-            response = GENAI_CLIENT.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=genai_types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    response_mime_type="application/json",
-                    response_json_schema=ALLERGEN_AI_SCHEMA,
-                    thinking_config=genai_types.ThinkingConfig(thinking_level="high"),
-                ),
-            )
-            result = parse_json_response(response.text)
-            seen = 0
-            for item in result.get("items", []):
-                c_idx = int(item.get("category_index", -1))
-                d_idx = int(item.get("dish_index", -1))
-                if c_idx < 0 or d_idx < 0:
-                    continue
-                try:
-                    dish = data["categories"][c_idx]["dishes"][d_idx]
-                except (KeyError, IndexError, TypeError):
-                    continue
-                dish["allergens"] = get_ordered_allergens(item.get("allergens", []))
-                dish["_allergen_ai_confidence"] = item.get("confidence", "")
-                dish["_allergen_ai_reason"] = item.get("reason", "")
-                seen += 1
-            if seen:
-                data["_allergen_model"] = model_name
-                return data
-        except Exception as exc:
-            errors.append(f"{model_name}: {exc}")
-
-    data["_allergen_model"] = "fallback"
-    data["_allergen_model_error"] = " | ".join(errors)[-800:]
-    return data
+    try:
+        result, model_name = allergen_reasoning_json(system_instruction, prompt)
+        seen = 0
+        for item in result.get("items", []):
+            c_idx = int(item.get("category_index", -1))
+            d_idx = int(item.get("dish_index", -1))
+            if c_idx < 0 or d_idx < 0:
+                continue
+            try:
+                dish = data["categories"][c_idx]["dishes"][d_idx]
+            except (KeyError, IndexError, TypeError):
+                continue
+            dish["allergens"] = get_ordered_allergens(item.get("allergens", []))
+            dish["_allergen_ai_confidence"] = item.get("confidence", "")
+            dish["_allergen_ai_reason"] = item.get("reason", "")
+            seen += 1
+        if seen:
+            data["_allergen_model"] = model_name
+            return data
+        raise ValueError("Qwen Max no devolvió platos clasificables")
+    except Exception as exc:
+        data["_allergen_model"] = "reglas locales (fallback)"
+        data["_allergen_model_error"] = str(exc)[-800:]
+        return data
 
 def _word_or_phrase(text, phrase):
     haystack = normalize_text(text)
@@ -2841,9 +2793,9 @@ def analyze_content(content, content_type="image"):
         with st.spinner(f"🧠 Analizando carta con {MODELO_A_USAR} + motor experto de alérgenos..."):
             prompt = build_ai_prompt()
             if content_type == "image":
-                data = _gemini_menu_json([prompt, content])
+                data = menu_json_from_image(prompt, content)
             else:
-                data = _gemini_menu_json(prompt + "\n\nMENÚ:\n" + str(content))
+                data = menu_json_from_text(prompt, content)
             data = infer_allergens_with_best_model(data)
             data = apply_allergen_rules(data)
             data["_generated_at"] = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -2918,8 +2870,7 @@ INSTRUCCIONES PARA DICTADO:
 - Convierte precios hablados a decimal; si no hay precio, deja price vacío.
 - No inventes ingredientes para completar recetas.
 """
-    part = genai_types.Part.from_bytes(data=audio_bytes, mime_type=_audio_mime(audio_file))
-    data = _gemini_menu_json([audio_prompt, part])
+    data = audio_menu_json(audio_prompt, audio_bytes, _audio_mime(audio_file))
     data = _normalize_audio_menu_prices(data)
     data = infer_allergens_with_best_model(data)
     data = apply_allergen_rules(data)
@@ -3467,15 +3418,7 @@ No inventes contenido.
 JSON:
 {json.dumps(payload, ensure_ascii=False)}
 """
-    response = GENAI_CLIENT.models.generate_content(
-        model=MODELO_A_USAR,
-        contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_json_schema=TRANSLATION_SCHEMA,
-        ),
-    )
-    translated_payload = parse_json_response(response.text)
+    translated_payload = translate_json(prompt)
 
     src_cat_ids = [c["id"] for c in payload["categories"]]
     dst_cat_ids = [c.get("id") for c in translated_payload.get("categories", [])]
@@ -3634,7 +3577,7 @@ if app_mode == "📝 Generador de Cartas":
             if native and len(native.strip()) > 80:
                 data = analyze_content(native, "text")
             else:
-                scanned_text = extract_text_from_pdf_scanned_with_gemini(uploaded_file)
+                scanned_text = extract_text_from_pdf_scanned_with_qwen(uploaded_file)
                 if scanned_text:
                     data = analyze_content(scanned_text, "text")
                 else:
@@ -3723,15 +3666,10 @@ elif app_mode == "📄 Extractor de Texto Universal":
                 if texto_nativo and len(texto_nativo.strip()) > 50:
                     texto_extraido = texto_nativo
                 else:
-                    texto_extraido = extract_text_from_pdf_scanned_with_gemini(up_any) or ""
+                    texto_extraido = extract_text_from_pdf_scanned_with_qwen(up_any) or ""
             elif ext in ["jpg", "jpeg", "png"]:
-                model = _GeminiModelCompat(MODELO_A_USAR)
                 img, _ = prepare_image_for_ai(up_any)
-                response = model.generate_content([
-                    "Transcribe literalmente de arriba a abajo todo el texto que veas en esta imagen. No inventes. Devuelve solo texto plano.",
-                    img
-                ], request_options={"timeout": 120})
-                texto_extraido = response.text
+                texto_extraido = transcribe_menu_page(img) or ""
 
             if texto_extraido:
                 doc_out = new_doc_from_template()
