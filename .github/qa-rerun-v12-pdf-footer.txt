@@ -1,2 +1,2 @@
 QA marker for Carta IA real export validation.
-Rerun 2026-10-09 after applying the approved compact 2x7 allergen legend to the real Word generator.
+Rerun 2026-10-09 after refining the approved compact 2x7 legend frame, legal text weight and dotted price leaders.
