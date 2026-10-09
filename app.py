@@ -1476,6 +1476,20 @@ def add_docx_allergen_legend(doc, data, theme):
             if idx < len(grid_cols):
                 grid_cols[idx].set(qn("w:w"), str(int(Cm(width_cm).twips)))
 
+    def set_cell_vertical_padding(cell, top_twips=20, bottom_twips=20):
+        tc_pr = cell._tc.get_or_add_tcPr()
+        tc_mar = tc_pr.find(qn("w:tcMar"))
+        if tc_mar is None:
+            tc_mar = OxmlElement("w:tcMar")
+            tc_pr.append(tc_mar)
+        for edge, value in (("top", top_twips), ("bottom", bottom_twips)):
+            node = tc_mar.find(qn(f"w:{edge}"))
+            if node is None:
+                node = OxmlElement(f"w:{edge}")
+                tc_mar.append(node)
+            node.set(qn("w:w"), str(value))
+            node.set(qn("w:type"), "dxa")
+
     def set_outer_border(table, color):
         tbl_pr = table._tbl.tblPr
         borders = tbl_pr.first_child_found_in("w:tblBorders")
@@ -1499,9 +1513,9 @@ def add_docx_allergen_legend(doc, data, theme):
             node.set(qn("w:val"), "nil")
 
     for section in doc.sections:
-        if section.bottom_margin < Cm(5.2):
-            section.bottom_margin = Cm(5.2)
-        section.footer_distance = Cm(0.18)
+        if section.bottom_margin < Cm(4.0):
+            section.bottom_margin = Cm(4.0)
+        section.footer_distance = Cm(0.12)
         usable_cm = max(12.0, (section.page_width - section.left_margin - section.right_margin) / 360000.0)
 
         for footer in (section.footer, section.first_page_footer, section.even_page_footer):
@@ -1515,14 +1529,15 @@ def add_docx_allergen_legend(doc, data, theme):
             set_outer_border(wrapper, theme.get("cat", "444444"))
             cell = wrapper.cell(0, 0)
             set_cell_width(cell, usable_cm)
+            set_cell_vertical_padding(cell, top_twips=18, bottom_twips=18)
             cell.text = ""
 
             legal = cell.paragraphs[0]
             legal.alignment = 1
             compact(legal)
-            legal.paragraph_format.space_after = Pt(3)
+            legal.paragraph_format.space_after = Pt(1.5)
             lr = legal.add_run(legal_text)
-            lr.font.size = Pt(9.0)
+            lr.font.size = Pt(9.75)
             lr.bold = True
             set_run_color(lr, theme.get("text", "111111"))
 
@@ -1536,6 +1551,7 @@ def add_docx_allergen_legend(doc, data, theme):
                 r, c = divmod(idx, 7)
                 item = grid.cell(r, c)
                 set_cell_width(item, col_cm)
+                set_cell_vertical_padding(item, top_twips=12, bottom_twips=12)
                 tc_pr = item._tc.get_or_add_tcPr()
                 no_wrap = tc_pr.find(qn("w:noWrap"))
                 if no_wrap is None:
@@ -1549,14 +1565,14 @@ def add_docx_allergen_legend(doc, data, theme):
                 compact(p)
                 icon_path = ICON_MAP.get(allergen)
                 if icon_path and os.path.exists(icon_path):
-                    p.add_run().add_picture(icon_path, width=Cm(1.25))
+                    p.add_run().add_picture(icon_path, width=Cm(1.20))
 
                 lp = item.add_paragraph()
                 lp.alignment = 1
                 compact(lp)
-                lp.paragraph_format.space_before = Pt(1)
+                lp.paragraph_format.space_before = Pt(0.5)
                 label = lp.add_run(legend_labels.get(allergen, ALLERGEN_LABELS.get(allergen, allergen)))
-                label.font.size = Pt(8.6)
+                label.font.size = Pt(9.0)
                 label.bold = True
                 set_run_color(label, theme.get("text", "111111"))
 
