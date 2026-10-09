@@ -1,0 +1,66 @@
+name: Migrate Carta IA core to Qwen
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/migrate-qwen-core.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply Qwen migration
+        run: python scripts/migrate_qwen_core.py
+      - name: Compile application
+        run: |
+          python -m py_compile app.py qwen_core.py ai_design.py
+      - name: Verify Alibaba-only AI runtime and allergen order
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s = Path('app.py').read_text(encoding='utf-8')
+          assert 'GEMINI_API_KEY' not in s
+          assert 'GENAI_CLIENT' not in s
+          assert 'genai_types' not in s
+          assert 'QWEN_FLASH' in s and 'QWEN_MAX' in s
+          wp = s.index('price_run = p.add_run("\\t" + format_price(dish.get("price", "")))')
+          wi = s.index('_add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)', wp)
+          assert wp < wi
+          pp = s.index('f\'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span>\'')
+          pi = s.index('f\'<span class="dish-icons">{icons}</span></div>{desc_html}</div>\'', pp)
+          assert pp < pi
+          q = Path('qwen_core.py').read_text(encoding='utf-8')
+          assert 'CARTA_IA_QWEN_USAGE' in q
+          assert 'st.write' not in q and 'st.metric' not in q
+          print('Verification OK')
+          PY
+      - name: Remove obsolete Google SDK dependency
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('requirements.txt')
+          text = p.read_text(encoding='utf-8')
+          text = '\n'.join(line for line in text.splitlines() if not line.startswith('google-genai==')) + '\n'
+          p.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit migration
+        run: |
+          if git diff --quiet; then
+            echo 'No changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py requirements.txt
+          git commit -m 'Migrate Carta IA AI core to Qwen'
+          git push
