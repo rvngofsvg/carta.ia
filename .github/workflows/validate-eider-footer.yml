@@ -105,8 +105,8 @@ jobs:
           reopened = Document(all_path)
           assert any(shape.width >= Cm(0.70) for shape in reopened.inline_shapes), 'Los iconos de plato siguen por debajo del mínimo visual'
           for sec in reopened.sections:
-              assert sec.bottom_margin >= Cm(3.9), sec.bottom_margin
-              assert sec.bottom_margin <= Cm(4.1), sec.bottom_margin
+              assert sec.bottom_margin >= Cm(3.7), sec.bottom_margin
+              assert sec.bottom_margin <= Cm(3.9), sec.bottom_margin
 
           with zipfile.ZipFile(all_path) as z:
               body = z.read('word/document.xml').decode('utf-8')
@@ -117,9 +117,10 @@ jobs:
           assert 'WORD CON ALÉRGENOS' in source and 'PDF CON ALÉRGENOS' in source
           assert 'WORD SIN ALÉRGENOS' in source and 'PDF SIN ALÉRGENOS' in source
           assert 'grid = cell.add_table(rows=2, cols=7)' in source, 'La leyenda dejó de ser 2x7'
-          assert 'width=Cm(1.20)' in source, 'Tamaño de icono compacto no aplicado'
-          assert 'lr.font.size = Pt(9.75)' in source, 'Tipografía legal compacta no aplicada'
-          assert 'label.font.size = Pt(9.0)' in source, 'Tipografía de etiquetas compacta no aplicada'
+          assert 'width=Cm(1.18)' in source, 'Tamaño de icono compacto no aplicado'
+          assert 'lr.font.size = Pt(9.0)' in source, 'Tipografía legal compacta no aplicada'
+          assert 'label.font.size = Pt(8.6)' in source, 'Tipografía de etiquetas compacta no aplicada'
+          assert 'col_weights = [1.00, 1.15, 0.90, 1.00, 1.15, 1.05, 1.00]' in source, 'No se aplicaron anchos ponderados'
           assert 'DIÓXIDO DE AZUFRE\\nY SULFITOS' in source, 'Sulfitos debe mantenerse en dos líneas'
 
           (qa / 'qa_report.txt').write_text(
@@ -127,7 +128,7 @@ jobs:
               'word_with_allergens=ok\nword_without_allergens=ok\n'
               'pdf_with_allergens=ok\npdf_without_allergens=ok\n'
               'direct_word_footer=ok\nclean_word_footer=clean\n'
-              'compact_2x7_legend=ok\nmanual_allergen_editor=present\n',
+              'compact_2x7_legend=ok\nweighted_columns=ok\nmanual_allergen_editor=present\n',
               encoding='utf-8',
           )
           print('PASS real Carta IA exports with compact legend')
