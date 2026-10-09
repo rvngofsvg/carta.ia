@@ -1,0 +1,59 @@
+name: Hide internal AI details from client UI
+
+on:
+  push:
+    paths:
+      - '.github/workflows/hide-internal-ai-ui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply private UI cleanup
+        run: python scripts/hide_internal_ai_ui.py
+      - name: Compile
+        run: python -m py_compile app.py qwen_core.py ai_design.py
+      - name: Verify client UI and allergen ordering
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          app = Path('app.py').read_text(encoding='utf-8')
+          design = Path('ai_design.py').read_text(encoding='utf-8')
+          core = Path('qwen_core.py').read_text(encoding='utf-8')
+          assert 'Coste orientativo actual' not in design
+          assert 'Alérgenos calculados por' not in app
+          assert 'Alérgenos calculados automáticamente' in app
+          assert 'CARTA_IA_QWEN_USAGE' in core
+          assert 'CARTA_IA_QWEN_IMAGE_USAGE' in design
+          wp = app.index('price_run = p.add_run("\\t" + format_price(dish.get("price", "")))')
+          wi = app.index('_add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)', wp)
+          assert wp < wi
+          pp = app.index('f\'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span>\'')
+          pi = app.index('f\'<span class="dish-icons">{icons}</span></div>{desc_html}</div>\'', pp)
+          assert pp < pi
+          ai = design.index('f\'<span class="price">{html_escape(_format_price(dish.get("price")))}</span>\'')
+          aj = design.index('f\'<span class="icons">{icons}</span></div>{desc_html}</div>\'', ai)
+          assert ai < aj
+          print('Client UI privacy and price→allergens ordering OK')
+          PY
+      - name: Commit
+        run: |
+          if git diff --quiet; then
+            echo 'No changes'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py qwen_core.py ai_design.py
+          git commit -m 'Keep AI cost details private'
+          git push
