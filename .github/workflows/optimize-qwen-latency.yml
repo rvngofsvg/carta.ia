@@ -1,0 +1,51 @@
+name: Optimize Qwen latency
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/optimize-qwen-latency.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply latency optimization
+        run: python scripts/optimize_qwen_latency.py
+      - name: Compile
+        run: python -m py_compile app.py qwen_core.py ai_design.py
+      - name: Verify fast cascade
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          q = Path('qwen_core.py').read_text(encoding='utf-8')
+          a = Path('app.py').read_text(encoding='utf-8')
+          assert 'purpose="allergen_fast_pass"' in q
+          assert 'enable_thinking=False' in q
+          assert 'purpose="allergen_selective_review"' in q
+          assert 'reasoning_effort="low"' in q
+          assert 'reasoning_effort="medium"' not in q[q.index('def allergen_reasoning_json'):q.index('def translate_json')]
+          assert 'MAX_IMAGE_SIDE = 1800' in a
+          assert 'quality=88' in q
+          print('Adaptive latency guardrails OK')
+          PY
+      - name: Commit
+        run: |
+          if git diff --quiet; then
+            echo 'No changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py qwen_core.py
+          git commit -m 'Speed up Qwen menu analysis with adaptive allergen review'
+          git push
