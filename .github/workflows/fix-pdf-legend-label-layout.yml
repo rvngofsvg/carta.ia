@@ -1,0 +1,52 @@
+name: Fix PDF allergen label layout
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/fix_pdf_legend_label_layout.py'
+      - '.github/workflows/fix-pdf-legend-label-layout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply label layout fix
+        run: python scripts/fix_pdf_legend_label_layout.py
+      - name: Compile and verify
+        run: |
+          python -m py_compile app.py
+          python - <<'PY'
+          from pathlib import Path
+          s = Path('app.py').read_text(encoding='utf-8')
+          assert 'FRUTOS DE<br>CÁSCARA' in s
+          assert 'GRANOS DE<br>SÉSAMO' in s
+          assert 'DIÓXIDO DE AZUFRE<br>Y SULFITOS' in s
+          assert 'height: 13mm;' in s
+          assert 'width: 6.8mm;' in s and 'height: 6.8mm;' in s
+          assert 'height: 36mm;' in s and 'margin: 15mm 15mm 45mm 15mm;' in s
+          assert '.dish-icon{{width:4.6mm;height:4.6mm;object-fit:contain;}}' in s
+          assert 'def show_asset_diagnostics(' in s
+          print('PDF label layout guards OK')
+          PY
+      - name: Commit app fix
+        run: |
+          if git diff --quiet -- app.py; then
+            echo 'No app.py changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py
+          git commit -m 'Fit long allergen labels cleanly in PDF footer'
+          git push
