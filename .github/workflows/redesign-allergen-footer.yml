@@ -22,7 +22,15 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply redesign
-        run: python scripts/redesign_allergen_footer.py
+        run: |
+          python scripts/redesign_allergen_footer.py
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('width_cm=0.75', 'width_cm=0.46')
+          p.write_text(s, encoding='utf-8')
+          PY
       - name: Compile
         run: python -m py_compile app.py
       - name: Verify design guards
@@ -32,11 +40,11 @@ jobs:
           s = Path('app.py').read_text(encoding='utf-8')
           assert 'width=Cm(0.92)' in s
           assert 'width_cm=0.46' in s
-          assert 'PLATO' not in ''  # no-op marker; detailed export QA runs on main push
           assert 'height: 33mm;' in s
           assert 'margin: 15mm 15mm 42mm 15mm;' in s
           assert 'DIÓXIDO DE AZUFRE\\nY SULFITOS' in s
           assert 'def _nil_table_borders(table):' in s
+          assert 'outer_border = {"val": "single", "sz": "10"' in s
           print('design guards OK')
           PY
       - name: Commit redesign
