@@ -53,9 +53,15 @@ jobs:
           assert 'height: 33mm;' in s
           assert 'margin: 15mm 15mm 42mm 15mm;' in s
           assert 'DIÓXIDO DE AZUFRE\\nY SULFITOS' in s
-          assert 'def _nil_table_borders(table):' in s
-          assert 'outer_border = {"val": "single", "sz": "10"' in s
-          print('footer design guards OK')
+          assert 'def nil_table_borders(table):' in s
+          assert 'node.set(qn("w:sz"), "10")' in s
+          assert 'def show_asset_diagnostics(' in s
+          assert 'def create_editable_word_clean_template(' in s
+          assert 'def _add_allergen_icons_to_run(' in s
+          assert 'def _create_client_word(' in s
+          assert 'def create_client_pdf_html(' in s
+          assert 'def analyze_content(' in s
+          print('footer design and structural guards OK')
           PY
       - name: Commit redesign
         run: |
