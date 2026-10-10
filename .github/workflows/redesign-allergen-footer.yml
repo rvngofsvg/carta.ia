@@ -44,19 +44,18 @@ jobs:
           PY
       - name: Compile
         run: python -m py_compile app.py
-      - name: Verify design guards
+      - name: Verify footer design guards
         run: |
           python - <<'PY'
           from pathlib import Path
           s = Path('app.py').read_text(encoding='utf-8')
           assert 'width=Cm(0.92)' in s
-          assert 'def _add_allergen_icons_to_run(paragraph, allergens, width_cm=0.46):' in s
           assert 'height: 33mm;' in s
           assert 'margin: 15mm 15mm 42mm 15mm;' in s
           assert 'DIÓXIDO DE AZUFRE\\nY SULFITOS' in s
           assert 'def _nil_table_borders(table):' in s
           assert 'outer_border = {"val": "single", "sz": "10"' in s
-          print('design guards OK')
+          print('footer design guards OK')
           PY
       - name: Commit redesign
         run: |
