@@ -35,7 +35,7 @@ LEGEND_ITEMS = (
 )
 
 _ALLERGEN_ICON_FILENAMES = {filename.lower() for _, filename in LEGEND_ITEMS}
-INLINE_ICON_MIN_CM = 0.75
+INLINE_ICON_MIN_CM = 0.46
 
 
 def _find_root():
