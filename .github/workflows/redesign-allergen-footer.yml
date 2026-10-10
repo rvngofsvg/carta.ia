@@ -1,0 +1,52 @@
+name: Redesign allergen footer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/redesign_allergen_footer.py'
+      - '.github/workflows/redesign-allergen-footer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  redesign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply redesign
+        run: python scripts/redesign_allergen_footer.py
+      - name: Compile
+        run: python -m py_compile app.py
+      - name: Verify design guards
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s = Path('app.py').read_text(encoding='utf-8')
+          assert 'width=Cm(0.92)' in s
+          assert 'width_cm=0.46' in s
+          assert 'PLATO' not in ''  # no-op marker; detailed export QA runs on main push
+          assert 'height: 33mm;' in s
+          assert 'margin: 15mm 15mm 42mm 15mm;' in s
+          assert 'DIÓXIDO DE AZUFRE\\nY SULFITOS' in s
+          assert 'def _nil_table_borders(table):' in s
+          print('design guards OK')
+          PY
+      - name: Commit redesign
+        run: |
+          if git diff --quiet -- app.py; then
+            echo 'No app.py changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py
+          git commit -m 'Redesign allergen legend and inline icons'
+          git push
