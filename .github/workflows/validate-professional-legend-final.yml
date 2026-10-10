@@ -1,0 +1,112 @@
+name: Validate professional allergen legend final
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/validate-professional-legend-final.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    env:
+      DASHSCOPE_API_KEY: dummy-qa-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Generate real Word and PDF
+        run: |
+          mkdir -p qa_final
+          python - <<'PY'
+          from pathlib import Path
+          from io import BytesIO
+          import zipfile
+          from docx import Document
+          from docx.shared import Cm
+          from pypdf import PdfReader
+          import app
+
+          data = {
+            'restaurant_name': 'QA Restaurante',
+            'texto_extra': 'Carta de prueba de exportación real.',
+            'categories': [
+              {'name':'Entrantes','category_text':'','dishes':[
+                {'number':'1','name':'Croquetas de jamón','description':'Croquetas caseras','price':'9,50','allergens':['gluten','huevos','lacteos'],'review_notes':[]},
+                {'number':'2','name':'Salmón teriyaki','description':'Salmón con salsa teriyaki','price':'14,00','allergens':['pescado','soja','gluten'],'review_notes':[]},
+                {'number':'3','name':'Queso Manchego Viejo','description':'','price':'4,90','allergens':['lacteos'],'review_notes':[]},
+              ]},
+              {'name':'Postres','category_text':'','dishes':[
+                {'number':'4','name':'Tiramisú','description':'','price':'6,50','allergens':['gluten','huevos','lacteos'],'review_notes':[]},
+              ]},
+            ],
+          }
+          out = Path('qa_final')
+          word = app.create_word(data, theme_key='neutral')
+          pdf = app.create_client_pdf_bytes(data, theme_key='neutral', with_allergens=True)
+          clean_word = app.create_client_word_without_allergens(data, theme_key='neutral')
+          clean_pdf = app.create_client_pdf_bytes(data, theme_key='neutral', with_allergens=False)
+          (out/'carta_con_alergenos.docx').write_bytes(word.getvalue())
+          (out/'carta_con_alergenos.pdf').write_bytes(pdf)
+          (out/'carta_sin_alergenos.docx').write_bytes(clean_word.getvalue())
+          (out/'carta_sin_alergenos.pdf').write_bytes(clean_pdf)
+
+          src = Path('app.py').read_text(encoding='utf-8')
+          assert 'FRUTOS DE<br>CÁSCARA' in src
+          assert 'GRANOS DE<br>SÉSAMO' in src
+          assert 'DIÓXIDO DE AZUFRE<br>Y SULFITOS' in src
+          assert 'height: 36mm;' in src
+          assert 'height: 13mm;' in src
+          assert 'width: 6.8mm;' in src and 'height: 6.8mm;' in src
+          assert 'margin: 15mm 15mm 45mm 15mm;' in src
+          assert '.dish-icon{{width:4.6mm;height:4.6mm;object-fit:contain;}}' in src
+          assert 'width=Cm(0.92)' in src
+          assert 'lr.font.size = Pt(8.4)' in src and 'lr.bold = True' in src
+          assert 'label.font.size = Pt(7.4)' in src
+          assert 'def nil_table_borders(table):' in src
+          assert 'INLINE_ICON_MIN_CM = 0.46' in Path('serval_eider_patch/sitecustomize.py').read_text(encoding='utf-8')
+
+          doc = Document(out/'carta_con_alergenos.docx')
+          shapes = list(doc.inline_shapes)
+          assert any(Cm(0.40) <= shape.width <= Cm(0.55) for shape in shapes)
+          with zipfile.ZipFile(out/'carta_con_alergenos.docx') as z:
+              body = z.read('word/document.xml').decode('utf-8')
+              p = body.find('9,50')
+              d = body.find('<w:drawing', p)
+              assert p >= 0 and d > p
+              footers = [z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml')]
+              rich = max(footers, key=lambda x:x.count('<w:drawing'))
+              assert rich.count('<w:drawing') >= 14
+              assert 'w:val="nil"' in rich
+          pdf_text = '\n'.join((p.extract_text() or '') for p in PdfReader(BytesIO(pdf)).pages)
+          assert 'GLUTEN' in pdf_text and 'MOLUSCOS' in pdf_text and 'SULFITOS' in pdf_text
+          (out/'qa_report.txt').write_text('PASS final professional legend\nprice_then_allergens=ok\nword_internal_grid_hidden=ok\npdf_long_labels_2_lines=ok\ninline_icons_small=ok\n', encoding='utf-8')
+          print('PASS structural final legend QA')
+          PY
+      - name: Install renderers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libreoffice-writer poppler-utils
+      - name: Render for visual inspection
+        run: |
+          mkdir -p qa_final/rendered
+          libreoffice --headless --convert-to pdf --outdir qa_final/rendered qa_final/carta_con_alergenos.docx
+          libreoffice --headless --convert-to pdf --outdir qa_final/rendered qa_final/carta_sin_alergenos.docx
+          pdftoppm -png -r 150 qa_final/rendered/carta_con_alergenos.pdf qa_final/rendered/word_all
+          pdftoppm -png -r 150 qa_final/rendered/carta_sin_alergenos.pdf qa_final/rendered/word_clean
+          pdftoppm -png -r 150 qa_final/carta_con_alergenos.pdf qa_final/rendered/pdf_all
+          pdftoppm -png -r 150 qa_final/carta_sin_alergenos.pdf qa_final/rendered/pdf_clean
+      - name: Upload QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: carta-ia-professional-legend-final
+          path: qa_final/
