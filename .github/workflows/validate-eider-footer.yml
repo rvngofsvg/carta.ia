@@ -1,6 +1,6 @@
 name: Validate real Carta IA exports
 
-# QA v15: Qwen runtime + real Word/PDF exports + clean professional 2x7 legend
+# QA v16: Qwen runtime + real Word/PDF exports + professional 2x7 allergen legend
 on:
   push:
     branches: [main]
@@ -72,14 +72,14 @@ jobs:
           pdf_all = app.create_client_pdf_bytes(data, theme_key='neutral', with_allergens=True)
           pdf_clean = app.create_client_pdf_bytes(data, theme_key='neutral', with_allergens=False)
 
-          assert pdf_all and pdf_all.startswith(b'%PDF'), 'PDF con alérgenos no se generó'
-          assert pdf_clean and pdf_clean.startswith(b'%PDF'), 'PDF sin alérgenos no se generó'
+          assert pdf_all and pdf_all.startswith(b'%PDF')
+          assert pdf_clean and pdf_clean.startswith(b'%PDF')
 
           pdf_all_text = '\n'.join((p.extract_text() or '') for p in PdfReader(BytesIO(pdf_all)).pages)
           pdf_clean_text = '\n'.join((p.extract_text() or '') for p in PdfReader(BytesIO(pdf_clean)).pages)
-          assert 'Reglamento de la UE 1169/2011' in pdf_all_text, 'La leyenda legal no aparece en el PDF real con alérgenos'
-          assert 'GLUTEN' in pdf_all_text and 'MOLUSCOS' in pdf_all_text, 'Faltan etiquetas de la leyenda en el PDF real'
-          assert 'Reglamento de la UE 1169/2011' not in pdf_clean_text, 'El PDF sin alérgenos conserva la leyenda'
+          assert 'Reglamento de la UE 1169/2011' in pdf_all_text
+          assert 'GLUTEN' in pdf_all_text and 'MOLUSCOS' in pdf_all_text
+          assert 'Reglamento de la UE 1169/2011' not in pdf_clean_text
 
           (qa / 'carta_con_alergenos.docx').write_bytes(with_all.getvalue())
           (qa / 'carta_sin_alergenos.docx').write_bytes(without_all.getvalue())
@@ -94,52 +94,53 @@ jobs:
           clean_path = qa / 'carta_sin_alergenos.docx'
           all_footers = footer_xmls(all_path)
           clean_footers = footer_xmls(clean_path)
-          assert all_footers, 'La carta con alérgenos no tiene footer real'
+          assert all_footers
           richest = max(all_footers, key=lambda x: x.count('<w:drawing'))
           assert 'Reglamento de la UE 1169/2011' in richest
           assert 'GLUTEN' in richest and 'MOLUSCOS' in richest
-          assert richest.count('<w:drawing') >= 14, richest.count('<w:drawing')
-          assert 'w:val="nil"' in richest, 'No se eliminaron las líneas internas de la retícula'
+          assert richest.count('<w:drawing') >= 14
+          assert 'w:val="nil"' in richest, 'No se ocultaron las líneas internas'
           assert not any('Reglamento de la UE 1169/2011' in f or 'GLUTEN' in f for f in clean_footers)
-          assert not any('<w:drawing' in f for f in clean_footers), 'El Word sin alérgenos conserva una imagen en el footer'
+          assert not any('<w:drawing' in f for f in clean_footers)
 
           reopened = Document(all_path)
-          # Los iconos inline de plato deben ser discretos (~0,46 cm), no stickers grandes.
           body_shapes = list(reopened.inline_shapes)
-          assert body_shapes, 'No aparecen iconos de alérgenos junto a los platos'
-          assert any(Cm(0.40) <= shape.width <= Cm(0.55) for shape in body_shapes), 'Tamaño inline de alérgenos fuera del rango profesional'
+          assert body_shapes
+          assert any(Cm(0.40) <= shape.width <= Cm(0.55) for shape in body_shapes), 'Los iconos inline siguen demasiado grandes'
           for sec in reopened.sections:
-              assert sec.bottom_margin >= Cm(3.7), sec.bottom_margin
-              assert sec.bottom_margin <= Cm(3.9), sec.bottom_margin
+              assert Cm(3.7) <= sec.bottom_margin <= Cm(3.9)
 
           with zipfile.ZipFile(all_path) as z:
               body = z.read('word/document.xml').decode('utf-8')
-              assert 'GUÍA DE ALÉRGENOS' not in body, 'La leyenda volvió al body en lugar del footer'
+              assert 'GUÍA DE ALÉRGENOS' not in body
               price_pos = body.find('9,50')
               drawing_pos = body.find('<w:drawing', price_pos)
               assert price_pos >= 0 and drawing_pos > price_pos, 'Word no mantiene PRECIO → ALÉRGENOS'
 
           source = Path('app.py').read_text(encoding='utf-8')
-          assert 'st.multiselect(' in source and '"Alérgenos"' in source, 'Se perdió la edición manual de alérgenos'
+          assert 'st.multiselect(' in source and '"Alérgenos"' in source
           assert 'WORD CON ALÉRGENOS' in source and 'PDF CON ALÉRGENOS' in source
           assert 'WORD SIN ALÉRGENOS' in source and 'PDF SIN ALÉRGENOS' in source
-          assert 'grid = cell.add_table(rows=2, cols=7)' in source, 'La leyenda dejó de ser 2x7'
-          assert 'width=Cm(0.92)' in source, 'Tamaño profesional de icono de leyenda no aplicado'
-          assert 'lr.font.size = Pt(8.4)' in source and 'lr.bold = True' in source, 'Texto legal debe ser compacto y negrita'
-          assert 'label.font.size = Pt(7.4)' in source, 'Tipografía de etiquetas profesional no aplicada'
-          assert 'col_weights = [1.00, 1.12, 0.92, 0.98, 1.12, 1.02, 1.00]' in source, 'No se aplicaron anchos equilibrados'
-          assert 'def _nil_table_borders(table):' in source, 'No se eliminó la cuadrícula interna'
-          assert 'outer_border = {"val": "single", "sz": "10"' in source, 'Marco exterior profesional no aplicado'
-          assert 'DIÓXIDO DE AZUFRE\\nY SULFITOS' in source, 'Sulfitos debe mantenerse en dos líneas'
-          assert 'height: 33mm;' in source and 'margin: 15mm 15mm 42mm 15mm;' in source, 'PDF no usa el footer compacto nuevo'
-          assert '.dish-icon{{width:4.6mm;height:4.6mm;object-fit:contain;}}' in source, 'Iconos PDF de plato siguen demasiado grandes'
+          assert 'grid = cell.add_table(rows=2, cols=7)' in source
+          assert 'width=Cm(0.92)' in source
+          assert 'lr.font.size = Pt(8.4)' in source and 'lr.bold = True' in source
+          assert 'label.font.size = Pt(7.4)' in source
+          assert 'col_weights = [1.00, 1.12, 0.92, 0.98, 1.12, 1.02, 1.00]' in source
+          assert 'def nil_table_borders(table):' in source
+          assert 'def set_outer_border(table, color):' in source and 'node.set(qn("w:sz"), "10")' in source
+          assert 'DIÓXIDO DE AZUFRE\\nY SULFITOS' in source
+          assert 'height: 33mm;' in source and 'margin: 15mm 15mm 42mm 15mm;' in source
+          assert '.dish-icon{{width:4.6mm;height:4.6mm;object-fit:contain;}}' in source
+
+          legacy_patch = Path('serval_eider_patch/sitecustomize.py').read_text(encoding='utf-8')
+          assert 'INLINE_ICON_MIN_CM = 0.46' in legacy_patch, 'El parche legacy vuelve a inflar los iconos Word'
 
           word_price = source.index('price_run = p.add_run("\\t" + format_price(dish.get("price", "")))')
           word_icons = source.index('_add_allergen_icons_to_run(p, dish.get("allergens", [])', word_price)
-          assert word_price < word_icons, 'Código Word no mantiene PRECIO → ALÉRGENOS'
+          assert word_price < word_icons
           pdf_price = source.index('f\'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span>\'')
           pdf_icons = source.index('f\'<span class="dish-icons">{icons}</span></div>{desc_html}</div>\'', pdf_price)
-          assert pdf_price < pdf_icons, 'Código PDF no mantiene PRECIO → ALÉRGENOS'
+          assert pdf_price < pdf_icons
 
           qwen_source = Path('qwen_core.py').read_text(encoding='utf-8')
           assert 'CARTA_IA_QWEN_USAGE' in qwen_source
@@ -147,12 +148,10 @@ jobs:
           assert 'GEMINI_API_KEY' not in source and 'GENAI_CLIENT' not in source
 
           (qa / 'qa_report.txt').write_text(
-              'PASS real export path\n'
-              'qwen_runtime=ok\nprivate_usage_logging=ok\n'
+              'PASS real export path\nqwen_runtime=ok\nprivate_usage_logging=ok\n'
               'word_with_allergens=ok\nword_without_allergens=ok\n'
               'pdf_with_allergens=ok\npdf_without_allergens=ok\n'
-              'price_then_allergens=ok\n'
-              'clean_outer_frame=ok\ninternal_grid_hidden=ok\n'
+              'price_then_allergens=ok\nclean_outer_frame=ok\ninternal_grid_hidden=ok\n'
               'compact_2x7_legend=ok\nsmall_inline_icons=ok\nmanual_allergen_editor=present\n',
               encoding='utf-8',
           )
