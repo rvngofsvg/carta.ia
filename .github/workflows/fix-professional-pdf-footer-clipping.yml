@@ -1,0 +1,49 @@
+name: Fix professional PDF footer clipping
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/fix_professional_pdf_footer_clipping.py'
+      - '.github/workflows/fix-professional-pdf-footer-clipping.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply PDF footer refinement
+        run: python scripts/fix_professional_pdf_footer_clipping.py
+      - name: Compile and verify
+        run: |
+          python -m py_compile app.py
+          python - <<'PY'
+          from pathlib import Path
+          s = Path('app.py').read_text(encoding='utf-8')
+          assert 'height: 36mm;' in s
+          assert 'margin: 15mm 15mm 45mm 15mm;' in s
+          assert 'height: 12mm;' in s
+          assert '.dish-icon{{width:4.6mm;height:4.6mm;object-fit:contain;}}' in s
+          assert 'def show_asset_diagnostics(' in s
+          print('PDF footer refinement guards OK')
+          PY
+      - name: Commit app refinement
+        run: |
+          if git diff --quiet -- app.py; then
+            echo 'No app.py changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py
+          git commit -m 'Prevent clipping in compact PDF allergen footer'
+          git push
