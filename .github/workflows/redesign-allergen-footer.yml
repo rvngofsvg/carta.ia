@@ -26,9 +26,20 @@ jobs:
           python scripts/redesign_allergen_footer.py
           python - <<'PY'
           from pathlib import Path
+          import re
           p = Path('app.py')
           s = p.read_text(encoding='utf-8')
-          s = s.replace('width_cm=0.75', 'width_cm=0.46')
+          s = re.sub(
+              r'(def _add_allergen_icons_to_run\(paragraph, allergens, width_cm=)[0-9.]+',
+              r'\g<1>0.46',
+              s,
+              count=1,
+          )
+          s = re.sub(
+              r'(_add_allergen_icons_to_run\(p, dish\.get\("allergens", \[\]\), width_cm=)[0-9.]+',
+              r'\g<1>0.46',
+              s,
+          )
           p.write_text(s, encoding='utf-8')
           PY
       - name: Compile
@@ -39,7 +50,7 @@ jobs:
           from pathlib import Path
           s = Path('app.py').read_text(encoding='utf-8')
           assert 'width=Cm(0.92)' in s
-          assert 'width_cm=0.46' in s
+          assert 'def _add_allergen_icons_to_run(paragraph, allergens, width_cm=0.46):' in s
           assert 'height: 33mm;' in s
           assert 'margin: 15mm 15mm 42mm 15mm;' in s
           assert 'DIÓXIDO DE AZUFRE\\nY SULFITOS' in s
