@@ -3249,7 +3249,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         page_css = """
         @page {
             size: A4;
-            margin: 15mm 15mm 42mm 15mm;
+            margin: 15mm 15mm 45mm 15mm;
             @bottom-center {
                 content: element(allergenFooter);
                 vertical-align: bottom;
@@ -3260,7 +3260,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         .allergen-footer {
             position: running(allergenFooter);
             width: 180mm;
-            height: 33mm;
+            height: 36mm;
             border: 1px solid #7a746e;
             padding: 1.4mm 2.5mm 1.0mm;
             box-sizing: border-box;
@@ -3282,9 +3282,9 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         }
         .legend-item {
             width: 14.285714%;
-            height: 11.2mm;
+            height: 12mm;
             text-align: center;
-            font-size: 7.2pt;
+            font-size: 7.0pt;
             font-weight: 700;
             line-height: 1.04;
             padding: 0.3mm 0.5mm;
