@@ -1414,85 +1414,63 @@ def add_docx_heading_block(doc, data, theme, subtitle='Plantilla editable sin ic
 
 
 def add_docx_allergen_legend(doc, data, theme):
-    """Leyenda nativa 2x7 insertada directamente en el footer real de Word."""
+    """Leyenda 2x7 limpia: marco exterior único, sin cuadrícula interna visible."""
     legal_text = (
         "Informamos de acuerdo con el Reglamento de la UE 1169/2011, que nuestros productos "
         "contienen o pueden contener los siguientes alérgenos."
     )
     legend_labels = {
-        "gluten": "GLUTEN", "crustaceos": "CRUSTÁCEOS", "huevos": "HUEVOS", "pescado": "PESCADO",
-        "cacahuetes": "CACAHUETES", "soja": "SOJA", "lacteos": "LÁCTEOS",
-        "frutos de cascara": "FRUTOS DE\nCÁSCARA", "apio": "APIO", "mostaza": "MOSTAZA",
-        "sesamo": "GRANOS DE\nSÉSAMO", "sulfitos": "DIÓXIDO DE AZUFRE\nY SULFITOS",
-        "altramuces": "ALTRAMUCES", "moluscos": "MOLUSCOS",
+        "gluten": "GLUTEN",
+        "crustaceos": "CRUSTÁCEOS",
+        "huevos": "HUEVOS",
+        "pescado": "PESCADO",
+        "cacahuetes": "CACAHUETES",
+        "soja": "SOJA",
+        "lacteos": "LÁCTEOS",
+        "frutos de cascara": "FRUTOS DE\nCÁSCARA",
+        "apio": "APIO",
+        "mostaza": "MOSTAZA",
+        "sesamo": "GRANOS DE\nSÉSAMO",
+        "sulfitos": "DIÓXIDO DE AZUFRE\nY SULFITOS",
+        "altramuces": "ALTRAMUCES",
+        "moluscos": "MOLUSCOS",
     }
 
-    def clear(container):
-        for child in list(container._element):
-            container._element.remove(child)
-
-    def compact(p):
-        p.paragraph_format.space_before = Pt(0)
-        p.paragraph_format.space_after = Pt(0)
-        p.paragraph_format.line_spacing = 1
-
-    def set_cell_width(cell, width_cm):
-        width = Cm(width_cm)
-        cell.width = width
+    def _nil_cell_borders(cell):
         tc_pr = cell._tc.get_or_add_tcPr()
-        tc_w = tc_pr.find(qn("w:tcW"))
-        if tc_w is None:
-            tc_w = OxmlElement("w:tcW")
-            tc_pr.append(tc_w)
-        tc_w.set(qn("w:w"), str(int(width.twips)))
-        tc_w.set(qn("w:type"), "dxa")
-
-    def set_grid_widths(table, widths_cm):
-        grid_cols = table._tbl.tblGrid.findall(qn("w:gridCol"))
-        for idx, width_cm in enumerate(widths_cm):
-            if idx < len(grid_cols):
-                grid_cols[idx].set(qn("w:w"), str(int(Cm(width_cm).twips)))
-
-    def set_cell_vertical_padding(cell, top_twips=20, bottom_twips=20):
-        tc_pr = cell._tc.get_or_add_tcPr()
-        tc_mar = tc_pr.find(qn("w:tcMar"))
-        if tc_mar is None:
-            tc_mar = OxmlElement("w:tcMar")
-            tc_pr.append(tc_mar)
-        for edge, value in (("top", top_twips), ("bottom", bottom_twips)):
-            node = tc_mar.find(qn(f"w:{edge}"))
-            if node is None:
-                node = OxmlElement(f"w:{edge}")
-                tc_mar.append(node)
-            node.set(qn("w:w"), str(value))
-            node.set(qn("w:type"), "dxa")
-
-    def set_outer_border(table, color):
-        tbl_pr = table._tbl.tblPr
-        borders = tbl_pr.first_child_found_in("w:tblBorders")
+        borders = tc_pr.find(qn("w:tcBorders"))
         if borders is None:
-            borders = OxmlElement("w:tblBorders")
-            tbl_pr.append(borders)
-        for edge in ("top", "start", "bottom", "end"):
-            node = borders.find(qn(f"w:{edge}"))
-            if node is None:
-                node = OxmlElement(f"w:{edge}")
-                borders.append(node)
-            node.set(qn("w:val"), "single")
-            node.set(qn("w:sz"), "14")
-            node.set(qn("w:space"), "0")
-            node.set(qn("w:color"), color)
-        for edge in ("insideH", "insideV"):
-            node = borders.find(qn(f"w:{edge}"))
+            borders = OxmlElement("w:tcBorders")
+            tc_pr.append(borders)
+        for edge in ("top", "left", "bottom", "right", "start", "end", "insideH", "insideV"):
+            tag = qn(f"w:{edge}")
+            node = borders.find(tag)
             if node is None:
                 node = OxmlElement(f"w:{edge}")
                 borders.append(node)
             node.set(qn("w:val"), "nil")
 
+    def _nil_table_borders(table):
+        tbl_pr = table._tbl.tblPr
+        borders = tbl_pr.find(qn("w:tblBorders"))
+        if borders is None:
+            borders = OxmlElement("w:tblBorders")
+            tbl_pr.append(borders)
+        for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            tag = qn(f"w:{edge}")
+            node = borders.find(tag)
+            if node is None:
+                node = OxmlElement(f"w:{edge}")
+                borders.append(node)
+            node.set(qn("w:val"), "nil")
+
+    border_color = theme.get("muted", "6B7280")
+    outer_border = {"val": "single", "sz": "10", "space": "0", "color": border_color}
+
     for section in doc.sections:
         if section.bottom_margin < Cm(3.8):
             section.bottom_margin = Cm(3.8)
-        section.footer_distance = Cm(0.10)
+        section.footer_distance = Cm(0.12)
         usable_cm = max(12.0, (section.page_width - section.left_margin - section.right_margin) / 360000.0)
 
         for footer in (section.footer, section.first_page_footer, section.even_page_footer):
@@ -1503,1639 +1481,81 @@ def add_docx_allergen_legend(doc, data, theme):
             wrapper.alignment = WD_TABLE_ALIGNMENT.CENTER
             wrapper.autofit = False
             set_grid_widths(wrapper, [usable_cm])
-            set_outer_border(wrapper, theme.get("cat", "444444"))
             cell = wrapper.cell(0, 0)
             set_cell_width(cell, usable_cm)
-            set_cell_vertical_padding(cell, top_twips=10, bottom_twips=10)
-            cell.text = ""
+            set_cell_margins(cell, top=18, start=42, bottom=16, end=42)
+            set_table_cell_border(
+                cell,
+                top=outer_border,
+                bottom=outer_border,
+                start=outer_border,
+                end=outer_border,
+            )
 
             legal = cell.paragraphs[0]
             legal.alignment = 1
             compact(legal)
-            legal.paragraph_format.space_after = Pt(1.0)
+            legal.paragraph_format.space_before = Pt(0)
+            legal.paragraph_format.space_after = Pt(1.2)
             lr = legal.add_run(legal_text)
-            lr.font.size = Pt(9.0)
+            lr.font.size = Pt(8.4)
             lr.bold = True
             set_run_color(lr, theme.get("text", "111111"))
 
-            # Mismo ancho total, pero columnas ponderadas para evitar cortes feos
-            # en CRUSTÁCEOS, CACAHUETES y ALTRAMUCES sin agrandar la leyenda.
-            col_weights = [1.00, 1.15, 0.90, 1.00, 1.15, 1.05, 1.00]
+            col_weights = [1.00, 1.12, 0.92, 0.98, 1.12, 1.02, 1.00]
             weight_total = sum(col_weights)
             col_widths = [usable_cm * weight / weight_total for weight in col_weights]
             grid = cell.add_table(rows=2, cols=7)
             grid.alignment = WD_TABLE_ALIGNMENT.CENTER
             grid.autofit = False
             set_grid_widths(grid, col_widths)
+            _nil_table_borders(grid)
 
-            # Word exige un párrafo final dentro de la celda tras una tabla anidada.
-            # Si se deja con el estilo Normal añade altura vacía al rectángulo del footer.
             trailing = cell.paragraphs[-1]
             compact(trailing)
+            trailing.paragraph_format.space_before = Pt(0)
+            trailing.paragraph_format.space_after = Pt(0)
             trailing.paragraph_format.line_spacing = Pt(1)
+            if not trailing.runs:
+                trailing.add_run("")
+            for run in trailing.runs:
+                run.font.size = Pt(1)
 
             for idx, allergen in enumerate(ALLERGEN_ORDER):
                 r, c = divmod(idx, 7)
                 item = grid.cell(r, c)
+                _nil_cell_borders(item)
                 set_cell_width(item, col_widths[c])
-                set_cell_vertical_padding(item, top_twips=8, bottom_twips=8)
-                tc_pr = item._tc.get_or_add_tcPr()
-                no_wrap = tc_pr.find(qn("w:noWrap"))
-                if no_wrap is None:
-                    no_wrap = OxmlElement("w:noWrap")
-                    tc_pr.append(no_wrap)
-                item.text = ""
+                set_cell_margins(item, top=0, start=16, bottom=0, end=16)
+                set_cell_vertical_padding(item, top_twips=1, bottom_twips=1)
                 item.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+                item.text = ""
 
                 p = item.paragraphs[0]
                 p.alignment = 1
                 compact(p)
+                p.paragraph_format.space_before = Pt(0)
+                p.paragraph_format.space_after = Pt(0)
                 icon_path = ICON_MAP.get(allergen)
                 if icon_path and os.path.exists(icon_path):
-                    p.add_run().add_picture(icon_path, width=Cm(1.18))
+                    try:
+                        p.add_run().add_picture(icon_path, width=Cm(0.92))
+                    except Exception:
+                        pass
 
                 lp = item.add_paragraph()
                 lp.alignment = 1
                 compact(lp)
                 lp.paragraph_format.space_before = Pt(0)
+                lp.paragraph_format.space_after = Pt(0)
+                lp.paragraph_format.line_spacing = Pt(7.7)
                 label = lp.add_run(legend_labels.get(allergen, ALLERGEN_LABELS.get(allergen, allergen)))
-                label.font.size = Pt(8.6)
+                label.font.size = Pt(7.4)
                 label.bold = True
                 set_run_color(label, theme.get("text", "111111"))
 
-
-def create_editable_word_clean_template(data, theme_key='cafe', two_columns=True):
-    # DOCX editable: sin iconos junto a platos. Solo conserva la leyenda inferior con iconos reales.
-    theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES['cafe'])
-    doc = Document()
-    section = doc.sections[0]
-    set_docx_margins(section)
-
-    styles = doc.styles
-    styles['Normal'].font.name = 'Arial'
-    styles['Normal'].font.size = Pt(8.6)
-
-    add_docx_heading_block(doc, data, theme)
-    for block in unique_text_blocks(data.get('texto_extra'), data.get('header_text'), data.get('footer_text'), data.get('notes')):
-        add_text_block_to_doc(doc, block, None, font_size=8.2 if two_columns else 10.5, italic=True, color=theme['muted'])
-    if two_columns:
-        set_docx_two_columns(section)
-
-    for cat in data.get('categories', []):
-        p_cat = doc.add_paragraph()
-        p_cat.paragraph_format.space_before = Pt(6)
-        p_cat.paragraph_format.space_after = Pt(3)
-        rc = p_cat.add_run(cat.get('name', 'Categoría').upper())
-        rc.bold = True
-        rc.font.size = Pt(13)
-        set_run_color(rc, theme['cat'])
-        for block in unique_text_blocks(cat.get('category_text'), cat.get('texto_extra'), cat.get('notes')):
-            add_text_block_to_doc(doc, block, None, font_size=7.8 if two_columns else 10.5, italic=True, color=theme['muted'])
-        for dish in cat.get('dishes', []):
-            p = doc.add_paragraph()
-            p.paragraph_format.space_after = Pt(1.6)
-            p.paragraph_format.tab_stops.add_tab_stop(Cm(7.8 if two_columns else 15.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            r = p.add_run(dish_display_name(dish))
-            r.bold = True
-            r.font.size = Pt(8.7)
-            set_run_color(r, theme['text'])
-            pr = p.add_run('\t' + format_price(dish.get('price', '')))
-            pr.bold = True
-            pr.font.size = Pt(8.4)
-            set_run_color(pr, theme['text'])
-            if dish.get('description'):
-                pd = doc.add_paragraph()
-                pd.paragraph_format.space_after = Pt(1.2)
-                rd = pd.add_run(dish.get('description', ''))
-                rd.italic = True
-                rd.font.size = Pt(7.4)
-                set_run_color(rd, theme['muted'])
-
-    footer_section = doc.add_section(WD_SECTION.CONTINUOUS)
-    set_docx_margins(footer_section)
-    set_docx_one_column(footer_section)
-    add_docx_allergen_legend(doc, data, theme)
-
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
-
-
-
-def set_cell_width(cell, width_cm):
-    """Fija el ancho de una celda para que cabeceros y pies coincidan con las dos páginas del libro."""
-    width = Cm(width_cm)
-    cell.width = width
-    tc_pr = cell._tc.get_or_add_tcPr()
-    tc_w = tc_pr.find(qn('w:tcW'))
-    if tc_w is None:
-        tc_w = OxmlElement('w:tcW')
-        tc_pr.append(tc_w)
-    tc_w.set(qn('w:w'), str(int(width.twips)))
-    tc_w.set(qn('w:type'), 'dxa')
-
-def set_table_width(table, width_cm):
-    width = Cm(width_cm)
-    tbl_pr = table._tbl.tblPr
-    tbl_w = tbl_pr.find(qn('w:tblW'))
-    if tbl_w is None:
-        tbl_w = OxmlElement('w:tblW')
-        tbl_pr.append(tbl_w)
-    tbl_w.set(qn('w:w'), str(int(width.twips)))
-    tbl_w.set(qn('w:type'), 'dxa')
-
-
-def set_table_grid_widths(table, widths_cm):
-    grid_cols = table._tbl.tblGrid.findall(qn('w:gridCol'))
-    for idx, width_cm in enumerate(widths_cm):
-        if idx >= len(grid_cols):
-            break
-        grid_cols[idx].set(qn('w:w'), str(int(Cm(width_cm).twips)))
-
-
-
-def set_cell_margins(cell, top=70, start=90, bottom=70, end=90):
-    tc_pr = cell._tc.get_or_add_tcPr()
-    tc_mar = tc_pr.first_child_found_in('w:tcMar')
-    if tc_mar is None:
-        tc_mar = OxmlElement('w:tcMar')
-        tc_pr.append(tc_mar)
-    for margin_name, margin_value in {
-        'top': top, 'start': start, 'bottom': bottom, 'end': end
-    }.items():
-        node = tc_mar.find(qn(f'w:{margin_name}'))
-        if node is None:
-            node = OxmlElement(f'w:{margin_name}')
-            tc_mar.append(node)
-        node.set(qn('w:w'), str(margin_value))
-        node.set(qn('w:type'), 'dxa')
-
-
-def set_table_cell_border(cell, **edges):
-    """Bordes básicos para cabeceros/pies sin depender de estilos instalados en Word."""
-    tc_pr = cell._tc.get_or_add_tcPr()
-    tc_borders = tc_pr.first_child_found_in('w:tcBorders')
-    if tc_borders is None:
-        tc_borders = OxmlElement('w:tcBorders')
-        tc_pr.append(tc_borders)
-    for edge_name, edge_data in edges.items():
-        edge = tc_borders.find(qn(f'w:{edge_name}'))
-        if edge is None:
-            edge = OxmlElement(f'w:{edge_name}')
-            tc_borders.append(edge)
-        for key in ['val', 'sz', 'space', 'color']:
-            if key in edge_data:
-                edge.set(qn(f'w:{key}'), str(edge_data[key]))
-
-
-def set_book_columns(section, gutter_cm=0.8):
-    """Dos columnas reales de Word en A4 horizontal, con canal central de modo libro."""
-    sect_pr = section._sectPr
-    cols = sect_pr.xpath('./w:cols')
-    cols_el = cols[0] if cols else OxmlElement('w:cols')
-    if not cols:
-        sect_pr.append(cols_el)
-    gutter_twips = int(Cm(gutter_cm).twips)
-    cols_el.set(qn('w:num'), '2')
-    cols_el.set(qn('w:space'), str(gutter_twips))
-    cols_el.set(qn('w:equalWidth'), '1')
-
-
-def add_book_header_side(cell, data, theme):
-    set_cell_shading(cell, theme['header'])
-    set_cell_margins(cell, top=70, start=130, bottom=70, end=130)
-    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-    p = cell.paragraphs[0]
-    p.alignment = 1
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(0)
-    r = p.add_run(str(data.get('restaurant_name') or 'MENÚ').upper())
-    r.bold = True
-    r.font.name = 'Georgia'
-    r.font.size = Pt(11.5)
-    set_run_color(r, 'FFFFFF')
-    p2 = cell.add_paragraph()
-    p2.alignment = 1
-    p2.paragraph_format.space_before = Pt(0)
-    p2.paragraph_format.space_after = Pt(0)
-    r2 = p2.add_run('CARTA · MENÚ')
-    r2.bold = True
-    r2.font.size = Pt(5.8)
-    set_run_color(r2, 'FFFFFF')
-
-
-def add_book_legend_side(cell, data, theme, side_width_cm=13.5):
-    set_cell_margins(cell, top=35, start=55, bottom=25, end=55)
-    set_table_cell_border(cell, top={'val':'single','sz':'6','space':'0','color':theme['cat']})
-    p = cell.paragraphs[0]
-    p.alignment = 1
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(1)
-    title = p.add_run('GUÍA DE ALÉRGENOS')
-    title.bold = True
-    title.font.size = Pt(6.2)
-    set_run_color(title, theme['cat'])
-
-    legend = cell.add_table(rows=2, cols=7)
-    legend.alignment = WD_TABLE_ALIGNMENT.CENTER
-    legend.autofit = False
-    legend_width_cm = max(10.5, side_width_cm - 0.35)
-    set_table_width(legend, legend_width_cm)
-    legend_cell_cm = legend_width_cm / 7.0
-    set_table_grid_widths(legend, [legend_cell_cm] * 7)
-    for idx, allergen in enumerate(ALLERGEN_ORDER):
-        row = 0 if idx < 7 else 1
-        col = idx if idx < 7 else idx - 7
-        item_cell = legend.cell(row, col)
-        set_cell_width(item_cell, legend_cell_cm)
-        set_cell_margins(item_cell, top=0, start=4, bottom=0, end=4)
-        ip = item_cell.paragraphs[0]
-        ip.alignment = 1
-        ip.paragraph_format.space_before = Pt(0)
-        ip.paragraph_format.space_after = Pt(0)
-        icon_path = ICON_MAP.get(allergen)
-        if icon_path and os.path.exists(icon_path):
-            try:
-                ip.add_run().add_picture(icon_path, width=Cm(0.32))
-                ip.add_run('\n')
-            except Exception:
-                pass
-        else:
-            fallback = ip.add_run(ALLERGEN_SHORT.get(allergen, allergen[:3]).upper() + '\n')
-            fallback.bold = True
-            fallback.font.size = Pt(4.4)
-            set_run_color(fallback, theme['cat'])
-        label = ip.add_run(ALLERGEN_LABELS.get(allergen, allergen))
-        label.font.size = Pt(3.7)
-        set_run_color(label, theme['text'])
-
-    notice_p = cell.add_paragraph()
-    notice_p.alignment = 1
-    notice_p.paragraph_format.space_before = Pt(1)
-    notice_p.paragraph_format.space_after = Pt(0)
-    nr = notice_p.add_run(build_notice(data))
-    nr.font.size = Pt(4.2)
-    nr.italic = True
-    set_run_color(nr, theme['muted'])
-
-
-def configure_book_header_footer(section, data, theme):
-    """Duplica cabecero y leyenda en los lados izquierdo y derecho de cada página horizontal."""
-    usable_width = section.page_width - section.left_margin - section.right_margin
-    usable_cm = usable_width / 360000.0
-    gutter_cm = 0.8
-    side_cm = (usable_cm - gutter_cm) / 2
-
-    header = section.header
-    header.is_linked_to_previous = False
-    header.distance = Cm(0.35)
-    header.paragraphs[0].paragraph_format.space_after = Pt(0)
-    ht = header.add_table(rows=1, cols=3, width=usable_width)
-    ht.alignment = WD_TABLE_ALIGNMENT.CENTER
-    ht.autofit = False
-    set_table_grid_widths(ht, [side_cm, gutter_cm, side_cm])
-    set_cell_width(ht.cell(0, 0), side_cm)
-    set_cell_width(ht.cell(0, 1), gutter_cm)
-    set_cell_width(ht.cell(0, 2), side_cm)
-    add_book_header_side(ht.cell(0, 0), data, theme)
-    add_book_header_side(ht.cell(0, 2), data, theme)
-    set_cell_shading(ht.cell(0, 1), 'FFFFFF')
-    set_cell_margins(ht.cell(0, 1), top=0, start=0, bottom=0, end=0)
-
-    footer = section.footer
-    footer.is_linked_to_previous = False
-    footer.distance = Cm(0.25)
-    footer.paragraphs[0].paragraph_format.space_after = Pt(0)
-    ft = footer.add_table(rows=1, cols=3, width=usable_width)
-    ft.alignment = WD_TABLE_ALIGNMENT.CENTER
-    ft.autofit = False
-    set_table_grid_widths(ft, [side_cm, gutter_cm, side_cm])
-    set_cell_width(ft.cell(0, 0), side_cm)
-    set_cell_width(ft.cell(0, 1), gutter_cm)
-    set_cell_width(ft.cell(0, 2), side_cm)
-    add_book_legend_side(ft.cell(0, 0), data, theme, side_width_cm=side_cm)
-    add_book_legend_side(ft.cell(0, 2), data, theme, side_width_cm=side_cm)
-    set_cell_margins(ft.cell(0, 1), top=0, start=0, bottom=0, end=0)
-
-
-def create_landscape_book_word(
-    data,
-    theme_key='cafe',
-    dish_font_size=12,
-    include_descriptions=True,
-    icons_after_dish=True,
-):
-    """Word editable A4 horizontal en modo libro.
-
-    - Dos columnas reales que fluyen de izquierda a derecha.
-    - Cabecero y leyenda inferior repetidos en cada lado.
-    - Número + plato + símbolos inmediatamente después + precio alineado al final.
-    """
-    theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES['cafe'])
-    doc = Document()
-    section = doc.sections[0]
-    section.orientation = WD_ORIENT.LANDSCAPE
-    section.page_width = Cm(29.7)
-    section.page_height = Cm(21.0)
-    section.left_margin = Cm(0.8)
-    section.right_margin = Cm(0.8)
-    section.top_margin = Cm(2.25)
-    section.bottom_margin = Cm(3.35)
-    section.header_distance = Cm(0.35)
-    section.footer_distance = Cm(0.25)
-    set_book_columns(section, gutter_cm=0.8)
-    configure_book_header_footer(section, data, theme)
-
-    styles = doc.styles
-    styles['Normal'].font.name = 'Arial'
-    styles['Normal'].font.size = Pt(dish_font_size)
-
-    # Conserva todo texto auxiliar detectado: teléfonos, horarios, dirección, notas, etc.
-    for block in unique_text_blocks(
-        data.get('texto_extra'), data.get('header_text'), data.get('footer_text'), data.get('notes')
-    ):
-        p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(0)
-        p.paragraph_format.space_after = Pt(3)
-        r = p.add_run(block)
-        r.italic = True
-        r.font.size = Pt(max(8.5, dish_font_size - 1.5))
-        set_run_color(r, theme['muted'])
-
-    for cat in data.get('categories', []):
-        p_cat = doc.add_paragraph()
-        p_cat.paragraph_format.space_before = Pt(5)
-        p_cat.paragraph_format.space_after = Pt(2)
-        p_cat.paragraph_format.keep_with_next = True
-        rc = p_cat.add_run(str(cat.get('name') or 'Categoría').upper())
-        rc.bold = True
-        rc.font.name = 'Georgia'
-        rc.font.size = Pt(dish_font_size + 2)
-        set_run_color(rc, theme['cat'])
-
-        for block in unique_text_blocks(cat.get('category_text'), cat.get('texto_extra'), cat.get('notes')):
-            p_extra = doc.add_paragraph()
-            p_extra.paragraph_format.space_before = Pt(0)
-            p_extra.paragraph_format.space_after = Pt(2)
-            rr = p_extra.add_run(block)
-            rr.italic = True
-            rr.font.size = Pt(max(8, dish_font_size - 2))
-            set_run_color(rr, theme['muted'])
-
-        for dish in cat.get('dishes', []):
-            p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after = Pt(2)
-            p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
-            p.paragraph_format.tab_stops.add_tab_stop(
-                Cm(9.2), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS
-            )
-
-            name_run = p.add_run(dish_display_name(dish))
-            name_run.bold = True
-            name_run.font.size = Pt(dish_font_size)
-            set_run_color(name_run, theme['text'])
-
-            price_run = p.add_run('\t' + format_price(dish.get('price', '')))
-            price_run.bold = True
-            price_run.font.size = Pt(dish_font_size)
-            set_run_color(price_run, theme['text'])
-
-            if icons_after_dish:
-                p.add_run('  ')
-                for allergen in get_ordered_allergens(dish.get('allergens', [])):
-                    icon_path = ICON_MAP.get(allergen)
-                    if icon_path and os.path.exists(icon_path):
-                        try:
-                            p.add_run().add_picture(icon_path, width=Cm(0.75))
-                            p.add_run(' ')
-                        except Exception:
-                            fb = p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ')
-                            fb.font.size = Pt(max(6, dish_font_size - 4))
-                    else:
-                        fb = p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ')
-                        fb.font.size = Pt(max(6, dish_font_size - 4))
-                        set_run_color(fb, theme['cat'])
-
-            if include_descriptions and dish.get('description'):
-                pd = doc.add_paragraph()
-                pd.paragraph_format.space_before = Pt(0)
-                pd.paragraph_format.space_after = Pt(2)
-                rd = pd.add_run(str(dish.get('description') or ''))
-                rd.italic = True
-                rd.font.size = Pt(max(8.5, dish_font_size - 1.5))
-                set_run_color(rd, theme['muted'])
-
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
-
-
-def render_landscape_book_word(data):
-    st.subheader('📖 Word horizontal · modo libro')
-    st.caption('A4 horizontal editable: dos lados, cabecero y leyenda repetidos en cada lado. Los símbolos quedan justo después del plato y el precio al final.')
-
-    c1, c2, c3 = st.columns([1.25, 0.8, 0.9])
-    with c1:
-        theme_key = st.selectbox(
-            'Estilo del libro',
-            list(EDITABLE_WORD_THEMES.keys()),
-            format_func=lambda k: EDITABLE_WORD_THEMES[k]['name'],
-            key='book_theme_v9'
-        )
-    with c2:
-        dish_size = st.selectbox('Tamaño de platos', [10, 11, 12], index=2, key='book_font_v9')
-    with c3:
-        include_desc = st.checkbox('Incluir descripciones', value=True, key='book_desc_v9')
-
-    st.info('Este formato se añade como opción nueva. No reemplaza el Word limpio, las plantillas editables, el Radar de Clientes ni el Extractor Universal.')
-    output = create_landscape_book_word(
-        data,
-        theme_key=theme_key,
-        dish_font_size=dish_size,
-        include_descriptions=include_desc,
-        icons_after_dish=True,
-    )
-    filename = 'Carta_Horizontal_Modo_Libro_' + slugify_filename(data.get('restaurant_name', 'menu')) + '.docx'
-    st.download_button(
-        '⬇️ DESCARGAR WORD HORIZONTAL MODO LIBRO',
-        output,
-        file_name=filename,
-        mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    )
-
-def create_editable_templates_zip(data, two_columns=True):
-    zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for key, theme in EDITABLE_WORD_THEMES.items():
-            doc_buf = create_editable_word_clean_template(data, key, two_columns=two_columns)
-            name = f"{slugify_filename(theme['name'])}_{slugify_filename(data.get('restaurant_name','menu'))}.docx"
-            zf.writestr(name, doc_buf.getvalue())
-    zip_buffer.seek(0)
-    return zip_buffer
-
-
-def render_editable_clean_templates(data):
-    st.subheader('📝 Plantillas editables sin iconos junto a platos')
-    st.caption('Estas plantillas mantienen la carta limpia: plato + precio, sin símbolos al lado. La guía inferior conserva los iconos oficiales de alérgenos.')
-
-    c1, c2 = st.columns([1.25, 1])
-    with c1:
-        theme_key = st.selectbox(
-            'Elige plantilla editable',
-            list(EDITABLE_WORD_THEMES.keys()),
-            format_func=lambda k: EDITABLE_WORD_THEMES[k]['name'],
-            key='editable_clean_theme_v8'
-        )
-    with c2:
-        two_cols = st.checkbox('Trabajar en 2 columnas', value=True, key='editable_clean_two_cols_v8')
-
-    base_name = 'Plantilla_Editable_' + slugify_filename(EDITABLE_WORD_THEMES[theme_key]['name']) + '_' + slugify_filename(data.get('restaurant_name','menu'))
-    c1, c2 = st.columns(2)
-    with c1:
-        st.download_button(
-            '⬇️ Descargar esta plantilla Word',
-            create_editable_word_clean_template(data, theme_key, two_columns=two_cols),
-            file_name=f'{base_name}.docx',
-            mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        )
-    with c2:
-        st.download_button(
-            '⬇️ Descargar pack completo de plantillas',
-            create_editable_templates_zip(data, two_columns=two_cols),
-            file_name='Pack_Plantillas_Editables_Sin_Iconos_Por_Plato.zip',
-            mime='application/zip'
-        )
-
-    st.info('El Word limpio original se mantiene en una columna, conserva numeración si existe, añade los textos auxiliares detectados y usa letra 12 en los platos. Este apartado es para plantillas editables de cliente.')
-
-def html_to_pdf_bytes(html_code):
-    try:
-        from weasyprint import HTML
-        return HTML(string=html_code, base_url=BASE_DIR).write_pdf()
-    except Exception:
-        return None
-
-# ======================================================
-# UI AUXILIAR
-# ======================================================
-def show_asset_diagnostics():
-    missing = [ALLERGEN_LABELS[a] for a in ALLERGEN_ORDER if not ICON_MAP.get(a) or not os.path.exists(ICON_MAP.get(a))]
-    with st.sidebar.expander("🧪 Diagnóstico archivos", expanded=False):
-        st.write("**BASE_DIR:**", BASE_DIR)
-        st.write("**Plantilla Word:**", "✅" if PLANTILLA_PATH and os.path.exists(PLANTILLA_PATH) else "❌ No encontrada")
-        st.write("**Carpeta iconos:**", ICONOS_DIR or "❌ No encontrada")
-        if missing:
-            st.error("Faltan iconos: " + ", ".join(missing))
-        else:
-            st.success("Todos los iconos de alérgenos están detectados.")
-
-
-def render_editor(data):
-    data["restaurant_name"] = st.text_input("Nombre del restaurante", data.get("restaurant_name", ""))
-    data["texto_extra"] = st.text_area("📝 Texto suelto detectado / textos no plato", data.get("texto_extra", ""), height=120, help="Aquí deben quedar teléfonos, horarios, dirección, notas, suplementos, avisos y cualquier texto de la carta que no sea un plato.")
-
-    st.info("Puedes editar cualquier plato, precio o alérgeno directamente aquí antes de descargar.")
-    for c_idx, cat in enumerate(data.get("categories", [])):
-        with st.expander(f"📂 {cat.get('name', 'Categoría')}", expanded=True):
-            cat["name"] = st.text_input("Categoría", cat.get("name", ""), key=f"cat_{c_idx}")
-            cat["category_text"] = st.text_area("Texto auxiliar de esta categoría", cat.get("category_text", ""), key=f"cat_text_{c_idx}", height=54)
-            for d_idx, dish in enumerate(cat.get("dishes", [])):
-                st.markdown(f"**Plato {d_idx + 1}**")
-                col0, col1, col2 = st.columns([0.75, 3, 1.35])
-                with col0:
-                    dish["number"] = st.text_input("Nº", dish.get("number", ""), key=f"num_{c_idx}_{d_idx}", help="Número original del plato si venía numerado en la carta.")
-                with col1:
-                    dish["name"] = st.text_input("Plato", dish.get("name", ""), key=f"name_{c_idx}_{d_idx}")
-                    dish["description"] = st.text_area("Descripción", dish.get("description", ""), key=f"desc_{c_idx}_{d_idx}", height=64)
-                with col2:
-                    dish["price"] = st.text_input("Precio", dish.get("price", ""), key=f"price_{c_idx}_{d_idx}")
-                    defaults = get_ordered_allergens(dish.get("allergens", []))
-                    dish["allergens"] = st.multiselect(
-                        "Alérgenos",
-                        ALLERGEN_ORDER,
-                        default=defaults,
-                        format_func=lambda x: ALLERGEN_LABELS.get(x, x),
-                        key=f"all_{c_idx}_{d_idx}"
-                    )
-                if dish.get("review_notes"):
-                    with st.expander("ℹ️ Sugerencia opcional", expanded=False):
-                        st.caption(" · ".join(dish.get("review_notes", [])))
-                st.divider()
-    return data
-
-
-
-
-
-# ======================================================
-# V6 - FAMILIA PREMIUM CON SKINS VISUALES DISTINTAS
-# ======================================================
-PREMIUM_V6_THEMES = {
-    "cafe": {
-        "name": "Premium Café Editorial",
-        "label": "Carta premium café · alérgenos",
-        "body_bg": "#eadbc5",
-        "page_bg": "linear-gradient(145deg,#fff9ed 0%,#f1dfc4 100%)",
-        "page_border": "#2a2119",
-        "inner_border": "#c49a59",
-        "panel_bg": "rgba(255,255,255,.76)",
-        "panel_bg_alt": "#fff7e8",
-        "panel_border": "#dcc299",
-        "text": "#211a14",
-        "muted": "#5d5146",
-        "accent": "#86531f",
-        "accent_2": "#c49a59",
-        "title": "#2a2119",
-        "header_bg": "transparent",
-        "shadow": "0 8px 18px rgba(47,32,15,.08)",
-        "decor": "radial-gradient(circle at 92% 6%, rgba(196,154,89,.16), transparent 20%), radial-gradient(circle at 8% 94%, rgba(123,76,32,.08), transparent 22%)",
-        "guide_theme": "light",
-    },
-    "noir": {
-        "name": "Premium Noir",
-        "label": "Carta premium noir · alérgenos",
-        "body_bg": "#090807",
-        "page_bg": "linear-gradient(145deg,#171411 0%,#0d0b0a 55%,#050505 100%)",
-        "page_border": "#d2aa5c",
-        "inner_border": "rgba(255,255,255,.16)",
-        "panel_bg": "rgba(255,255,255,.055)",
-        "panel_bg_alt": "rgba(210,170,92,.08)",
-        "panel_border": "rgba(210,170,92,.42)",
-        "text": "#f7efd9",
-        "muted": "#cdbf9d",
-        "accent": "#d2aa5c",
-        "accent_2": "#8e6b32",
-        "title": "#fff8e6",
-        "header_bg": "rgba(0,0,0,.16)",
-        "shadow": "0 10px 22px rgba(0,0,0,.28)",
-        "decor": "radial-gradient(circle at 15% 10%, rgba(255,255,255,.08), transparent 23%), radial-gradient(circle at 80% 8%, rgba(210,170,92,.18), transparent 20%), repeating-linear-gradient(0deg, rgba(255,255,255,.018), rgba(255,255,255,.018) 1px, transparent 1px, transparent 4px)",
-        "guide_theme": "dark",
-    },
-    "oliva": {
-        "name": "Premium Oliva Natural",
-        "label": "Carta premium oliva · alérgenos",
-        "body_bg": "#dfe5d5",
-        "page_bg": "linear-gradient(145deg,#fbfbef 0%,#e4ead7 100%)",
-        "page_border": "#3f4a33",
-        "inner_border": "#9aac7c",
-        "panel_bg": "rgba(255,255,250,.78)",
-        "panel_bg_alt": "#f3f5e9",
-        "panel_border": "#c8d2b3",
-        "text": "#202416",
-        "muted": "#58604a",
-        "accent": "#566b35",
-        "accent_2": "#9aac7c",
-        "title": "#2b351f",
-        "header_bg": "rgba(86,107,53,.06)",
-        "shadow": "0 8px 18px rgba(63,74,51,.10)",
-        "decor": "radial-gradient(circle at 90% 8%, rgba(86,107,53,.13), transparent 21%), radial-gradient(circle at 4% 86%, rgba(154,172,124,.18), transparent 24%)",
-        "guide_theme": "light",
-    },
-    "burdeos": {
-        "name": "Premium Burdeos Gastrobar",
-        "label": "Carta premium burdeos · alérgenos",
-        "body_bg": "#2b0f15",
-        "page_bg": "linear-gradient(150deg,#fff7ec 0%,#f4dccb 64%,#ead0bd 100%)",
-        "page_border": "#5a1824",
-        "inner_border": "#b98455",
-        "panel_bg": "rgba(255,250,244,.84)",
-        "panel_bg_alt": "#fff1e4",
-        "panel_border": "#d9b896",
-        "text": "#261516",
-        "muted": "#654d45",
-        "accent": "#7b1e2e",
-        "accent_2": "#b98455",
-        "title": "#4b121d",
-        "header_bg": "linear-gradient(90deg, rgba(123,30,46,.12), transparent)",
-        "shadow": "0 8px 20px rgba(75,18,29,.12)",
-        "decor": "radial-gradient(circle at 88% 10%, rgba(123,30,46,.12), transparent 22%), radial-gradient(circle at 9% 88%, rgba(185,132,85,.16), transparent 24%)",
-        "guide_theme": "light",
-    },
-    "azul": {
-        "name": "Premium Azul Noche",
-        "label": "Carta premium azul noche · alérgenos",
-        "body_bg": "#071521",
-        "page_bg": "linear-gradient(145deg,#0f2a3a 0%,#0a1a26 58%,#06101a 100%)",
-        "page_border": "#d8c08a",
-        "inner_border": "rgba(216,192,138,.44)",
-        "panel_bg": "rgba(255,255,255,.075)",
-        "panel_bg_alt": "rgba(216,192,138,.08)",
-        "panel_border": "rgba(216,192,138,.38)",
-        "text": "#f3efe2",
-        "muted": "#c4d0d5",
-        "accent": "#d8c08a",
-        "accent_2": "#7fb0c8",
-        "title": "#fff7dd",
-        "header_bg": "rgba(255,255,255,.035)",
-        "shadow": "0 10px 22px rgba(0,0,0,.30)",
-        "decor": "radial-gradient(circle at 86% 8%, rgba(127,176,200,.20), transparent 22%), radial-gradient(circle at 10% 92%, rgba(216,192,138,.14), transparent 26%)",
-        "guide_theme": "dark",
-    },
-}
-
-
-def premium_v6_theme(theme_key="cafe", custom=None):
-    theme = dict(PREMIUM_V6_THEMES.get(theme_key, PREMIUM_V6_THEMES["cafe"]))
-    if custom:
-        theme.update({k: v for k, v in custom.items() if v})
-        theme["name"] = custom.get("name", "Premium Personalizado")
-        theme["label"] = custom.get("label", "Carta premium personalizada · alérgenos")
-        theme.setdefault("guide_theme", "light")
-    return theme
-
-
-def allergen_guide_panel_v6(theme, notice=""):
-    dark = theme.get("guide_theme") == "dark"
-    bg = "linear-gradient(135deg, rgba(0,0,0,.22), rgba(255,255,255,.045))" if dark else f"linear-gradient(135deg,{theme['panel_bg_alt']},rgba(255,255,255,.72))"
-    title_color = theme["accent"]
-    text_color = theme["text"]
-    muted = theme["muted"]
-    border = theme["panel_border"]
-    item_bg = "rgba(255,255,255,.06)" if dark else "rgba(255,255,255,.68)"
-    icon_filter = "drop-shadow(0 1px 2px rgba(0,0,0,.65))" if dark else "drop-shadow(0 1px 1px rgba(80,50,20,.18))"
-    items = []
-    for allergen in ALLERGEN_ORDER:
-        icon = icon_img_html_inline(allergen, f"width:8mm; height:8mm; object-fit:contain; filter:{icon_filter};")
-        items.append(
-            f'<div class="guide-item">{icon}<span>{html_escape(ALLERGEN_LABELS[allergen])}</span></div>'
-        )
-    return f'''
-    <section class="v6-guide">
-        <h3>Guía de alérgenos</h3>
-        <div class="v6-guide-grid">{"".join(items)}</div>
-        <div class="v6-notice">{notice}</div>
-    </section>
-    <style>
-    .v6-guide {{ margin-top:5.5mm; padding:4.8mm; border:1px solid {border}; border-radius:12px; background:{bg}; box-shadow:{theme['shadow']}; }}
-    .v6-guide h3 {{ margin:0 0 3.4mm; text-align:center; color:{title_color}; font-family:Georgia,'Times New Roman',serif; font-size:15px; letter-spacing:2.2px; text-transform:uppercase; }}
-    .v6-guide-grid {{ display:grid; grid-template-columns:repeat(7,1fr); gap:2mm 2.4mm; align-items:start; }}
-    .guide-item {{ min-height:15mm; padding:1.5mm .8mm; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:1mm; color:{text_color}; text-align:center; font-size:7.1px; line-height:1.08; border:1px solid {border}; border-radius:8px; background:{item_bg}; }}
-    .v6-notice {{ margin-top:3.1mm; color:{muted}; font-size:6.9px; line-height:1.3; text-align:center; }}
-    </style>
-    '''
-
-
-def _premium_v6_header(data, theme, logo_src=None, qr_src=None, label=None, qr_large=False):
-    label = label or theme.get("label", "Carta premium · alérgenos")
-    brand = brand_html(data, logo_src)
-    qr = qr_html(qr_src)
-    if qr_large and not qr:
-        qr = '<div class="qr-wrap qr-empty"><div class="qr-placeholder">QR</div><span>Añade QR o URL</span></div>'
-    return f'''
-    <header class="header">
-        <div class="head-main"><div class="label">{html_escape(label)}</div><div class="brandline">{brand}</div></div>
-        {qr}
-    </header>
-    '''
-
-
-def _build_cards_sections(data, variant="cards", show_dish_icons=True):
-    sections = []
-    for cat in data.get("categories", []):
-        dishes = []
-        for dish in cat.get("dishes", []):
-            desc = html_escape(dish.get("description", ""))
-            desc_html = f'<p class="dish-desc">{desc}</p>' if desc else ""
-            icons = allergen_icons_html(dish.get("allergens", []), small=(variant != "cards")) if show_dish_icons else ""
-            icon_line = f'<div class="icon-line">{icons}</div>' if show_dish_icons else ""
-            price = html_escape(format_price(dish.get("price", "")))
-            dishes.append(f'''
-            <article class="dish {variant}">
-                <div class="dish-line"><h3>{html_escape(dish_display_name(dish))}</h3><strong>{price}</strong></div>
-                {desc_html}
-                {icon_line}
-            </article>
-            ''')
-        sections.append(f'''
-        <section class="category {variant}">
-            <h2>{html_escape(cat.get('name','Categoría'))}</h2>
-            {''.join(dishes)}
-        </section>
-        ''')
-    return "".join(sections)
-
-
-def _build_table_sections(data, show_dish_icons=True):
-    blocks = []
-    for cat in data.get("categories", []):
-        rows = []
-        for dish in cat.get("dishes", []):
-            desc = html_escape(dish.get("description", ""))
-            desc_html = f'<div class="table-desc">{desc}</div>' if desc else ""
-            icons = allergen_icons_html(dish.get("allergens", []), small=True) if show_dish_icons else ""
-            icons_html = f'<div class="table-icons">{icons}</div>' if show_dish_icons else ""
-            price = html_escape(format_price(dish.get("price", "")))
-            rows.append(f'''
-            <div class="table-row">
-                <div class="table-product"><strong>{html_escape(dish_display_name(dish))}</strong>{desc_html}</div>
-                {icons_html}
-                <div class="table-price">{price}</div>
-            </div>
-            ''')
-        blocks.append(f'''
-        <section class="table-category">
-            <h2>{html_escape(cat.get('name','Categoría'))}</h2>
-            {''.join(rows)}
-        </section>
-        ''')
-    return "".join(blocks)
-
-
-def create_premium_v6_html(data, logo_src=None, qr_src=None, theme_key="cafe", variant="cards", custom_theme=None, show_dish_icons=False):
-    theme = premium_v6_theme(theme_key, custom=custom_theme)
-    notice = html_escape(build_notice(data))
-    extra = html_escape(data.get("texto_extra", ""))
-    extra_html = f'<div class="extra-box"><strong>Notas de carta:</strong> {extra}</div>' if extra else ""
-
-    if variant == "table":
-        content = _build_table_sections(data, show_dish_icons=show_dish_icons)
-        label = theme.get("label", "Carta premium técnica · alérgenos")
-    else:
-        content = _build_cards_sections(data, variant=variant, show_dish_icons=show_dish_icons)
-        label = theme.get("label", "Carta premium · alérgenos")
-
-    intro = ""
-    qr_large = False
-    if variant == "mesa":
-        qr_large = True
-        intro = f'''
-        <section class="intro-box">
-            <div><strong>Consulta rápida en mesa o barra.</strong><br>La carta queda limpia, sin iconos junto a cada plato. La guía de alérgenos se mantiene al final.</div>
-            <div class="intro-badge">2 columnas · QR</div>
-        </section>
-        '''
-
-    page_classes = f"page variant-{variant} theme-{theme_key}" + ("" if show_dish_icons else " no-dish-icons")
-    return f'''<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<title>{html_escape(theme['name'])} - {html_escape(data.get('restaurant_name','Menú'))}</title>
-<style>
-@page {{ size:A4 portrait; margin:8mm; }}
-* {{ box-sizing:border-box; }}
-body {{ margin:0; background:{theme['body_bg']}; color:{theme['text']}; font-family:'Trebuchet MS', Verdana, Arial, sans-serif; }}
-.page {{ min-height:281mm; padding:9.5mm; position:relative; overflow:hidden; background:{theme['decor']}, {theme['page_bg']}; border:1.25mm solid {theme['page_border']}; box-shadow:inset 0 0 0 .55mm {theme['inner_border']}; }}
-.header {{ position:relative; z-index:1; display:grid; grid-template-columns:1fr auto; gap:8mm; align-items:center; margin-bottom:7mm; padding:4mm 0 5mm; border-bottom:1px solid {theme['accent_2']}; background:{theme['header_bg']}; }}
-.head-main {{ min-width:0; }}
-.label {{ color:{theme['accent']}; text-transform:uppercase; letter-spacing:3px; font-size:9px; font-weight:900; margin-bottom:1.8mm; }}
-.brandline {{ display:flex; align-items:center; gap:5mm; min-width:0; }}
-.brand-wrap {{ display:flex; align-items:center; gap:4mm; }}
-.restaurant-logo {{ max-width:34mm; max-height:22mm; object-fit:contain; }}
-.brand-name.mini {{ color:{theme['muted']}; font-size:8.8px; text-transform:uppercase; letter-spacing:1px; font-weight:900; }}
-.brand-wordmark {{ font-family:Georgia,'Times New Roman',serif; font-size:28px; line-height:1; color:{theme['title']}; font-weight:900; letter-spacing:.5px; text-transform:uppercase; }}
-.qr-wrap {{ width:30mm; text-align:center; color:{theme['muted']}; font-size:7.3px; text-transform:uppercase; letter-spacing:.55px; }}
-.qr-img {{ width:27mm; height:27mm; object-fit:contain; background:#fff; padding:1.1mm; border:1px solid {theme['accent_2']}; border-radius:4px; }}
-.qr-placeholder {{ width:27mm; height:27mm; display:flex; align-items:center; justify-content:center; border:1px dashed {theme['accent_2']}; color:{theme['accent']}; font-size:14px; font-weight:900; margin:0 auto 1mm; background:rgba(255,255,255,.35); }}
-.intro-box {{ position:relative; z-index:1; margin:0 0 5mm; display:grid; grid-template-columns:1fr auto; gap:4mm; align-items:center; padding:3mm 4mm; border:1px solid {theme['panel_border']}; border-left:4px solid {theme['accent']}; border-radius:10px; background:{theme['panel_bg_alt']}; color:{theme['muted']}; font-size:9px; line-height:1.32; }}
-.intro-badge {{ color:{theme['accent']}; font-weight:900; text-transform:uppercase; letter-spacing:.8px; white-space:nowrap; }}
-.layout {{ position:relative; z-index:1; column-count:2; column-gap:7mm; }}
-.category {{ break-inside:avoid; margin-bottom:5mm; padding:4mm; border:1px solid {theme['panel_border']}; border-radius:10px; background:{theme['panel_bg']}; box-shadow:{theme['shadow']}; }}
-.category h2 {{ margin:0 0 3mm; padding-bottom:2mm; color:{theme['accent']}; border-bottom:1px solid {theme['accent_2']}; font-family:Georgia,'Times New Roman',serif; font-size:20px; line-height:1; }}
-.dish {{ padding:1.9mm 0; border-bottom:1px solid {theme['panel_border']}; }}
-.dish:last-child {{ border-bottom:none; }}
-.dish-line {{ display:flex; justify-content:space-between; gap:4mm; align-items:baseline; }}
-.dish-line h3 {{ margin:0; color:{theme['text']}; font-size:11.4px; text-transform:uppercase; letter-spacing:.18px; }}
-.dish-line strong {{ color:{theme['accent']}; font-size:11.2px; white-space:nowrap; }}
-.dish-desc {{ margin:1mm 0 1.1mm; color:{theme['muted']}; font-size:8.8px; line-height:1.28; }}
-.icon-line {{ display:flex; flex-wrap:wrap; gap:1mm; min-height:4mm; align-items:center; }}
-.allergen-icon {{ width:4.9mm; height:4.9mm; object-fit:contain; }}
-.allergen-icon.small {{ width:4mm; height:4mm; object-fit:contain; vertical-align:middle; }}
-.missing-icon {{ display:inline-flex; align-items:center; justify-content:center; width:4.5mm; height:4.5mm; border:1px solid {theme['accent']}; color:{theme['accent']}; font-size:4.4px; font-weight:900; border-radius:50%; }}
-.extra-box {{ position:relative; z-index:1; margin-bottom:3mm; padding:2.7mm 3mm; border:1px solid {theme['panel_border']}; border-radius:9px; background:{theme['panel_bg_alt']}; color:{theme['muted']}; font-size:8.2px; text-align:center; }}
-.footer {{ position:relative; z-index:1; margin-top:5.5mm; }}
-.category.compact {{ padding:3.5mm; border-radius:7px; }}
-.category.compact h2 {{ font-size:18px; margin-bottom:2.5mm; }}
-.dish.compact {{ padding:1.3mm 0; }}
-.dish.compact .dish-line h3 {{ font-size:9.4px; }}
-.dish.compact .dish-line strong {{ font-size:9.5px; }}
-.dish.compact .icon-line {{ margin-top:.6mm; }}
-.dish.compact .dish-desc {{ font-size:7.6px; }}
-.category.soft {{ border-radius:16px; padding:4.5mm; }}
-.category.soft h2 {{ border-bottom:none; padding-bottom:0; }}
-.category.soft h2:after {{ content:""; display:block; width:26mm; height:1px; background:{theme['accent_2']}; margin:2mm 0 0; }}
-.category.mesa {{ border-radius:11px; padding:3.8mm; }}
-.dish.mesa {{ padding:1.55mm 0; }}
-.dish.mesa .dish-line h3 {{ font-size:9.6px; }}
-.dish.mesa .dish-line strong {{ font-size:9.5px; }}
-.dish.mesa .dish-desc {{ font-size:7.8px; }}
-.table-category {{ break-inside:avoid; margin-bottom:4.7mm; border:1px solid {theme['panel_border']}; border-radius:10px; overflow:hidden; background:{theme['panel_bg']}; box-shadow:{theme['shadow']}; }}
-.table-category h2 {{ margin:0; padding:2.6mm 3.2mm; color:{theme['panel_bg_alt']}; background:{theme['accent']}; font-family:Georgia,'Times New Roman',serif; font-size:17px; line-height:1; }}
-.table-row {{ display:grid; grid-template-columns:1fr auto 13mm; gap:2.2mm; align-items:center; padding:1.75mm 2.8mm; border-bottom:1px solid {theme['panel_border']}; }}
-.no-dish-icons .table-row {{ grid-template-columns:1fr 13mm; }}
-.table-row:last-child {{ border-bottom:none; }}
-.table-product strong {{ display:block; color:{theme['text']}; font-size:9.2px; text-transform:uppercase; letter-spacing:.12px; }}
-.table-desc {{ color:{theme['muted']}; font-size:7.5px; line-height:1.2; margin-top:.5mm; }}
-.table-icons {{ display:flex; flex-wrap:wrap; gap:.7mm; justify-content:flex-end; min-width:12mm; }}
-.table-price {{ text-align:right; color:{theme['accent']}; font-size:9px; font-weight:900; }}
-</style>
-</head>
-<body>
-<div class="{page_classes}">
-{_premium_v6_header(data, theme, logo_src, qr_src, label=label, qr_large=qr_large)}
-{intro}
-<main class="layout">{content}</main>
-<footer class="footer">{extra_html}{allergen_guide_panel_v6(theme, notice)}</footer>
-</div>
-</body>
-</html>'''
-
-
-def render_visual_downloads(data):
-    st.subheader("🎨 Plantillas premium en dos columnas · v7")
-    st.caption(
-        "Todas mantienen 2 columnas y la guía de alérgenos abajo. Por defecto NO muestran iconos junto a cada plato, "
-        "para que la carta quede más limpia y parecida a una carta editable real."
-    )
-
-    colA, colB, colC = st.columns([1.15, 1.15, 1])
-    with colA:
-        logo_file = st.file_uploader("Subir logo del restaurante", type=["png", "jpg", "jpeg", "webp"], key="logo_visual_v6")
-    with colB:
-        qr_file = st.file_uploader("Subir QR del menú", type=["png", "jpg", "jpeg", "webp"], key="qr_visual_v6")
-    with colC:
-        qr_url = st.text_input("O generar QR desde URL", placeholder="https://...", key="qr_url_v6")
-
-    logo_src = uploaded_image_to_data_uri(logo_file, max_side=900) if logo_file else None
-    qr_src = uploaded_image_to_data_uri(qr_file, max_side=700) if qr_file else generate_qr_data_uri(qr_url)
-
-    show_dish_icons = st.checkbox("Mostrar iconos junto a cada plato", value=False, key="show_dish_icons_v8")
-
-    template = st.selectbox("Elige plantilla final", [
-        "Premium Café Editorial · 2 columnas",
-        "Premium Noir · 2 columnas",
-        "Premium Oliva Natural · 2 columnas",
-        "Premium Burdeos Gastrobar · 2 columnas",
-        "Premium Azul Noche Mesa QR · 2 columnas",
-        "Premium Personalizable · 2 columnas"
-    ], key="template_v6")
-
-    mapping = {
-        "Premium Café Editorial · 2 columnas": ("cafe", "cards", "Carta_Premium_Cafe_Editorial_"),
-        "Premium Noir · 2 columnas": ("noir", "cards", "Carta_Premium_Noir_"),
-        "Premium Oliva Natural · 2 columnas": ("oliva", "soft", "Carta_Premium_Oliva_"),
-        "Premium Burdeos Gastrobar · 2 columnas": ("burdeos", "compact", "Carta_Premium_Burdeos_"),
-        "Premium Azul Noche Mesa QR · 2 columnas": ("azul", "mesa", "Carta_Premium_Azul_Noche_"),
-    }
-
-    custom_theme = None
-    if template == "Premium Personalizable · 2 columnas":
-        st.markdown("#### Personalización visual")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            body_bg = st.color_picker("Fondo exterior", "#eadbc5", key="v6_body_bg")
-            page_color = st.color_picker("Fondo carta", "#fff9ed", key="v6_page_color")
-            panel_bg = st.color_picker("Fondo bloques", "#ffffff", key="v6_panel_bg")
-        with c2:
-            text = st.color_picker("Texto", "#211a14", key="v6_text")
-            muted = st.color_picker("Texto secundario", "#5d5146", key="v6_muted")
-            accent = st.color_picker("Color principal", "#86531f", key="v6_accent")
-        with c3:
-            accent_2 = st.color_picker("Líneas/detalles", "#c49a59", key="v6_accent2")
-            border = st.color_picker("Borde carta", "#2a2119", key="v6_border")
-            variant = st.radio("Estructura", ["cards", "soft", "compact", "mesa", "table"], format_func=lambda x: {"cards":"Editorial", "soft":"Suave", "compact":"Compacta", "mesa":"Mesa QR", "table":"Técnica"}[x], horizontal=True, key="v6_variant")
-        custom_theme = {
-            "name": "Premium Personalizado",
-            "label": "Carta premium personalizada · alérgenos",
-            "body_bg": body_bg,
-            "page_bg": f"linear-gradient(145deg,{page_color} 0%,{page_color} 100%)",
-            "page_border": border,
-            "inner_border": accent_2,
-            "panel_bg": f"{panel_bg}d9",
-            "panel_bg_alt": panel_bg,
-            "panel_border": accent_2,
-            "text": text,
-            "muted": muted,
-            "accent": accent,
-            "accent_2": accent_2,
-            "title": text,
-            "header_bg": "transparent",
-            "shadow": "0 8px 18px rgba(0,0,0,.08)",
-            "decor": "radial-gradient(circle at 90% 8%, rgba(0,0,0,.035), transparent 20%)",
-            "guide_theme": "light",
-        }
-        theme_key = "cafe"
-        prefix = "Carta_Premium_Personalizada_"
-    else:
-        theme_key, variant, prefix = mapping[template]
-
-    html_code = create_premium_v6_html(
-        data,
-        logo_src=logo_src,
-        qr_src=qr_src,
-        theme_key=theme_key,
-        variant=variant,
-        custom_theme=custom_theme,
-        show_dish_icons=show_dish_icons,
-    )
-    base_name = prefix + slugify_filename(data.get("restaurant_name", "menu"))
-
-    st.markdown("#### Descargas")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.download_button(
-            "⬇️ HTML imprimible",
-            html_code.encode("utf-8"),
-            file_name=f"{base_name}.html",
-            mime="text/html"
-        )
-    with c2:
-        pdf_bytes = html_to_pdf_bytes(html_code)
-        if pdf_bytes:
-            st.download_button("⬇️ PDF visual", pdf_bytes, file_name=f"{base_name}.pdf", mime="application/pdf")
-        else:
-            st.info("PDF directo no activo. Abre el HTML y usa Imprimir → Guardar como PDF, o instala WeasyPrint.")
-    with c3:
-        st.download_button(
-            "⬇️ Word editable",
-            create_premium_editable_word(data),
-            file_name=f"{base_name}_editable.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-
-    st.info(
-        "Para edición manual real usa el apartado de plantillas editables. Este HTML/PDF es visual. "
-        "Por defecto queda limpio: sin iconos junto a platos y con leyenda inferior."
-    )
-
-    with st.expander("👀 Vista previa", expanded=True):
-        st.components.v1.html(html_code, height=840, scrolling=True)
-
-# ======================================================
-# V11.1 - ESTABILIZACIÓN PROFESIONAL
-# Voz + alérgenos + salidas + traducción (sin añadir módulos nuevos)
-# ======================================================
-import copy
-import hashlib
-
-MENU_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "restaurant_name": {"type": "string"},
-        "texto_extra": {"type": "string"},
-        "categories": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "category_text": {"type": "string"},
-                    "dishes": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "number": {"type": "string"},
-                                "name": {"type": "string"},
-                                "description": {"type": "string"},
-                                "price": {"type": "string"},
-                                "allergens": {
-                                    "type": "array",
-                                    "items": {"type": "string", "enum": ALLERGEN_ORDER},
-                                },
-                                "review_notes": {"type": "array", "items": {"type": "string"}},
-                            },
-                            "required": ["number", "name", "description", "price", "allergens", "review_notes"],
-                        },
-                    },
-                },
-                "required": ["name", "category_text", "dishes"],
-            },
-        },
-    },
-    "required": ["restaurant_name", "texto_extra", "categories"],
-}
-
-
-def build_ai_prompt():
-    allergen_keys = ", ".join(ALLERGEN_ORDER)
-    return f"""
-Eres un transcriptor experto de cartas de restaurante en España y la UE.
-
-OBJETIVO:
-1) Transcribe fielmente categorías, platos, descripciones, precios, numeración y textos auxiliares.
-2) No inventes platos, precios ni ingredientes que no aparezcan.
-3) Debes proponer una primera estimación razonada de alérgenos entre estas claves: {allergen_keys}; no los dejes vacíos por defecto si la receta habitual permite una inferencia razonable.
-4) Una segunda pasada especializada revisará los alérgenos con mayor capacidad de razonamiento, así que prioriza la fidelidad de la carta.
-
-REGLAS:
-- Conserva el nombre del restaurante/marca tal como aparece.
-- Conserva teléfonos, dirección, horarios, suplementos y avisos en texto_extra.
-- Si una nota pertenece claramente a una categoría, usa category_text.
-- Conserva number vacío si no existe numeración.
-- Devuelve SOLO JSON válido conforme al esquema de la aplicación.
-"""
-
-
-ALLERGEN_AI_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "items": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "category_index": {"type": "integer"},
-                    "dish_index": {"type": "integer"},
-                    "allergens": {"type": "array", "items": {"type": "string", "enum": ALLERGEN_ORDER}},
-                    "confidence": {"type": "string", "enum": ["alta", "media", "baja"]},
-                    "reason": {"type": "string"},
-                },
-                "required": ["category_index", "dish_index", "allergens", "confidence", "reason"],
-            },
-        }
-    },
-    "required": ["items"],
-}
-
-
-def infer_allergens_with_best_model(data):
-    dishes = []
-    for c_idx, category in enumerate(data.get("categories", [])):
-        for d_idx, dish in enumerate(category.get("dishes", [])):
-            dishes.append({
-                "category_index": c_idx,
-                "dish_index": d_idx,
-                "category": str(category.get("name") or ""),
-                "name": str(dish.get("name") or ""),
-                "description": str(dish.get("description") or ""),
-            })
-    if not dishes:
-        return data
-
-    system_instruction = """
-Eres un especialista en clasificación de los 14 alérgenos de declaración obligatoria del Reglamento (UE) 1169/2011 y en cocina de restauración española e internacional.
-Tu trabajo es estimar qué alérgenos contiene normalmente cada plato usando TODA la información disponible: nombre, descripción, categoría y conocimiento culinario de preparaciones estándar.
-No te limites a buscar palabras literales: razona sobre la composición habitual de platos reconocibles (por ejemplo croquetas, tiramisú, carbonara, rebozados, pesto, hummus, salsas, panes y masas).
-No inventes contaminación cruzada ni trazas si no están indicadas. Respeta expresiones explícitas como "sin gluten". Distingue cacahuete de frutos de cáscara y crustáceos de moluscos.
-Si una receta tiene variantes razonables, elige la clasificación más probable y baja la confianza, en vez de omitir automáticamente todos los alérgenos.
-Los únicos valores permitidos son: gluten, crustaceos, huevos, pescado, cacahuetes, soja, lacteos, frutos de cascara, apio, mostaza, sesamo, sulfitos, altramuces, moluscos.
-La selección podrá ser corregida manualmente después por el establecimiento.
-"""
-    prompt = (
-        "Analiza todos estos platos en una sola pasada. Devuelve un objeto JSON con una clave items. "
-        "Cada item debe contener category_index, dish_index, allergens, confidence (alta/media/baja) y reason. "
-        "Mantén category_index y dish_index exactamente.\n\n" + json.dumps(dishes, ensure_ascii=False)
-    )
-
-    try:
-        result, model_name = allergen_reasoning_json(system_instruction, prompt)
-        seen = 0
-        for item in result.get("items", []):
-            c_idx = int(item.get("category_index", -1))
-            d_idx = int(item.get("dish_index", -1))
-            if c_idx < 0 or d_idx < 0:
-                continue
-            try:
-                dish = data["categories"][c_idx]["dishes"][d_idx]
-            except (KeyError, IndexError, TypeError):
-                continue
-            dish["allergens"] = get_ordered_allergens(item.get("allergens", []))
-            dish["_allergen_ai_confidence"] = item.get("confidence", "")
-            dish["_allergen_ai_reason"] = item.get("reason", "")
-            seen += 1
-        if seen:
-            data["_allergen_model"] = model_name
-            return data
-        raise ValueError("Qwen Max no devolvió platos clasificables")
-    except Exception as exc:
-        data["_allergen_model"] = "estimación inicial + reglas locales"
-        data["_allergen_model_error"] = str(exc)[-1200:]
-        return data
-
-def _word_or_phrase(text, phrase):
-    haystack = normalize_text(text)
-    needle = normalize_text(phrase)
-    if not needle:
-        return False
-    return re.search(r"(?<!\w)" + re.escape(needle) + r"(?!\w)", haystack, flags=re.IGNORECASE) is not None
-
-
-# Solo ingredientes/nombres con respaldo suficientemente directo.
-V11_1_EXPLICIT_RULES = {
-    "gluten": [
-        "gluten", "trigo", "cebada", "centeno", "avena", "espelta", "harina de trigo", "pan", "brioche",
-        "pasta", "fideos", "couscous", "cuscus", "bulgur", "panko", "tempura", "rebozado", "empanado",
-        "focaccia", "pizza", "bao", "gyoza", "tortilla de trigo", "cerveza", "radler",
-    ],
-    "lacteos": [
-        "leche", "lacteos", "lácteos", "queso", "nata", "mantequilla", "yogur", "yoghurt", "mozzarella",
-        "parmesano", "cheddar", "burrata", "feta", "mascarpone", "gorgonzola", "crema de leche", "helado",
-        "panna cotta", "cafe con leche", "café con leche", "cortado", "cappuccino", "capuccino",
-    ],
-    "huevos": [
-        "huevo", "huevos", "yema", "clara", "mayonesa", "mahonesa", "merengue", "tortilla de patatas",
-        "tortilla española", "tortilla espanola", "tortilla francesa", "revuelto", "huevo poche", "huevo poché",
-    ],
-    "crustaceos": [
-        "gamba", "gambas", "langostino", "langostinos", "cigala", "cigalas", "bogavante", "cangrejo",
-        "buey de mar", "camaron", "camarón", "carabinero", "quisquilla",
-    ],
-    "moluscos": [
-        "pulpo", "calamar", "calamares", "raba", "rabas", "sepia", "mejillon", "mejillón", "mejillones",
-        "almeja", "almejas", "chipiron", "chipirón", "vieira", "vieiras", "ostra", "ostras", "navaja",
-        "navajas", "berberecho", "berberechos", "zamburiña", "zamburiñas", "salsa de ostras",
-    ],
-    "pescado": [
-        "pescado", "atun", "atún", "salmon", "salmón", "bacalao", "merluza", "anchoa", "anchoas",
-        "boqueron", "boquerón", "boquerones", "sardina", "sardinas", "ventresca", "bonito", "dorada", "lubina",
-        "dashi", "katsuobushi",
-    ],
-    "cacahuetes": ["cacahuete", "cacahuetes", "mani", "maní", "peanut", "crema de cacahuete"],
-    "soja": ["soja", "soya", "tofu", "miso", "edamame", "tamari", "salsa de soja", "salsa de soya", "teriyaki"],
-    "frutos de cascara": [
-        "almendra", "almendras", "avellana", "avellanas", "nuez", "nueces", "anacardo", "anacardos",
-        "pistacho", "pistachos", "pacana", "pacanas", "nuez de brasil", "nueces de brasil", "macadamia", "macadamias",
-        "nutella",
-    ],
-    "apio": ["apio"],
-    "mostaza": ["mostaza", "dijon"],
-    "sesamo": ["sesamo", "sésamo", "ajonjoli", "ajonjolí", "tahini"],
-    "sulfitos": ["sulfitos", "sulfito", "dioxido de azufre", "dióxido de azufre", "so2"],
-    "altramuces": ["altramuz", "altramuces", "lupin", "lupino"],
-}
-
-# Platos/preparaciones de alta confianza: se marcan, pero se deja nota de validación de receta.
-V11_1_COMPOUND_CONFIRMED = [
-    (r"\bcroquet", ["gluten", "lacteos", "huevos"], "Croqueta: confirmar receta y ficha de ingredientes antes de entregar."),
-    (r"\bcalamares?\s+(a la romana|rebozados?|empanados?)\b|\brabas?\s+(rebozadas?|empanadas?)\b", ["moluscos", "gluten"], "Rebozado de calamar/raba: confirmar si la mezcla lleva huevo."),
-    (r"\bcarbonara\b", ["huevos", "lacteos"], "Carbonara: confirmar receta concreta del establecimiento."),
-    (r"\bbechamel\b", ["gluten", "lacteos"], "Bechamel: confirmar harina/espesante y leche utilizados."),
-    (r"\bnutella\b", ["frutos de cascara", "lacteos"], "Nutella: confirmar que se utiliza el producto original o revisar la crema equivalente."),
-]
-
-# Casos variables: no se convierten en iconos automáticamente.
-V11_1_REVIEW_PATTERNS = [
-    (r"\bmarisco\b", ["crustaceos", "moluscos"], "'Marisco' es genérico: confirmar si se trata de crustáceos, moluscos o ambos."),
-    (r"\balioli\b|\bali-oli\b", ["huevos"], "Alioli: confirmar receta; puede llevar huevo o ser alioli tradicional sin huevo."),
-    (r"\bhummus\b", ["sesamo"], "Hummus: confirmar si la receta lleva tahini/sésamo."),
-    (r"\bpesto\b", ["frutos de cascara", "lacteos"], "Pesto: confirmar frutos de cáscara y queso de la receta concreta."),
-    (r"\bromesco\b", ["frutos de cascara", "gluten"], "Romesco: confirmar frutos de cáscara y espesantes/pan de la receta."),
-    (r"\b(c[eé]sar|cesar)\b", ["huevos", "pescado", "lacteos", "mostaza", "gluten"], "César: revisar salsa, queso y croutons/pan de la receta concreta."),
-    (r"\bcaldo\b|\bfondo\b|\bpastilla de caldo\b|\bsofrito\b", ["apio"], "Caldo/fondo/sofrito: confirmar apio y ficha técnica del proveedor."),
-    (r"\bvino\b|\bcava\b|\bvermut\b|\bvermouth\b|\bvinagre\b|\bsidra\b|\blicor\b", ["sulfitos"], "Bebida/ingrediente fermentado: revisar etiquetado y presencia declarable de sulfitos."),
-    (r"\bteriyaki\b|\bsalsa de soja\b|\bsalsa de soya\b", ["gluten"], "Salsa de soja/teriyaki: confirmar si contiene trigo/gluten o si es una variante sin gluten."),
-    (r"\bburger\b|\bhamburguesa\b", ["gluten"], "Burger/hamburguesa: no asumir pan; confirmar si se sirve con pan/brioche."),
-    (r"\bsushi\b|\btataki\b", ["pescado"], "Sushi/tataki: confirmar el ingrediente principal; el nombre por sí solo no implica pescado."),
-    (r"\btortilla\b(?!\s+(?:de\s+(?:trigo|patatas|maiz)|espanola|francesa))", ["huevos", "gluten"], "'Tortilla' es ambiguo: distinguir tortilla de huevo de tortilla de trigo/maíz."),
-    (r"\bpi[nñ][oó]n(?:es)?\b", [], "Piñones: no se clasifican automáticamente como 'frutos de cáscara' dentro de los 14 grupos obligatorios."),
-    (r"\bfrutos secos\b", ["frutos de cascara", "cacahuetes"], "'Frutos secos' es genérico: identificar el fruto concreto antes de marcar el grupo legal correspondiente."),
-    (r"\bfrit[oa]s?\b|\bfritura\b|\bfreidora\b", [], "Fritura/freidora: revisar el protocolo real de contaminación cruzada."),
-    (r"\bsin lactosa\b", ["lacteos"], "Sin lactosa no equivale necesariamente a sin leche: confirmar proteína de leche."),
-]
-
-
-def _evidence_from_text(text):
-    confirmed = []
-    notes = []
-    for allergen, keywords in V11_1_EXPLICIT_RULES.items():
-        if any(_word_or_phrase(text, kw) for kw in keywords):
-            confirmed = add_allergen(confirmed, allergen)
-
-    for pattern, allergens, note in V11_1_COMPOUND_CONFIRMED:
-        if re.search(pattern, normalize_text(text), flags=re.IGNORECASE):
-            for allergen in allergens:
-                confirmed = add_allergen(confirmed, allergen)
-            if note not in notes:
-                notes.append(note)
-
-    for pattern, candidates, note in V11_1_REVIEW_PATTERNS:
-        if re.search(pattern, normalize_text(text), flags=re.IGNORECASE):
-            # Si la evidencia explícita ya confirmó algo, la nota sigue siendo útil para los elementos variables.
-            if note not in notes:
-                notes.append(note)
-
-    if re.search(r"\bsin\s+gluten\b|\bgluten\s*free\b", normalize_text(text), flags=re.IGNORECASE):
-        confirmed = [a for a in confirmed if a != "gluten"]
-        notes.append("Marcado como sin gluten: confirmar ficha técnica y manipulación separada.")
-
-    return get_ordered_allergens(confirmed), notes
-
-
-def apply_allergen_rules_to_dish(dish):
-    name = dish.get("name") or ""
-    desc = dish.get("description") or ""
-    text = f"{name} {desc}"
-
-    # La IA especializada es la autoridad principal. Las reglas deterministas
-    # solo añaden evidencia explícita y corrigen negaciones inequívocas.
-    inferred = get_ordered_allergens(dish.get("allergens", []))
-    explicit, rule_notes = _evidence_from_text(text)
-    combined = get_ordered_allergens(inferred + explicit)
-
-    normalized = normalize_text(text)
-    if re.search(r"\bsin\s+gluten\b|\bgluten\s*free\b", normalized, flags=re.IGNORECASE):
-        combined = [a for a in combined if a != "gluten"]
-
-    dish["allergens"] = combined
-    # Las notas quedan como información opcional; nunca bloquean descargas.
-    old_notes = dish.get("review_notes", []) or []
-    merged = []
-    for note in old_notes + rule_notes:
-        if note and note not in merged:
-            merged.append(note)
-    dish["review_notes"] = merged
-    return dish
-
-
-def apply_allergen_rules(data):
-    for category in data.get("categories", []):
-        for dish in category.get("dishes", []):
-            apply_allergen_rules_to_dish(dish)
-    return data
-
-
-def analyze_content(content, content_type="image"):
-    try:
-        with st.spinner(f"🧠 Analizando carta con {MODELO_A_USAR} + motor experto de alérgenos..."):
-            prompt = build_ai_prompt()
-            if content_type == "image":
-                data = menu_json_from_image(prompt, content)
-            else:
-                data = menu_json_from_text(prompt, content)
-            data = infer_allergens_with_best_model(data)
-            data = apply_allergen_rules(data)
-            data["_generated_at"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-            data["_system_mode"] = f"{MODELO_A_USAR} + {data.get('_allergen_model', MODELO_ALERGENOS)} para alérgenos"
-            return data
-    except Exception as exc:
-        st.error(f"Error IA/análisis: {exc}")
-        return None
-
-
-def _normalize_audio_price(price):
-    value = str(price or "").strip().replace("€", "").strip()
-    if not value:
-        return ""
-    value = re.sub(r"\s+", " ", value)
-    m = re.fullmatch(r"(\d{1,4})\s+(\d{2})", value)
-    if m:
-        return f"{m.group(1)},{m.group(2)}"
-    if re.fullmatch(r"\d+[\.,]\d{1,2}", value):
-        whole, decimal = re.split(r"[\.,]", value, maxsplit=1)
-        return f"{whole},{decimal.ljust(2, '0')}"
-    if re.fullmatch(r"\d+", value):
-        return f"{value},00"
-    return value
-
-
-def _normalize_audio_menu_prices(data):
-    for category in data.get("categories", []):
-        for dish in category.get("dishes", []):
-            dish["price"] = _normalize_audio_price(dish.get("price", ""))
-    return data
-
-
-def _audio_mime(audio_file):
-    name = str(getattr(audio_file, "name", "") or "").lower()
-    ext = os.path.splitext(name)[1]
-    mapping = {
-        ".wav": "audio/wav",
-        ".mp3": "audio/mp3",
-        ".aac": "audio/aac",
-        ".ogg": "audio/ogg",
-        ".flac": "audio/flac",
-    }
-    if ext in mapping:
-        return mapping[ext]
-    raw = str(getattr(audio_file, "type", "") or "").lower()
-    aliases = {
-        "audio/mpeg": "audio/mp3",
-        "audio/x-wav": "audio/wav",
-        "audio/wave": "audio/wav",
-    }
-    return aliases.get(raw, raw if raw.startswith("audio/") else "audio/wav")
-
-
-def analyze_audio_menu(audio_file):
-    if not audio_file:
-        return None
-    audio_file.seek(0)
-    audio_bytes = audio_file.read()
-    audio_file.seek(0)
-    if not audio_bytes:
-        raise ValueError("La grabación está vacía.")
-    if len(audio_bytes) > 18 * 1024 * 1024:
-        raise ValueError("El audio es demasiado grande para el dictado rápido. Divide el menú en una grabación más corta.")
-
-    audio_prompt = build_ai_prompt() + """
-
-INSTRUCCIONES PARA DICTADO:
-- Ignora muletillas, pausas, dudas y repeticiones.
-- Si corrige algo, conserva la última versión claramente indicada.
-- Crea un plato solo si se nombra explícitamente.
-- Convierte precios hablados a decimal; si no hay precio, deja price vacío.
-- No inventes ingredientes para completar recetas.
-"""
-    data = audio_menu_json(audio_prompt, audio_bytes, _audio_mime(audio_file))
-    data = _normalize_audio_menu_prices(data)
-    data = infer_allergens_with_best_model(data)
-    data = apply_allergen_rules(data)
-    data["_generated_at"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-    data["_system_mode"] = f"Dictado · {MODELO_A_USAR} + {data.get('_allergen_model', MODELO_ALERGENOS)} para alérgenos"
-    data["_input_mode"] = "audio"
-    return data
-
-
-def _add_allergen_icons_to_run(paragraph, allergens, width_cm=0.75):
-    added = False
-    for allergen in get_ordered_allergens(allergens):
-        icon_path = ICON_MAP.get(allergen)
-        if icon_path and os.path.exists(icon_path):
-            try:
-                paragraph.add_run().add_picture(icon_path, width=Cm(width_cm))
-                paragraph.add_run(" ")
-                added = True
-            except Exception:
-                fallback = paragraph.add_run(f"[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ")
-                fallback.font.size = Pt(7)
-                added = True
-        else:
-            fallback = paragraph.add_run(f"[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ")
-            fallback.font.size = Pt(7)
-            added = True
-    return added
-
-
-def _create_client_word(data, with_allergens=False, theme_key="neutral", two_columns=False):
-    """Genera las dos cartas Word desde la misma plantilla visual.
-
-    La versión con alérgenos añade iconos y footer; la versión sin alérgenos
-    limpia cualquier leyenda heredada de la plantilla base.
-    """
-    theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES["neutral"])
-    doc = new_doc_from_template() if not two_columns else Document()
-
-    def clear_footer(footer):
-        footer.is_linked_to_previous = False
-        for child in list(footer._element):
-            footer._element.remove(child)
-
-    # La plantilla histórica llevaba una imagen de leyenda en el footer.
-    # Se elimina siempre y solo se reconstruye si la salida pide alérgenos.
-    for sec in doc.sections:
-        for footer in (sec.footer, sec.first_page_footer, sec.even_page_footer):
-            clear_footer(footer)
-        if two_columns:
-            set_docx_margins(sec)
-            set_docx_two_columns(sec)
-        else:
-            sec.bottom_margin = Cm(1.8)
-
-    rest_name = data.get("restaurant_name", "MENÚ")
-    p_title = doc.add_heading(rest_name, 0)
-    release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
-    for run in p_title.runs:
-        run.bold = True
-        run.font.size = Pt(24)
-        set_run_color(run, theme["header"])
-
-    for block in unique_text_blocks(data.get("texto_extra"), data.get("header_text"), data.get("footer_text"), data.get("notes")):
-        add_text_block_to_doc(doc, block, SANGRIA_CATEGORIA, font_size=10.5, italic=True, color=theme["muted"])
-
-    for category in data.get("categories", []):
-        p_cat = doc.add_heading(category.get("name", "Categoría"), level=1)
-        release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
-        p_cat.paragraph_format.space_before = Pt(6)
-        for run in p_cat.runs:
-            run.bold = True
-            run.font.size = Pt(16)
-            set_run_color(run, theme["cat"])
-
-        for block in unique_text_blocks(category.get("category_text"), category.get("texto_extra"), category.get("notes")):
-            add_text_block_to_doc(doc, block, SANGRIA_PLATOS, font_size=10.0, italic=True, color=theme["muted"])
-
-        for dish in category.get("dishes", []):
-            p = doc.add_paragraph()
-            release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
-            price_tab_cm = (12.6 if not two_columns else 5.6) if with_allergens else (15.0 if not two_columns else 7.8)
-            p.paragraph_format.tab_stops.add_tab_stop(Cm(price_tab_cm), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            name_run = p.add_run(dish_display_name(dish))
-            name_run.bold = True
-            name_run.font.size = Pt(11.5)
-            set_run_color(name_run, theme["text"])
-
-            price_run = p.add_run("\t" + format_price(dish.get("price", "")))
-            price_run.bold = True
-            price_run.font.size = Pt(11.2)
-            set_run_color(price_run, theme["cat"])
-
-            if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
-                p.add_run("  ")
-                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)
-
-            if dish.get("description"):
-                pd = doc.add_paragraph()
-                release_paragraph_constraints(pd, SANGRIA_PLATOS, is_dish=True)
-                rd = pd.add_run(str(dish.get("description") or ""))
-                rd.italic = True
-                rd.font.size = Pt(10)
-                set_run_color(rd, theme["muted"])
-
-    if with_allergens:
-        add_docx_allergen_legend(doc, data, theme)
-
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
-
-
-def create_word(data, theme_key="neutral"):
-    return _create_client_word(data, with_allergens=True, theme_key=theme_key, two_columns=False)
-
-
-def create_client_word_without_allergens(data, theme_key="neutral", two_columns=False):
-    return _create_client_word(data, with_allergens=False, theme_key=theme_key, two_columns=two_columns)
-
-
-def allergen_validation_stats(data):
-    dishes = [dish for cat in data.get("categories", []) for dish in cat.get("dishes", [])]
-    return {
-        "platos": len(dishes),
-        "con_alergenos": sum(bool(get_ordered_allergens(d.get("allergens", []))) for d in dishes),
-        "sin_alergenos": sum(not bool(get_ordered_allergens(d.get("allergens", []))) for d in dishes),
-        "requieren_revision": sum(bool(d.get("review_notes")) for d in dishes),
-    }
-
-
-def run_allergen_smoke_tests():
-    cases = [
-        ("Croquetas de jamón", "", {"gluten", "lacteos", "huevos"}, set()),
-        ("Salmón teriyaki", "", {"pescado", "soja"}, set()),
-        ("Calamares a la romana", "", {"moluscos", "gluten"}, set()),
-        ("Panna cotta", "", {"lacteos"}, set()),
-        ("Tortilla de trigo con pollo", "", {"gluten"}, {"huevos"}),
-        ("Tataki de ternera", "", set(), {"pescado"}),
-        ("Pesto casero", "", set(), {"frutos de cascara"}),
-        ("Pan con piñones", "", {"gluten"}, {"frutos de cascara"}),
-        ("Marisco del día", "", set(), {"crustaceos", "moluscos"}),
-    ]
-    results = []
-    for name, desc, required, forbidden in cases:
-        dish = {"name": name, "description": desc, "allergens": [], "review_notes": []}
-        apply_allergen_rules_to_dish(dish)
-        got = set(dish.get("allergens", []))
-        ok = required.issubset(got) and not (forbidden & got)
-        results.append((name, ok, sorted(required), sorted(forbidden), sorted(got), list(dish.get("review_notes", []))))
-    return results
-
-
-def render_allergen_validation(data):
-    st.markdown("#### Control de alérgenos")
-    stats = allergen_validation_stats(data)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Platos", stats["platos"])
-    c2.metric("Con alérgenos", stats["con_alergenos"])
-    c3.metric("Sin alérgenos", stats["sin_alergenos"])
-    c4.metric("Revisar", stats["requieren_revision"])
-
-    if st.button("🧪 Comprobar motor", key="v11_1_smoke_allergens"):
-        results = run_allergen_smoke_tests()
-        if all(row[1] for row in results):
-            st.success("Prueba interna superada.")
-        else:
-            st.error("La prueba interna ha detectado una regresión.")
-        for name, ok, required, forbidden, got, notes in results:
-            st.write(("✅" if ok else "❌") + f" {name} · detectado: {', '.join(got) or 'ninguno'}")
-
-    st.warning("Antes de entregar una carta de alérgenos debe validarse con la receta real, fichas técnicas y protocolo del establecimiento. Las dudas quedan como avisos de revisión, no como iconos confirmados.")
-
-
-def menu_preflight(data):
-    """Auditoría previa a exportación centrada en riesgos que sí afectan al cliente."""
-    blocking = []
-    warnings = []
-    review_items = []
-    dishes = []
-
-    for category in data.get("categories", []):
-        category_name = str(category.get("name") or "Sin categoría").strip()
-        seen_names = Counter()
-        for dish in category.get("dishes", []):
-            dishes.append(dish)
-            name = str(dish.get("name") or "").strip()
-            label = dish_display_name(dish) if name else "Plato sin nombre"
-            if not name:
-                blocking.append(f"{category_name}: hay un plato sin nombre.")
-            else:
-                seen_names[normalize_text(name)] += 1
-            if not str(dish.get("price") or "").strip():
-                warnings.append(f"{category_name} · {label}: sin precio detectado.")
-
-            notes = [str(n).strip() for n in (dish.get("review_notes") or []) if str(n).strip()]
-            if notes:
-                review_items.append({
-                    "category": category_name,
-                    "dish": label,
-                    "notes": notes,
-                })
-
-        for normalized_name, count in seen_names.items():
-            if normalized_name and count > 1:
-                warnings.append(
-                    f"{category_name}: hay {count} platos con el mismo nombre; comprobar si es un duplicado real."
-                )
-
-    if not dishes:
-        blocking.append("No hay platos detectados en la carta.")
-
-    return {
-        "dishes": len(dishes),
-        "blocking": list(dict.fromkeys(blocking)),
-        "warnings": list(dict.fromkeys(warnings)),
-        "review_items": review_items,
-        "review_count": len(review_items),
-    }
-
-
-def render_export_preflight(data, key_prefix="export", compact=False):
-    """Muestra el preflight y devuelve True solo si la salida con alérgenos es entregable."""
-    report = menu_preflight(data)
-    signature = menu_signature(data)[:16]
-    ack_key = f"{key_prefix}_allergen_review_ack_{signature}"
-
-    if not compact:
-        st.markdown("#### Control previo a descarga")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Platos", report["dishes"])
-        c2.metric("Revisiones pendientes", report["review_count"])
-        c3.metric("Avisos de contenido", len(report["warnings"]))
-
-    if report["blocking"]:
-        for issue in report["blocking"]:
-            st.error(f"⛔ {issue}")
-
-    if report["warnings"]:
-        with st.expander(f"⚠️ Avisos de contenido ({len(report['warnings'])})", expanded=False):
-            for issue in report["warnings"]:
-                st.write(f"• {issue}")
-
-    acknowledged = True
-    if report["review_items"]:
-        with st.expander(
-            f"🧾 Platos que requieren validar receta/proveedor ({report['review_count']})",
-            expanded=True,
-        ):
-            for item in report["review_items"]:
-                st.markdown(f"**{item['category']} · {item['dish']}**")
-                for note in item["notes"]:
-                    st.caption(f"• {note}")
-        acknowledged = st.checkbox(
-            "He revisado estos casos con la receta, ficha técnica o responsable del establecimiento.",
-            key=ack_key,
-            help="Esta confirmación se reinicia automáticamente si cambia el contenido de la carta.",
-        )
-        if not acknowledged:
-            st.warning("La descarga final con alérgenos permanece bloqueada hasta confirmar esta revisión.")
-
-    can_export = not report["blocking"] and acknowledged
-    if can_export and (report["review_items"] or report["warnings"]):
-        st.success("Preflight superado para la salida con alérgenos.")
-    return can_export
+            # Nada de líneas internas: solo el marco exterior del bloque.
+            _nil_table_borders(grid)
 
 
 def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
@@ -3203,7 +1623,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         page_css = """
         @page {
             size: A4;
-            margin: 15mm 15mm 58mm 15mm;
+            margin: 15mm 15mm 42mm 15mm;
             @bottom-center {
                 content: element(allergenFooter);
                 vertical-align: bottom;
@@ -3214,18 +1634,18 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         .allergen-footer {
             position: running(allergenFooter);
             width: 180mm;
-            height: 48mm;
-            border: 1.2px solid #4b4038;
-            padding: 2.5mm 3mm 2mm;
+            height: 33mm;
+            border: 1px solid #7a746e;
+            padding: 1.4mm 2.5mm 1.0mm;
             box-sizing: border-box;
             background: #fff;
             overflow: hidden;
         }
         .legal {
             text-align: center;
-            font-size: 8.6pt;
+            font-size: 8.2pt;
             font-weight: 700;
-            margin: 0 0 1.5mm;
+            margin: 0 0 0.8mm;
             line-height: 1.12;
         }
         .legend-grid {
@@ -3236,9 +1656,9 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         }
         .legend-item {
             width: 14.285714%;
-            height: 17mm;
+            height: 11.2mm;
             text-align: center;
-            font-size: 7.6pt;
+            font-size: 7.2pt;
             font-weight: 700;
             line-height: 1.04;
             padding: 0.3mm 0.5mm;
@@ -3249,10 +1669,10 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         }
         .legend-item img {
             display: block;
-            width: 9.2mm;
-            height: 9.2mm;
+            width: 7.4mm;
+            height: 7.4mm;
             object-fit: contain;
-            margin: 0 auto 0.6mm;
+            margin: 0 auto 0.25mm;
         }
         .legend-item span {
             display: block;
@@ -3277,7 +1697,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
     .dish-main{{display:flex;align-items:center;gap:1.6mm;font-size:11pt;}}
     .dish-name{{font-weight:700;}}
     .dish-icons{{display:inline-flex;gap:.8mm;align-items:center;flex-shrink:0;}}
-    .dish-icon{{width:7.5mm;height:7.5mm;object-fit:contain;}}
+    .dish-icon{{width:4.6mm;height:4.6mm;object-fit:contain;}}
     .dots{{flex:1;border-bottom:1px dotted {muted};height:0;min-width:8mm;}}
     .price{{font-weight:700;white-space:nowrap;}}
     .desc{{font-size:9.2pt;color:{muted};font-style:italic;margin-top:.5mm;}}
