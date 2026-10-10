@@ -3231,7 +3231,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         labels = {
             "gluten": "GLUTEN", "crustaceos": "CRUSTÁCEOS", "huevos": "HUEVOS", "pescado": "PESCADO",
             "cacahuetes": "CACAHUETES", "soja": "SOJA", "lacteos": "LÁCTEOS", "frutos de cascara": "FRUTOS DE<br>CÁSCARA",
-            "apio": "APIO", "mostaza": "MOSTAZA", "sesamo": "GRANOS DE<br>SÉSAMO", "sulfitos": "DIÓXIDO DE AZUFRE<br>Y SULFITOS",
+            "apio": "APIO", "mostaza": "MOSTAZA", "sesamo": "GRANOS DE<br>SÉSAMO", "sulfitos": "DIÓXIDO DE<br>AZUFRE Y SULFITOS",
             "altramuces": "ALTRAMUCES", "moluscos": "MOLUSCOS",
         }
         items = []
@@ -3276,19 +3276,20 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
             line-height: 1.12;
         }
         .legend-grid {
-            display: flex;
-            flex-wrap: wrap;
-            align-content: flex-start;
+            display: grid;
+            grid-template-columns: 1fr 1.12fr .92fr .98fr 1.22fr 1.02fr 1fr;
+            grid-template-rows: 12.4mm 12.4mm;
+            align-content: start;
             width: 100%;
         }
         .legend-item {
-            width: 14.285714%;
-            height: 13mm;
+            min-width: 0;
+            height: 12.4mm;
             text-align: center;
-            font-size: 7.0pt;
+            font-size: 6.8pt;
             font-weight: 700;
-            line-height: 1.04;
-            padding: 0.15mm 0.35mm;
+            line-height: 1.02;
+            padding: 0.10mm 0.25mm;
             box-sizing: border-box;
             hyphens: none;
             word-break: normal;
@@ -3296,10 +3297,10 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         }
         .legend-item img {
             display: block;
-            width: 6.8mm;
-            height: 6.8mm;
+            width: 6.3mm;
+            height: 6.3mm;
             object-fit: contain;
-            margin: 0 auto 0.15mm;
+            margin: 0 auto 0.10mm;
         }
         .legend-item span {
             display: block;
