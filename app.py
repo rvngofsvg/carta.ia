@@ -3230,14 +3230,15 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
     if with_allergens:
         labels = {
             "gluten": "GLUTEN", "crustaceos": "CRUSTÁCEOS", "huevos": "HUEVOS", "pescado": "PESCADO",
-            "cacahuetes": "CACAHUETES", "soja": "SOJA", "lacteos": "LÁCTEOS", "frutos de cascara": "FRUTOS DE CÁSCARA",
-            "apio": "APIO", "mostaza": "MOSTAZA", "sesamo": "GRANOS DE SÉSAMO", "sulfitos": "DIÓXIDO DE AZUFRE Y SULFITOS",
+            "cacahuetes": "CACAHUETES", "soja": "SOJA", "lacteos": "LÁCTEOS", "frutos de cascara": "FRUTOS DE<br>CÁSCARA",
+            "apio": "APIO", "mostaza": "MOSTAZA", "sesamo": "GRANOS DE<br>SÉSAMO", "sulfitos": "DIÓXIDO DE AZUFRE<br>Y SULFITOS",
             "altramuces": "ALTRAMUCES", "moluscos": "MOLUSCOS",
         }
         items = []
         for allergen in ALLERGEN_ORDER:
             src = file_to_data_uri(ICON_MAP.get(allergen))
-            icon = f'<img src="{src}" alt="{html_escape(labels[allergen])}">' if src else ""
+            alt_label = labels[allergen].replace("<br>", " ")
+            icon = f'<img src="{src}" alt="{html_escape(alt_label)}">' if src else ""
             items.append(f'<div class="legend-item">{icon}<span>{labels[allergen]}</span></div>')
 
         footer_html = (
@@ -3282,12 +3283,12 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         }
         .legend-item {
             width: 14.285714%;
-            height: 12mm;
+            height: 13mm;
             text-align: center;
             font-size: 7.0pt;
             font-weight: 700;
             line-height: 1.04;
-            padding: 0.3mm 0.5mm;
+            padding: 0.15mm 0.35mm;
             box-sizing: border-box;
             hyphens: none;
             word-break: normal;
@@ -3295,10 +3296,10 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         }
         .legend-item img {
             display: block;
-            width: 7.4mm;
-            height: 7.4mm;
+            width: 6.8mm;
+            height: 6.8mm;
             object-fit: contain;
-            margin: 0 auto 0.25mm;
+            margin: 0 auto 0.15mm;
         }
         .legend-item span {
             display: block;
