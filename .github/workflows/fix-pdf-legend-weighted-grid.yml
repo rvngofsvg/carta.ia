@@ -1,0 +1,53 @@
+name: Fix PDF allergen weighted grid
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/fix_pdf_legend_weighted_grid.py'
+      - '.github/workflows/fix-pdf-legend-weighted-grid.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply weighted grid
+        run: python scripts/fix_pdf_legend_weighted_grid.py
+      - name: Compile and verify
+        run: |
+          python -m py_compile app.py
+          python - <<'PY'
+          from pathlib import Path
+          s = Path('app.py').read_text(encoding='utf-8')
+          assert 'display: grid;' in s
+          assert 'grid-template-columns: 1fr 1.12fr .92fr .98fr 1.22fr 1.02fr 1fr;' in s
+          assert 'grid-template-rows: 12.4mm 12.4mm;' in s
+          assert 'font-size: 6.8pt;' in s
+          assert 'width: 6.3mm;' in s and 'height: 6.3mm;' in s
+          assert 'DIÓXIDO DE<br>AZUFRE Y SULFITOS' in s
+          assert 'height: 36mm;' in s
+          assert '.dish-icon{{width:4.6mm;height:4.6mm;object-fit:contain;}}' in s
+          assert 'def show_asset_diagnostics(' in s
+          print('weighted grid guards OK')
+          PY
+      - name: Commit app fix
+        run: |
+          if git diff --quiet -- app.py; then
+            echo 'No app.py changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py
+          git commit -m 'Balance PDF allergen legend columns'
+          git push
