@@ -1,0 +1,49 @@
+name: Fix legacy inline allergen icons
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/fix_legacy_inline_icon_minimum.py'
+      - '.github/workflows/fix-legacy-inline-icons.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply fix
+        run: python scripts/fix_legacy_inline_icon_minimum.py
+      - name: Verify source
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          site = Path('serval_eider_patch/sitecustomize.py').read_text(encoding='utf-8')
+          setup = Path('serval_eider_patch/setup.py').read_text(encoding='utf-8')
+          qa = Path('.github/workflows/validate-eider-footer.yml').read_text(encoding='utf-8')
+          assert 'INLINE_ICON_MIN_CM = 0.46' in site
+          assert 'version="1.0.6"' in setup
+          assert 'def nil_table_borders(table):' in qa
+          assert 'def show_asset_diagnostics(' in Path('app.py').read_text(encoding='utf-8')
+          print('legacy icon fix guards OK')
+          PY
+      - name: Commit
+        run: |
+          if git diff --quiet -- serval_eider_patch/sitecustomize.py serval_eider_patch/setup.py .github/workflows/validate-eider-footer.yml; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add serval_eider_patch/sitecustomize.py serval_eider_patch/setup.py .github/workflows/validate-eider-footer.yml
+          git commit -m 'Align legacy allergen icon patch with new design'
+          git push
