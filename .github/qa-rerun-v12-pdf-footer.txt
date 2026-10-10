@@ -1,2 +1,2 @@
 QA marker for Carta IA real export validation.
-Rerun 2026-10-09 after migrating the AI core to Qwen, hiding internal AI cost/provider details from the client UI, and locking PRICE -> ALLERGENS ordering.
+Rerun 2026-10-10 after the surgical professional allergen legend redesign: single outer frame, hidden internal grid, smaller legend and inline icons, bold legal notice, and locked PRICE -> ALLERGENS ordering.
