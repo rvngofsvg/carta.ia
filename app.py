@@ -1414,17 +1414,26 @@ def add_docx_heading_block(doc, data, theme, subtitle='Plantilla editable sin ic
 
 
 def add_docx_allergen_legend(doc, data, theme):
-    """Leyenda nativa 2x7 insertada directamente en el footer real de Word."""
+    """Leyenda 2x7 limpia: un único marco exterior y retícula interior invisible."""
     legal_text = (
         "Informamos de acuerdo con el Reglamento de la UE 1169/2011, que nuestros productos "
         "contienen o pueden contener los siguientes alérgenos."
     )
     legend_labels = {
-        "gluten": "GLUTEN", "crustaceos": "CRUSTÁCEOS", "huevos": "HUEVOS", "pescado": "PESCADO",
-        "cacahuetes": "CACAHUETES", "soja": "SOJA", "lacteos": "LÁCTEOS",
-        "frutos de cascara": "FRUTOS DE\nCÁSCARA", "apio": "APIO", "mostaza": "MOSTAZA",
-        "sesamo": "GRANOS DE\nSÉSAMO", "sulfitos": "DIÓXIDO DE AZUFRE\nY SULFITOS",
-        "altramuces": "ALTRAMUCES", "moluscos": "MOLUSCOS",
+        "gluten": "GLUTEN",
+        "crustaceos": "CRUSTÁCEOS",
+        "huevos": "HUEVOS",
+        "pescado": "PESCADO",
+        "cacahuetes": "CACAHUETES",
+        "soja": "SOJA",
+        "lacteos": "LÁCTEOS",
+        "frutos de cascara": "FRUTOS DE\nCÁSCARA",
+        "apio": "APIO",
+        "mostaza": "MOSTAZA",
+        "sesamo": "GRANOS DE\nSÉSAMO",
+        "sulfitos": "DIÓXIDO DE AZUFRE\nY SULFITOS",
+        "altramuces": "ALTRAMUCES",
+        "moluscos": "MOLUSCOS",
     }
 
     def clear(container):
@@ -1453,18 +1462,18 @@ def add_docx_allergen_legend(doc, data, theme):
             if idx < len(grid_cols):
                 grid_cols[idx].set(qn("w:w"), str(int(Cm(width_cm).twips)))
 
-    def set_cell_vertical_padding(cell, top_twips=20, bottom_twips=20):
+    def set_cell_margins_local(cell, top=0, start=0, bottom=0, end=0):
         tc_pr = cell._tc.get_or_add_tcPr()
         tc_mar = tc_pr.find(qn("w:tcMar"))
         if tc_mar is None:
             tc_mar = OxmlElement("w:tcMar")
             tc_pr.append(tc_mar)
-        for edge, value in (("top", top_twips), ("bottom", bottom_twips)):
+        for edge, value in (("top", top), ("start", start), ("bottom", bottom), ("end", end)):
             node = tc_mar.find(qn(f"w:{edge}"))
             if node is None:
                 node = OxmlElement(f"w:{edge}")
                 tc_mar.append(node)
-            node.set(qn("w:w"), str(value))
+            node.set(qn("w:w"), str(int(value)))
             node.set(qn("w:type"), "dxa")
 
     def set_outer_border(table, color):
@@ -1479,7 +1488,7 @@ def add_docx_allergen_legend(doc, data, theme):
                 node = OxmlElement(f"w:{edge}")
                 borders.append(node)
             node.set(qn("w:val"), "single")
-            node.set(qn("w:sz"), "14")
+            node.set(qn("w:sz"), "10")
             node.set(qn("w:space"), "0")
             node.set(qn("w:color"), color)
         for edge in ("insideH", "insideV"):
@@ -1489,10 +1498,38 @@ def add_docx_allergen_legend(doc, data, theme):
                 borders.append(node)
             node.set(qn("w:val"), "nil")
 
+    def nil_table_borders(table):
+        tbl_pr = table._tbl.tblPr
+        borders = tbl_pr.first_child_found_in("w:tblBorders")
+        if borders is None:
+            borders = OxmlElement("w:tblBorders")
+            tbl_pr.append(borders)
+        for edge in ("top", "start", "bottom", "end", "insideH", "insideV"):
+            node = borders.find(qn(f"w:{edge}"))
+            if node is None:
+                node = OxmlElement(f"w:{edge}")
+                borders.append(node)
+            node.set(qn("w:val"), "nil")
+
+    def nil_cell_borders(cell):
+        tc_pr = cell._tc.get_or_add_tcPr()
+        borders = tc_pr.find(qn("w:tcBorders"))
+        if borders is None:
+            borders = OxmlElement("w:tcBorders")
+            tc_pr.append(borders)
+        for edge in ("top", "start", "bottom", "end", "insideH", "insideV"):
+            node = borders.find(qn(f"w:{edge}"))
+            if node is None:
+                node = OxmlElement(f"w:{edge}")
+                borders.append(node)
+            node.set(qn("w:val"), "nil")
+
+    border_color = theme.get("muted", "6B7280")
+
     for section in doc.sections:
         if section.bottom_margin < Cm(3.8):
             section.bottom_margin = Cm(3.8)
-        section.footer_distance = Cm(0.10)
+        section.footer_distance = Cm(0.12)
         usable_cm = max(12.0, (section.page_width - section.left_margin - section.right_margin) / 360000.0)
 
         for footer in (section.footer, section.first_page_footer, section.even_page_footer):
@@ -1503,65 +1540,74 @@ def add_docx_allergen_legend(doc, data, theme):
             wrapper.alignment = WD_TABLE_ALIGNMENT.CENTER
             wrapper.autofit = False
             set_grid_widths(wrapper, [usable_cm])
-            set_outer_border(wrapper, theme.get("cat", "444444"))
+            set_outer_border(wrapper, border_color)
+
             cell = wrapper.cell(0, 0)
             set_cell_width(cell, usable_cm)
-            set_cell_vertical_padding(cell, top_twips=10, bottom_twips=10)
+            set_cell_margins_local(cell, top=16, start=42, bottom=12, end=42)
             cell.text = ""
 
             legal = cell.paragraphs[0]
             legal.alignment = 1
             compact(legal)
-            legal.paragraph_format.space_after = Pt(1.0)
+            legal.paragraph_format.space_after = Pt(1.2)
             lr = legal.add_run(legal_text)
-            lr.font.size = Pt(9.0)
+            lr.font.size = Pt(8.4)
             lr.bold = True
             set_run_color(lr, theme.get("text", "111111"))
 
-            # Mismo ancho total, pero columnas ponderadas para evitar cortes feos
-            # en CRUSTÁCEOS, CACAHUETES y ALTRAMUCES sin agrandar la leyenda.
-            col_weights = [1.00, 1.15, 0.90, 1.00, 1.15, 1.05, 1.00]
+            col_weights = [1.00, 1.12, 0.92, 0.98, 1.12, 1.02, 1.00]
             weight_total = sum(col_weights)
             col_widths = [usable_cm * weight / weight_total for weight in col_weights]
             grid = cell.add_table(rows=2, cols=7)
             grid.alignment = WD_TABLE_ALIGNMENT.CENTER
             grid.autofit = False
             set_grid_widths(grid, col_widths)
+            nil_table_borders(grid)
 
-            # Word exige un párrafo final dentro de la celda tras una tabla anidada.
-            # Si se deja con el estilo Normal añade altura vacía al rectángulo del footer.
             trailing = cell.paragraphs[-1]
             compact(trailing)
             trailing.paragraph_format.line_spacing = Pt(1)
+            if not trailing.runs:
+                trailing.add_run("")
+            for run in trailing.runs:
+                run.font.size = Pt(1)
 
             for idx, allergen in enumerate(ALLERGEN_ORDER):
                 r, c = divmod(idx, 7)
                 item = grid.cell(r, c)
+                nil_cell_borders(item)
                 set_cell_width(item, col_widths[c])
-                set_cell_vertical_padding(item, top_twips=8, bottom_twips=8)
+                set_cell_margins_local(item, top=0, start=14, bottom=0, end=14)
+                item.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+
                 tc_pr = item._tc.get_or_add_tcPr()
                 no_wrap = tc_pr.find(qn("w:noWrap"))
                 if no_wrap is None:
                     no_wrap = OxmlElement("w:noWrap")
                     tc_pr.append(no_wrap)
-                item.text = ""
-                item.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
 
+                item.text = ""
                 p = item.paragraphs[0]
                 p.alignment = 1
                 compact(p)
                 icon_path = ICON_MAP.get(allergen)
                 if icon_path and os.path.exists(icon_path):
-                    p.add_run().add_picture(icon_path, width=Cm(1.18))
+                    try:
+                        p.add_run().add_picture(icon_path, width=Cm(0.92))
+                    except Exception:
+                        pass
 
                 lp = item.add_paragraph()
                 lp.alignment = 1
                 compact(lp)
-                lp.paragraph_format.space_before = Pt(0)
+                lp.paragraph_format.line_spacing = Pt(7.7)
                 label = lp.add_run(legend_labels.get(allergen, ALLERGEN_LABELS.get(allergen, allergen)))
-                label.font.size = Pt(8.6)
+                label.font.size = Pt(7.4)
                 label.bold = True
                 set_run_color(label, theme.get("text", "111111"))
+
+            nil_table_borders(grid)
 
 
 def create_editable_word_clean_template(data, theme_key='cafe', two_columns=True):
@@ -2880,7 +2926,7 @@ INSTRUCCIONES PARA DICTADO:
     return data
 
 
-def _add_allergen_icons_to_run(paragraph, allergens, width_cm=0.75):
+def _add_allergen_icons_to_run(paragraph, allergens, width_cm=0.46):
     added = False
     for allergen in get_ordered_allergens(allergens):
         icon_path = ICON_MAP.get(allergen)
@@ -2965,7 +3011,7 @@ def _create_client_word(data, with_allergens=False, theme_key="neutral", two_col
 
             if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
                 p.add_run("  ")
-                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)
+                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.46)
 
             if dish.get("description"):
                 pd = doc.add_paragraph()
@@ -3203,7 +3249,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         page_css = """
         @page {
             size: A4;
-            margin: 15mm 15mm 58mm 15mm;
+            margin: 15mm 15mm 42mm 15mm;
             @bottom-center {
                 content: element(allergenFooter);
                 vertical-align: bottom;
@@ -3214,18 +3260,18 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         .allergen-footer {
             position: running(allergenFooter);
             width: 180mm;
-            height: 48mm;
-            border: 1.2px solid #4b4038;
-            padding: 2.5mm 3mm 2mm;
+            height: 33mm;
+            border: 1px solid #7a746e;
+            padding: 1.4mm 2.5mm 1.0mm;
             box-sizing: border-box;
             background: #fff;
             overflow: hidden;
         }
         .legal {
             text-align: center;
-            font-size: 8.6pt;
+            font-size: 8.2pt;
             font-weight: 700;
-            margin: 0 0 1.5mm;
+            margin: 0 0 0.8mm;
             line-height: 1.12;
         }
         .legend-grid {
@@ -3236,9 +3282,9 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         }
         .legend-item {
             width: 14.285714%;
-            height: 17mm;
+            height: 11.2mm;
             text-align: center;
-            font-size: 7.6pt;
+            font-size: 7.2pt;
             font-weight: 700;
             line-height: 1.04;
             padding: 0.3mm 0.5mm;
@@ -3249,10 +3295,10 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         }
         .legend-item img {
             display: block;
-            width: 9.2mm;
-            height: 9.2mm;
+            width: 7.4mm;
+            height: 7.4mm;
             object-fit: contain;
-            margin: 0 auto 0.6mm;
+            margin: 0 auto 0.25mm;
         }
         .legend-item span {
             display: block;
@@ -3277,7 +3323,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
     .dish-main{{display:flex;align-items:center;gap:1.6mm;font-size:11pt;}}
     .dish-name{{font-weight:700;}}
     .dish-icons{{display:inline-flex;gap:.8mm;align-items:center;flex-shrink:0;}}
-    .dish-icon{{width:7.5mm;height:7.5mm;object-fit:contain;}}
+    .dish-icon{{width:4.6mm;height:4.6mm;object-fit:contain;}}
     .dots{{flex:1;border-bottom:1px dotted {muted};height:0;min-width:8mm;}}
     .price{{font-weight:700;white-space:nowrap;}}
     .desc{{font-size:9.2pt;color:{muted};font-style:italic;margin-top:.5mm;}}
