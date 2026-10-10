@@ -63,10 +63,14 @@ jobs:
           src = Path('app.py').read_text(encoding='utf-8')
           assert 'FRUTOS DE<br>CÁSCARA' in src
           assert 'GRANOS DE<br>SÉSAMO' in src
-          assert 'DIÓXIDO DE AZUFRE<br>Y SULFITOS' in src
+          assert 'DIÓXIDO DE<br>AZUFRE Y SULFITOS' in src
           assert 'height: 36mm;' in src
-          assert 'height: 13mm;' in src
-          assert 'width: 6.8mm;' in src and 'height: 6.8mm;' in src
+          assert 'display: grid;' in src
+          assert 'grid-template-columns: 1fr 1.12fr .92fr .98fr 1.22fr 1.02fr 1fr;' in src
+          assert 'grid-template-rows: 12.4mm 12.4mm;' in src
+          assert 'height: 12.4mm;' in src
+          assert 'font-size: 6.8pt;' in src
+          assert 'width: 6.3mm;' in src and 'height: 6.3mm;' in src
           assert 'margin: 15mm 15mm 45mm 15mm;' in src
           assert '.dish-icon{{width:4.6mm;height:4.6mm;object-fit:contain;}}' in src
           assert 'width=Cm(0.92)' in src
@@ -89,7 +93,7 @@ jobs:
               assert 'w:val="nil"' in rich
           pdf_text = '\n'.join((p.extract_text() or '') for p in PdfReader(BytesIO(pdf)).pages)
           assert 'GLUTEN' in pdf_text and 'MOLUSCOS' in pdf_text and 'SULFITOS' in pdf_text
-          (out/'qa_report.txt').write_text('PASS final professional legend\nprice_then_allergens=ok\nword_internal_grid_hidden=ok\npdf_long_labels_2_lines=ok\ninline_icons_small=ok\n', encoding='utf-8')
+          (out/'qa_report.txt').write_text('PASS final professional legend\nprice_then_allergens=ok\nword_internal_grid_hidden=ok\npdf_weighted_grid=ok\npdf_long_labels_2_lines=ok\ninline_icons_small=ok\n', encoding='utf-8')
           print('PASS structural final legend QA')
           PY
       - name: Install renderers
