@@ -1,6 +1,6 @@
 name: Validate real Carta IA exports
 
-# QA v14: Qwen runtime + real Word/PDF exports + approved compact 2x7 legend
+# QA v15: Qwen runtime + real Word/PDF exports + clean professional 2x7 legend
 on:
   push:
     branches: [main]
@@ -99,11 +99,15 @@ jobs:
           assert 'Reglamento de la UE 1169/2011' in richest
           assert 'GLUTEN' in richest and 'MOLUSCOS' in richest
           assert richest.count('<w:drawing') >= 14, richest.count('<w:drawing')
+          assert 'w:val="nil"' in richest, 'No se eliminaron las líneas internas de la retícula'
           assert not any('Reglamento de la UE 1169/2011' in f or 'GLUTEN' in f for f in clean_footers)
           assert not any('<w:drawing' in f for f in clean_footers), 'El Word sin alérgenos conserva una imagen en el footer'
 
           reopened = Document(all_path)
-          assert any(shape.width >= Cm(0.70) for shape in reopened.inline_shapes), 'Los iconos de plato siguen por debajo del mínimo visual'
+          # Los iconos inline de plato deben ser discretos (~0,46 cm), no stickers grandes.
+          body_shapes = list(reopened.inline_shapes)
+          assert body_shapes, 'No aparecen iconos de alérgenos junto a los platos'
+          assert any(Cm(0.40) <= shape.width <= Cm(0.55) for shape in body_shapes), 'Tamaño inline de alérgenos fuera del rango profesional'
           for sec in reopened.sections:
               assert sec.bottom_margin >= Cm(3.7), sec.bottom_margin
               assert sec.bottom_margin <= Cm(3.9), sec.bottom_margin
@@ -111,7 +115,6 @@ jobs:
           with zipfile.ZipFile(all_path) as z:
               body = z.read('word/document.xml').decode('utf-8')
               assert 'GUÍA DE ALÉRGENOS' not in body, 'La leyenda volvió al body en lugar del footer'
-              # En el primer plato, el texto del precio debe aparecer antes que el primer dibujo de alérgeno.
               price_pos = body.find('9,50')
               drawing_pos = body.find('<w:drawing', price_pos)
               assert price_pos >= 0 and drawing_pos > price_pos, 'Word no mantiene PRECIO → ALÉRGENOS'
@@ -121,14 +124,18 @@ jobs:
           assert 'WORD CON ALÉRGENOS' in source and 'PDF CON ALÉRGENOS' in source
           assert 'WORD SIN ALÉRGENOS' in source and 'PDF SIN ALÉRGENOS' in source
           assert 'grid = cell.add_table(rows=2, cols=7)' in source, 'La leyenda dejó de ser 2x7'
-          assert 'width=Cm(1.18)' in source, 'Tamaño de icono compacto no aplicado'
-          assert 'lr.font.size = Pt(9.0)' in source and 'lr.bold = True' in source, 'Texto legal debe ser compacto y negrita'
-          assert 'label.font.size = Pt(8.6)' in source, 'Tipografía de etiquetas compacta no aplicada'
-          assert 'col_weights = [1.00, 1.15, 0.90, 1.00, 1.15, 1.05, 1.00]' in source, 'No se aplicaron anchos ponderados'
+          assert 'width=Cm(0.92)' in source, 'Tamaño profesional de icono de leyenda no aplicado'
+          assert 'lr.font.size = Pt(8.4)' in source and 'lr.bold = True' in source, 'Texto legal debe ser compacto y negrita'
+          assert 'label.font.size = Pt(7.4)' in source, 'Tipografía de etiquetas profesional no aplicada'
+          assert 'col_weights = [1.00, 1.12, 0.92, 0.98, 1.12, 1.02, 1.00]' in source, 'No se aplicaron anchos equilibrados'
+          assert 'def _nil_table_borders(table):' in source, 'No se eliminó la cuadrícula interna'
+          assert 'outer_border = {"val": "single", "sz": "10"' in source, 'Marco exterior profesional no aplicado'
           assert 'DIÓXIDO DE AZUFRE\\nY SULFITOS' in source, 'Sulfitos debe mantenerse en dos líneas'
+          assert 'height: 33mm;' in source and 'margin: 15mm 15mm 42mm 15mm;' in source, 'PDF no usa el footer compacto nuevo'
+          assert '.dish-icon{{width:4.6mm;height:4.6mm;object-fit:contain;}}' in source, 'Iconos PDF de plato siguen demasiado grandes'
 
           word_price = source.index('price_run = p.add_run("\\t" + format_price(dish.get("price", "")))')
-          word_icons = source.index('_add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.75)', word_price)
+          word_icons = source.index('_add_allergen_icons_to_run(p, dish.get("allergens", [])', word_price)
           assert word_price < word_icons, 'Código Word no mantiene PRECIO → ALÉRGENOS'
           pdf_price = source.index('f\'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span>\'')
           pdf_icons = source.index('f\'<span class="dish-icons">{icons}</span></div>{desc_html}</div>\'', pdf_price)
@@ -145,11 +152,11 @@ jobs:
               'word_with_allergens=ok\nword_without_allergens=ok\n'
               'pdf_with_allergens=ok\npdf_without_allergens=ok\n'
               'price_then_allergens=ok\n'
-              'direct_word_footer=ok\nclean_word_footer=clean\n'
-              'compact_2x7_legend=ok\nweighted_columns=ok\nmanual_allergen_editor=present\n',
+              'clean_outer_frame=ok\ninternal_grid_hidden=ok\n'
+              'compact_2x7_legend=ok\nsmall_inline_icons=ok\nmanual_allergen_editor=present\n',
               encoding='utf-8',
           )
-          print('PASS Qwen Carta IA exports and price→allergen ordering')
+          print('PASS professional allergen legend and price→allergen ordering')
           PY
 
       - name: Install renderers
