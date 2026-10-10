@@ -154,7 +154,7 @@ pattern = re.compile(
     r"def add_docx_allergen_legend\(doc, data, theme\):.*?(?=\ndef create_client_pdf_html\()",
     re.S,
 )
-text, n = pattern.subn(new_func, text, count=1)
+text, n = pattern.subn(lambda _m: new_func, text, count=1)
 if n != 1:
     raise SystemExit(f'No se pudo reemplazar add_docx_allergen_legend: {n}')
 
