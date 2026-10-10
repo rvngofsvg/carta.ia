@@ -29,21 +29,19 @@ jobs:
           from pathlib import Path
           site = Path('serval_eider_patch/sitecustomize.py').read_text(encoding='utf-8')
           setup = Path('serval_eider_patch/setup.py').read_text(encoding='utf-8')
-          qa = Path('.github/workflows/validate-eider-footer.yml').read_text(encoding='utf-8')
           assert 'INLINE_ICON_MIN_CM = 0.46' in site
           assert 'version="1.0.6"' in setup
-          assert 'def nil_table_borders(table):' in qa
           assert 'def show_asset_diagnostics(' in Path('app.py').read_text(encoding='utf-8')
           print('legacy icon fix guards OK')
           PY
-      - name: Commit
+      - name: Commit package files
         run: |
-          if git diff --quiet -- serval_eider_patch/sitecustomize.py serval_eider_patch/setup.py .github/workflows/validate-eider-footer.yml; then
-            echo 'No changes to commit.'
+          if git diff --quiet -- serval_eider_patch/sitecustomize.py serval_eider_patch/setup.py; then
+            echo 'No package changes to commit.'
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add serval_eider_patch/sitecustomize.py serval_eider_patch/setup.py .github/workflows/validate-eider-footer.yml
+          git add serval_eider_patch/sitecustomize.py serval_eider_patch/setup.py
           git commit -m 'Align legacy allergen icon patch with new design'
           git push
