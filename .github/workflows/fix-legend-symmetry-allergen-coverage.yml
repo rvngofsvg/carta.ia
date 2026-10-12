@@ -1,0 +1,108 @@
+name: Fix legend symmetry and allergen coverage
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/fix-legend-symmetry-allergen-coverage.py'
+      - '.github/workflows/fix-legend-symmetry-allergen-coverage.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      DASHSCOPE_API_KEY: dummy-qa-key
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply patch
+        run: python scripts/fix-legend-symmetry-allergen-coverage.py
+      - name: Compile
+        run: python -m py_compile app.py qwen_core.py
+      - name: Validate exact visible regressions
+        run: |
+          python - <<'PY'
+          import os
+          os.environ['DASHSCOPE_API_KEY'] = 'dummy-qa-key'
+          import app
+
+          cases = {
+              'Chipirones en su tinta': {'moluscos'},
+              'Caracoles': {'moluscos'},
+              'Tortilla de Jamón': {'huevos'},
+              'Bacalao en salsa verde': {'pescado'},
+              'Queso Manchego Viejo': {'lacteos'},
+          }
+          for name, expected in cases.items():
+              dish = {'name': name, 'description': '', 'allergens': [], 'review_notes': []}
+              app.apply_allergen_rules_to_dish(dish)
+              got = set(dish['allergens'])
+              assert expected <= got, (name, expected, got)
+
+          # Plain grilled meat must not be force-labelled just to avoid blanks.
+          plain = {'name': 'Lomo a la plancha', 'description': '', 'allergens': [], 'review_notes': []}
+          app.apply_allergen_rules_to_dish(plain)
+          assert plain['allergens'] == [], plain
+
+          source = open('app.py', encoding='utf-8').read()
+          assert 'col_widths = [usable_cm / 7.0] * 7' in source
+          assert 'grid-template-columns: repeat(7, 1fr);' in source
+          assert 'price_run = p.add_run("\\t" + format_price(dish.get("price", "")))' in source
+          p = source.index('price_run = p.add_run("\\t" + format_price(dish.get("price", "")))')
+          i = source.index('_add_allergen_icons_to_run(p, dish.get("allergens", [])', p)
+          assert p < i
+          print('PASS symmetry + obvious allergen backstop + PRICE->ALLERGENS')
+          PY
+      - name: Validate selective Max review for risky empty dishes
+        run: |
+          python - <<'PY'
+          import json
+          import qwen_core as q
+
+          calls = []
+          def fake_chat(messages, model=q.QWEN_FLASH, purpose='general', **kwargs):
+              calls.append((model, purpose, messages))
+              if model == q.QWEN_FLASH:
+                  return json.dumps({'items': [
+                      {'category_index':0,'dish_index':0,'allergens':[],'confidence':'alta','reason':'sin datos'},
+                      {'category_index':0,'dish_index':1,'allergens':[],'confidence':'alta','reason':'sin datos'},
+                  ]}), {}
+              return json.dumps({'items': [
+                  {'category_index':0,'dish_index':0,'allergens':['gluten','huevos'],'confidence':'media','reason':'receta habitual'}
+              ]}), {}
+
+          original = q.chat
+          q.chat = fake_chat
+          try:
+              dishes = [
+                  {'category_index':0,'dish_index':0,'category':'Cazuelas','name':'Albóndigas','description':''},
+                  {'category_index':0,'dish_index':1,'category':'Platos','name':'Lomo a la plancha','description':''},
+              ]
+              prompt = 'Analiza:\n' + json.dumps(dishes, ensure_ascii=False)
+              result, model = q.allergen_reasoning_json('Clasifica alérgenos.', prompt)
+              by_key = {(x['category_index'],x['dish_index']):x for x in result['items']}
+              assert by_key[(0,0)]['allergens'] == ['gluten','huevos']
+              assert by_key[(0,1)]['allergens'] == []
+              assert any(c[0] == q.QWEN_MAX for c in calls)
+              print('PASS risky empty -> selective Max; plain meat stays untouched')
+          finally:
+              q.chat = original
+          PY
+      - name: Commit runtime changes
+        run: |
+          if git diff --quiet -- app.py qwen_core.py; then
+            echo 'No runtime changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py qwen_core.py
+          git commit -m 'Fix legend symmetry and allergen coverage'
+          git push
