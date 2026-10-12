@@ -1,0 +1,49 @@
+name: Fix legend page margins
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/fix-legend-page-margins.py'
+      - '.github/workflows/fix-legend-page-margins.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply patch
+        run: python scripts/fix-legend-page-margins.py
+      - name: Compile
+        run: python -m py_compile app.py
+      - name: Verify exact margin contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s = Path('app.py').read_text(encoding='utf-8')
+          assert 'section.footer_distance = Cm(0.45)' in s
+          assert 'raw_usable_cm - 1.6' in s
+          assert 'width: 164mm;' in s
+          assert 'col_widths = [usable_cm / 7.0] * 7' in s
+          assert 'price_run = p.add_run("\\t" + format_price(dish.get("price", "")))' in s
+          print('PASS aligned legend margins + equal columns + PRICE->ALLERGENS')
+          PY
+      - name: Commit runtime change
+        run: |
+          if git diff --quiet -- app.py; then
+            echo 'No runtime changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py
+          git commit -m 'Align allergen legend with page margins'
+          git push
