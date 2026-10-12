@@ -1,0 +1,85 @@
+name: Fix Qwen image empty array
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/fix_qwen_image_empty_array.py'
+      - '.github/workflows/fix-qwen-image-empty-array.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply resilient image extraction patch
+        run: python scripts/fix_qwen_image_empty_array.py
+      - name: Compile
+        run: python -m py_compile qwen_core.py
+      - name: Test exact empty-array failure and fallback
+        run: |
+          python -m pip install streamlit pillow
+          python - <<'PY'
+          from PIL import Image
+          import qwen_core
+
+          image = Image.new('RGB', (120, 80), 'white')
+          calls = []
+          valid = '{"restaurant_name":"QA","texto_extra":"","categories":[{"name":"Entrantes","category_text":"","dishes":[{"number":"1","name":"Croquetas","description":"","price":"9,50","allergens":[],"review_notes":[]}]}]}'
+
+          def fake_chat(messages, model=qwen_core.QWEN_FLASH, purpose='general', **kwargs):
+              calls.append(model)
+              if model == qwen_core.QWEN_FLASH:
+                  return '[]', {}
+              if model == qwen_core.QWEN_OMNI:
+                  return valid, {}
+              raise AssertionError('Max no debería ejecutarse si Omni recupera la carta')
+
+          original = qwen_core.chat
+          qwen_core.chat = fake_chat
+          try:
+              result = qwen_core.menu_json_from_image('Extrae el menú', image)
+          finally:
+              qwen_core.chat = original
+
+          assert result['restaurant_name'] == 'QA'
+          assert result['categories'][0]['dishes'][0]['name'] == 'Croquetas'
+          assert calls == [qwen_core.QWEN_FLASH, qwen_core.QWEN_OMNI], calls
+
+          calls = []
+          def good_first(messages, model=qwen_core.QWEN_FLASH, purpose='general', **kwargs):
+              calls.append(model)
+              return valid, {}
+          qwen_core.chat = good_first
+          try:
+              result = qwen_core.menu_json_from_image('Extrae el menú', image)
+          finally:
+              qwen_core.chat = original
+          assert calls == [qwen_core.QWEN_FLASH], calls
+
+          # También tolera un objeto útil mezclado con elementos auxiliares.
+          mixed = [None, {"name":"Tiramisú","price":"6,50"}]
+          normalized = qwen_core._normalize_menu_payload(mixed)
+          assert normalized['categories'][0]['dishes'][0]['name'] == 'Tiramisú'
+          print('PASS qwen image fallback: Flash [] -> Omni valid; normal path remains Flash-only')
+          PY
+      - name: Commit runtime fix
+        run: |
+          if git diff --quiet -- qwen_core.py; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add qwen_core.py
+          git commit -m 'Recover Qwen image extraction from empty arrays'
+          git push
