@@ -39,7 +39,7 @@ SANGRIA_CATEGORIA = Cm(0.8)
 SANGRIA_PLATOS = Cm(0.8)
 ESPACIO_PLATOS = Pt(3)
 MARGEN_INFERIOR_FORZADO = Cm(4.5)
-MAX_IMAGE_SIDE = 1800
+MAX_IMAGE_SIDE = 3200
 CLEAN_WORD_DISH_FONT_SIZE = 12
 CLEAN_WORD_PRICE_FONT_SIZE = 12
 CLEAN_WORD_DESCRIPTION_FONT_SIZE = 10.5
@@ -315,11 +315,11 @@ def prepare_image_for_ai(uploaded_file):
     }
     if img.mode != "RGB":
         img = img.convert("RGB")
+    # Conserva mucho más detalle para cartas con tipografía pequeña. Qwen 3.8
+    # acepta imágenes de alta resolución; evitamos además una compresión JPEG
+    # intermedia que antes degradaba el texto antes de enviarlo al modelo.
     img.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), Image.Resampling.LANCZOS)
-    clean = BytesIO()
-    img.save(clean, format="JPEG", quality=92, optimize=True)
-    clean.seek(0)
-    final_img = Image.open(clean).copy()
+    final_img = img.copy()
     uploaded_file.seek(0)
     return final_img, original_info
 

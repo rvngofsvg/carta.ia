@@ -391,7 +391,7 @@ def _pil_data_uri(image):
         raise TypeError("Se esperaba una imagen PIL.")
     img = image.convert("RGB")
     buf = BytesIO()
-    img.save(buf, format="JPEG", quality=88, optimize=True)
+    img.save(buf, format="JPEG", quality=94, optimize=True, subsampling=0)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
