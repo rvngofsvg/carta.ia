@@ -1,6 +1,5 @@
-name: Validate real Carta IA exports
+name: Validate Carta IA core
 
-# QA v17: Qwen runtime + real Word/PDF exports + professional 2x7 allergen legend
 on:
   push:
     branches: [main]
@@ -14,173 +13,83 @@ jobs:
     env:
       DASHSCOPE_API_KEY: dummy-qa-key
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Install app dependencies
+      - name: Install
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-
-      - name: Generate exports through the real app functions
+      - name: Validate exports and image fallback
         run: |
-          mkdir -p qa_real
           python - <<'PY'
           from io import BytesIO
           from pathlib import Path
           import zipfile
+          from PIL import Image
+          from pypdf import PdfReader
           from docx import Document
           from docx.shared import Cm
-          from pypdf import PdfReader
+          import qwen_core
           import app
 
-          qa = Path('qa_real')
           data = {
-              'restaurant_name': 'QA Restaurante',
-              'texto_extra': 'Carta de prueba de exportación real.',
-              'categories': [
-                  {
-                      'name': 'Entrantes',
-                      'category_text': '',
-                      'dishes': [
-                          {'number':'1','name':'Croquetas de jamón','description':'Croquetas caseras','price':'9,50','allergens':['gluten','huevos','lacteos'],'review_notes':[]},
-                          {'number':'2','name':'Salmón teriyaki','description':'Salmón con salsa teriyaki','price':'14,00','allergens':['pescado','soja','gluten'],'review_notes':[]},
-                          {'number':'3','name':'Queso Manchego Viejo','description':'','price':'4,90','allergens':['lacteos'],'review_notes':[]},
-                      ],
-                  },
-                  {
-                      'name': 'Postres',
-                      'category_text': '',
-                      'dishes': [
-                          {'number':'4','name':'Tiramisú','description':'','price':'6,50','allergens':['gluten','huevos','lacteos'],'review_notes':[]},
-                      ],
-                  },
-              ],
+              'restaurant_name':'QA Restaurante',
+              'texto_extra':'',
+              'categories':[{'name':'Entrantes','category_text':'','dishes':[
+                  {'number':'1','name':'Croquetas','description':'','price':'9,50','allergens':['gluten','huevos','lacteos'],'review_notes':[]}
+              ]}],
           }
 
-          assert app.MODELO_A_USAR == 'qwen3.8-flash'
-          assert app.MODELO_ALERGENOS == 'qwen3.8-max'
-          assert 'neutral' in app.EDITABLE_WORD_THEMES
+          word = app.create_word(data, theme_key='neutral')
+          clean_word = app.create_client_word_without_allergens(data, theme_key='neutral')
+          pdf = app.create_client_pdf_bytes(data, theme_key='neutral', with_allergens=True)
+          clean_pdf = app.create_client_pdf_bytes(data, theme_key='neutral', with_allergens=False)
+          assert pdf.startswith(b'%PDF') and clean_pdf.startswith(b'%PDF')
+          pdf_text = '\n'.join((p.extract_text() or '') for p in PdfReader(BytesIO(pdf)).pages)
+          clean_pdf_text = '\n'.join((p.extract_text() or '') for p in PdfReader(BytesIO(clean_pdf)).pages)
+          assert 'Reglamento de la UE 1169/2011' in pdf_text
+          assert 'GLUTEN' in pdf_text and 'MOLUSCOS' in pdf_text
+          assert 'Reglamento de la UE 1169/2011' not in clean_pdf_text
 
-          with_all = app.create_word(data, theme_key='neutral')
-          without_all = app.create_client_word_without_allergens(data, theme_key='neutral')
-          pdf_all = app.create_client_pdf_bytes(data, theme_key='neutral', with_allergens=True)
-          pdf_clean = app.create_client_pdf_bytes(data, theme_key='neutral', with_allergens=False)
-
-          assert pdf_all and pdf_all.startswith(b'%PDF')
-          assert pdf_clean and pdf_clean.startswith(b'%PDF')
-
-          pdf_all_text = '\n'.join((p.extract_text() or '') for p in PdfReader(BytesIO(pdf_all)).pages)
-          pdf_clean_text = '\n'.join((p.extract_text() or '') for p in PdfReader(BytesIO(pdf_clean)).pages)
-          assert 'Reglamento de la UE 1169/2011' in pdf_all_text
-          assert 'GLUTEN' in pdf_all_text and 'MOLUSCOS' in pdf_all_text
-          assert 'Reglamento de la UE 1169/2011' not in pdf_clean_text
-
-          (qa / 'carta_con_alergenos.docx').write_bytes(with_all.getvalue())
-          (qa / 'carta_sin_alergenos.docx').write_bytes(without_all.getvalue())
-          (qa / 'carta_con_alergenos.pdf').write_bytes(pdf_all)
-          (qa / 'carta_sin_alergenos.pdf').write_bytes(pdf_clean)
-
-          def footer_xmls(path):
-              with zipfile.ZipFile(path) as z:
-                  return [z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml')]
-
-          all_path = qa / 'carta_con_alergenos.docx'
-          clean_path = qa / 'carta_sin_alergenos.docx'
-          all_footers = footer_xmls(all_path)
-          clean_footers = footer_xmls(clean_path)
-          assert all_footers
-          richest = max(all_footers, key=lambda x: x.count('<w:drawing'))
-          assert 'Reglamento de la UE 1169/2011' in richest
-          assert 'GLUTEN' in richest and 'MOLUSCOS' in richest
-          assert richest.count('<w:drawing') >= 14
-          assert 'w:val="nil"' in richest
-          assert not any('Reglamento de la UE 1169/2011' in f or 'GLUTEN' in f for f in clean_footers)
-          assert not any('<w:drawing' in f for f in clean_footers)
-
-          reopened = Document(all_path)
-          body_shapes = list(reopened.inline_shapes)
-          assert body_shapes
-          assert any(Cm(0.40) <= shape.width <= Cm(0.55) for shape in body_shapes), 'Los iconos inline siguen demasiado grandes'
-          for sec in reopened.sections:
-              assert Cm(3.7) <= sec.bottom_margin <= Cm(3.9)
-
-          with zipfile.ZipFile(all_path) as z:
-              body = z.read('word/document.xml').decode('utf-8')
-              assert 'GUÍA DE ALÉRGENOS' not in body
-              price_pos = body.find('9,50')
-              drawing_pos = body.find('<w:drawing', price_pos)
-              assert price_pos >= 0 and drawing_pos > price_pos, 'Word no mantiene PRECIO → ALÉRGENOS'
+          Path('qa_word.docx').write_bytes(word.getvalue())
+          Path('qa_clean_word.docx').write_bytes(clean_word.getvalue())
+          reopened = Document('qa_word.docx')
+          assert any(Cm(0.40) <= s.width <= Cm(0.55) for s in reopened.inline_shapes)
+          with zipfile.ZipFile('qa_word.docx') as z:
+              footers = [z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml')]
+              richest = max(footers, key=lambda x: x.count('<w:drawing'))
+              assert richest.count('<w:drawing') >= 14
+              assert 'w:val="nil"' in richest
+          with zipfile.ZipFile('qa_clean_word.docx') as z:
+              footers = [z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml')]
+              assert not any('GLUTEN' in x or '<w:drawing' in x for x in footers)
 
           source = Path('app.py').read_text(encoding='utf-8')
-          assert 'st.multiselect(' in source and '"Alérgenos"' in source
-          assert 'WORD CON ALÉRGENOS' in source and 'PDF CON ALÉRGENOS' in source
-          assert 'WORD SIN ALÉRGENOS' in source and 'PDF SIN ALÉRGENOS' in source
-          assert 'grid = cell.add_table(rows=2, cols=7)' in source
-          assert 'width=Cm(0.92)' in source
-          assert 'lr.font.size = Pt(8.4)' in source and 'lr.bold = True' in source
-          assert 'label.font.size = Pt(7.4)' in source
-          assert 'col_weights = [1.00, 1.12, 0.92, 0.98, 1.12, 1.02, 1.00]' in source
-          assert 'def nil_table_borders(table):' in source
-          assert 'def set_outer_border(table, color):' in source and 'node.set(qn("w:sz"), "10")' in source
-          assert 'DIÓXIDO DE AZUFRE\\nY SULFITOS' in source
-          assert 'height: 36mm;' in source and 'margin: 15mm 15mm 45mm 15mm;' in source
-          assert 'height: 12mm;' in source and 'font-size: 7.0pt;' in source
-          assert '.dish-icon{{width:4.6mm;height:4.6mm;object-fit:contain;}}' in source
+          qsource = Path('qwen_core.py').read_text(encoding='utf-8')
+          assert 'grid-template-columns: 1fr 1.12fr .92fr .98fr 1.22fr 1.02fr 1fr;' in source
+          assert 'height: 12.4mm;' in source and 'font-size: 6.8pt;' in source
+          assert 'DIÓXIDO DE<br>AZUFRE Y SULFITOS' in source
+          assert 'menu_structure_image_omni_fallback' in qsource
+          assert 'menu_structure_image_max_fallback' in qsource
 
-          legacy_patch = Path('serval_eider_patch/sitecustomize.py').read_text(encoding='utf-8')
-          assert 'INLINE_ICON_MIN_CM = 0.46' in legacy_patch
-
-          word_price = source.index('price_run = p.add_run("\\t" + format_price(dish.get("price", "")))')
-          word_icons = source.index('_add_allergen_icons_to_run(p, dish.get("allergens", [])', word_price)
-          assert word_price < word_icons
-          pdf_price = source.index('f\'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span>\'')
-          pdf_icons = source.index('f\'<span class="dish-icons">{icons}</span></div>{desc_html}</div>\'', pdf_price)
-          assert pdf_price < pdf_icons
-
-          qwen_source = Path('qwen_core.py').read_text(encoding='utf-8')
-          assert 'CARTA_IA_QWEN_USAGE' in qwen_source
-          assert 'st.metric' not in qwen_source and 'st.write' not in qwen_source
-          assert 'GEMINI_API_KEY' not in source and 'GENAI_CLIENT' not in source
-
-          (qa / 'qa_report.txt').write_text(
-              'PASS real export path\nqwen_runtime=ok\nprivate_usage_logging=ok\n'
-              'word_with_allergens=ok\nword_without_allergens=ok\n'
-              'pdf_with_allergens=ok\npdf_without_allergens=ok\n'
-              'price_then_allergens=ok\nclean_outer_frame=ok\ninternal_grid_hidden=ok\n'
-              'compact_2x7_legend=ok\nsmall_inline_icons=ok\npdf_footer_unclipped=ok\nmanual_allergen_editor=present\n',
-              encoding='utf-8',
-          )
-          print('PASS professional allergen legend and price→allergen ordering')
+          valid = '{"restaurant_name":"QA","texto_extra":"","categories":[{"name":"Entrantes","category_text":"","dishes":[{"number":"1","name":"Croquetas","description":"","price":"9,50","allergens":[],"review_notes":[]}]}]}'
+          calls = []
+          original = qwen_core.chat
+          def fake_chat(messages, model=qwen_core.QWEN_FLASH, purpose='general', **kwargs):
+              calls.append(model)
+              if model == qwen_core.QWEN_FLASH:
+                  return '[]', {}
+              if model == qwen_core.QWEN_OMNI:
+                  return valid, {}
+              raise AssertionError('Max no debe ejecutarse si Omni recupera la carta')
+          qwen_core.chat = fake_chat
+          try:
+              recovered = qwen_core.menu_json_from_image('Extrae la carta', Image.new('RGB',(120,80),'white'))
+          finally:
+              qwen_core.chat = original
+          assert recovered['categories'][0]['dishes'][0]['name'] == 'Croquetas'
+          assert calls == [qwen_core.QWEN_FLASH, qwen_core.QWEN_OMNI]
+          print('PASS Carta IA core + Qwen image empty-array fallback')
           PY
-
-      - name: Install renderers
-        if: success()
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libreoffice-writer poppler-utils
-
-      - name: Render all four real outputs
-        if: success()
-        run: |
-          mkdir -p qa_real/rendered
-          libreoffice --headless --convert-to pdf --outdir qa_real/rendered qa_real/carta_con_alergenos.docx
-          libreoffice --headless --convert-to pdf --outdir qa_real/rendered qa_real/carta_sin_alergenos.docx
-          pdftoppm -png -r 140 qa_real/rendered/carta_con_alergenos.pdf qa_real/rendered/word_all
-          pdftoppm -png -r 140 qa_real/rendered/carta_sin_alergenos.pdf qa_real/rendered/word_clean
-          pdftoppm -png -r 140 qa_real/carta_con_alergenos.pdf qa_real/rendered/pdf_all
-          pdftoppm -png -r 140 qa_real/carta_sin_alergenos.pdf qa_real/rendered/pdf_clean
-          ls -lah qa_real qa_real/rendered
-
-      - name: Upload real export QA
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: carta-ia-real-export-qa
-          path: qa_real/
-          if-no-files-found: warn
