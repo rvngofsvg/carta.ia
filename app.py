@@ -1556,9 +1556,10 @@ def add_docx_allergen_legend(doc, data, theme):
             lr.bold = True
             set_run_color(lr, theme.get("text", "111111"))
 
-            col_weights = [1.00, 1.12, 0.92, 0.98, 1.12, 1.02, 1.00]
-            weight_total = sum(col_weights)
-            col_widths = [usable_cm * weight / weight_total for weight in col_weights]
+            # Simetría visual real: las siete posiciones deben ser equidistantes.
+            # Los nombres largos ya llevan saltos de línea controlados, por lo que
+            # no necesitamos deformar el ancho de sus columnas.
+            col_widths = [usable_cm / 7.0] * 7
             grid = cell.add_table(rows=2, cols=7)
             grid.alignment = WD_TABLE_ALIGNMENT.CENTER
             grid.autofit = False
@@ -2714,7 +2715,9 @@ V11_1_EXPLICIT_RULES = {
     ],
     "huevos": [
         "huevo", "huevos", "yema", "clara", "mayonesa", "mahonesa", "merengue", "tortilla de patatas",
-        "tortilla española", "tortilla espanola", "tortilla francesa", "revuelto", "huevo poche", "huevo poché",
+        "tortilla española", "tortilla espanola", "tortilla francesa",
+        "tortilla de jamon", "tortilla de jamón", "tortilla de chorizo", "tortilla de bacon",
+        "tortilla de lomo", "tortilla de queso", "revuelto", "huevo poche", "huevo poché",
     ],
     "crustaceos": [
         "gamba", "gambas", "langostino", "langostinos", "cigala", "cigalas", "bogavante", "cangrejo",
@@ -2722,8 +2725,8 @@ V11_1_EXPLICIT_RULES = {
     ],
     "moluscos": [
         "pulpo", "calamar", "calamares", "raba", "rabas", "sepia", "mejillon", "mejillón", "mejillones",
-        "almeja", "almejas", "chipiron", "chipirón", "vieira", "vieiras", "ostra", "ostras", "navaja",
-        "navajas", "berberecho", "berberechos", "zamburiña", "zamburiñas", "salsa de ostras",
+        "almeja", "almejas", "chipiron", "chipirón", "chipirones", "vieira", "vieiras", "ostra", "ostras", "navaja",
+        "navajas", "berberecho", "berberechos", "zamburiña", "zamburiñas", "caracol", "caracoles", "salsa de ostras",
     ],
     "pescado": [
         "pescado", "atun", "atún", "salmon", "salmón", "bacalao", "merluza", "anchoa", "anchoas",
@@ -2769,6 +2772,9 @@ V11_1_REVIEW_PATTERNS = [
     (r"\btortilla\b(?!\s+(?:de\s+(?:trigo|patatas|maiz)|espanola|francesa))", ["huevos", "gluten"], "'Tortilla' es ambiguo: distinguir tortilla de huevo de tortilla de trigo/maíz."),
     (r"\bpi[nñ][oó]n(?:es)?\b", [], "Piñones: no se clasifican automáticamente como 'frutos de cáscara' dentro de los 14 grupos obligatorios."),
     (r"\bfrutos secos\b", ["frutos de cascara", "cacahuetes"], "'Frutos secos' es genérico: identificar el fruto concreto antes de marcar el grupo legal correspondiente."),
+    (r"\balb[oó]ndigas?\b", ["gluten", "huevos"], "Albóndigas: confirmar pan/harina y huevo de la receta concreta."),
+    (r"\bcallos\b|\bmanitas?\b.*\bsalsa\b", ["gluten", "apio", "sulfitos"], "Guiso/salsa: revisar espesante, fondo y vino de la receta concreta."),
+    (r"\badobad[oa]s?\b|\bchorizo\b|\bsalchich[oó]n\b", ["sulfitos", "lacteos"], "Adobo/embutido: revisar etiqueta o ficha técnica del proveedor."),
     (r"\bfrit[oa]s?\b|\bfritura\b|\bfreidora\b", [], "Fritura/freidora: revisar el protocolo real de contaminación cruzada."),
     (r"\bsin lactosa\b", ["lacteos"], "Sin lactosa no equivale necesariamente a sin leche: confirmar proteína de leche."),
 ]
@@ -3059,6 +3065,9 @@ def run_allergen_smoke_tests():
         ("Pesto casero", "", set(), {"frutos de cascara"}),
         ("Pan con piñones", "", {"gluten"}, {"frutos de cascara"}),
         ("Marisco del día", "", set(), {"crustaceos", "moluscos"}),
+        ("Chipirones en su tinta", "", {"moluscos"}, set()),
+        ("Caracoles", "", {"moluscos"}, set()),
+        ("Tortilla de Jamón", "", {"huevos"}, set()),
     ]
     results = []
     for name, desc, required, forbidden in cases:
@@ -3277,7 +3286,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         }
         .legend-grid {
             display: grid;
-            grid-template-columns: 1fr 1.12fr .92fr .98fr 1.22fr 1.02fr 1fr;
+            grid-template-columns: repeat(7, 1fr);
             grid-template-rows: 12.4mm 12.4mm;
             align-content: start;
             width: 100%;

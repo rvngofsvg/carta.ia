@@ -566,10 +566,42 @@ def allergen_reasoning_json(system_instruction, prompt):
                 except Exception:
                     pass
 
+        # A high-confidence empty answer is not enough for dishes whose name
+        # strongly suggests a composed recipe, sauce, frying or processed product.
+        # Review only those empty cases; plain grilled meat can legitimately remain empty.
+        source = _allergen_source_dishes(prompt)
+        fast_by_key = {}
+        for item in fast_result.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            try:
+                key = (int(item.get("category_index", -1)), int(item.get("dish_index", -1)))
+            except Exception:
+                continue
+            fast_by_key[key] = item
+
+        recipe_risk_terms = (
+            "albóndig", "albondig", "callos", "manitas", "salsa", "adobad",
+            "salchich", "choriz", "hamburgues", "tortilla", "croquet", "frit",
+            "calamar", "chipir", "mejill", "caracol", "bacala", "queso", "huevo",
+            "pesto", "hummus", "romesco", "teriyaki",
+        )
+        for dish in source:
+            try:
+                key = (int(dish.get("category_index", -1)), int(dish.get("dish_index", -1)))
+            except Exception:
+                continue
+            fast_item = fast_by_key.get(key)
+            if not fast_item or (fast_item.get("allergens") or []):
+                continue
+            haystack = (str(dish.get("name") or "") + " " + str(dish.get("description") or "")).lower()
+            if any(term in haystack for term in recipe_risk_terms):
+                review_keys.add(key)
+
         if not review_keys:
             return fast_result, QWEN_FLASH
 
-        source = _allergen_source_dishes(prompt)
+        # source was already recovered above to support risk-based selective review.
         uncertain = []
         for dish in source:
             try:
