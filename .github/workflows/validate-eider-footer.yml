@@ -21,7 +21,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-      - name: Validate exports and image fallback
+      - name: Validate exports, symmetry and Qwen fallbacks
         run: |
           python - <<'PY'
           from io import BytesIO
@@ -31,6 +31,7 @@ jobs:
           from pypdf import PdfReader
           from docx import Document
           from docx.shared import Cm
+          from docx.oxml.ns import qn
           import qwen_core
           import app
 
@@ -57,6 +58,16 @@ jobs:
           Path('qa_clean_word.docx').write_bytes(clean_word.getvalue())
           reopened = Document('qa_word.docx')
           assert any(Cm(0.40) <= s.width <= Cm(0.55) for s in reopened.inline_shapes)
+
+          # Footer real: wrapper -> nested 2x7 grid. All seven columns must be equal.
+          footer_tables = reopened.sections[0].footer.tables
+          assert footer_tables
+          nested = footer_tables[0].cell(0, 0).tables
+          assert nested and len(nested[0].columns) == 7
+          grid_cols = nested[0]._tbl.tblGrid.findall(qn('w:gridCol'))
+          widths = [int(col.get(qn('w:w'))) for col in grid_cols]
+          assert len(widths) == 7 and max(widths) - min(widths) <= 2, widths
+
           with zipfile.ZipFile('qa_word.docx') as z:
               footers = [z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml')]
               richest = max(footers, key=lambda x: x.count('<w:drawing'))
@@ -66,14 +77,33 @@ jobs:
               footers = [z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml')]
               assert not any('GLUTEN' in x or '<w:drawing' in x for x in footers)
 
+          # Exact omissions seen in the real restaurant menu.
+          expected = {
+              'Chipirones en su tinta': {'moluscos'},
+              'Caracoles': {'moluscos'},
+              'Tortilla de Jamón': {'huevos'},
+              'Bacalao en salsa verde': {'pescado'},
+              'Queso Manchego Viejo': {'lacteos'},
+          }
+          for name, required in expected.items():
+              dish = {'name':name,'description':'','allergens':[],'review_notes':[]}
+              app.apply_allergen_rules_to_dish(dish)
+              assert required <= set(dish['allergens']), (name, dish)
+          plain = {'name':'Lomo a la plancha','description':'','allergens':[],'review_notes':[]}
+          app.apply_allergen_rules_to_dish(plain)
+          assert plain['allergens'] == []
+
           source = Path('app.py').read_text(encoding='utf-8')
           qsource = Path('qwen_core.py').read_text(encoding='utf-8')
-          assert 'grid-template-columns: 1fr 1.12fr .92fr .98fr 1.22fr 1.02fr 1fr;' in source
+          assert 'col_widths = [usable_cm / 7.0] * 7' in source
+          assert 'grid-template-columns: repeat(7, 1fr);' in source
           assert 'height: 12.4mm;' in source and 'font-size: 6.8pt;' in source
           assert 'DIÓXIDO DE<br>AZUFRE Y SULFITOS' in source
           assert 'menu_structure_image_omni_fallback' in qsource
           assert 'menu_structure_image_max_fallback' in qsource
+          assert 'recipe_risk_terms' in qsource
 
+          # Image empty-array recovery.
           valid = '{"restaurant_name":"QA","texto_extra":"","categories":[{"name":"Entrantes","category_text":"","dishes":[{"number":"1","name":"Croquetas","description":"","price":"9,50","allergens":[],"review_notes":[]}]}]}'
           calls = []
           original = qwen_core.chat
@@ -91,5 +121,6 @@ jobs:
               qwen_core.chat = original
           assert recovered['categories'][0]['dishes'][0]['name'] == 'Croquetas'
           assert calls == [qwen_core.QWEN_FLASH, qwen_core.QWEN_OMNI]
-          print('PASS Carta IA core + Qwen image empty-array fallback')
+
+          print('PASS Carta IA core: equal 2x7 legend + allergen coverage + Qwen recovery')
           PY
