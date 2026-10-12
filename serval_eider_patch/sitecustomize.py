@@ -285,12 +285,12 @@ def _footer_variants(section):
 def _single_footer(section, usable_cm):
     if section.bottom_margin < Cm(6.1):
         section.bottom_margin = Cm(6.1)
-    section.footer_distance = Cm(0.15)
+    section.footer_distance = Cm(0.45)
 
     for footer in _footer_variants(section):
         footer.is_linked_to_previous = False
         _clear(footer)
-        width_cm = min(18.2, usable_cm)
+        width_cm = max(12.0, min(18.2, usable_cm - 1.6))  # 0.8 cm extra por lado
         wrapper = footer.add_table(rows=1, cols=1, width=Cm(width_cm))
         wrapper.alignment = WD_TABLE_ALIGNMENT.CENTER
         wrapper.autofit = False
@@ -312,15 +312,16 @@ def _single_footer(section, usable_cm):
 def _book_footer(section, usable_cm):
     if section.bottom_margin < Cm(5.4):
         section.bottom_margin = Cm(5.4)
-    section.footer_distance = Cm(0.12)
+    section.footer_distance = Cm(0.45)
     gutter_cm = 0.8
-    side_cm = max(6.0, (usable_cm - gutter_cm) / 2.0)
+    content_cm = max(12.0, usable_cm - 1.6)  # 0.8 cm extra por borde exterior
+    side_cm = max(6.0, (content_cm - gutter_cm) / 2.0)
     widths = (side_cm, gutter_cm, side_cm)
 
     for footer in _footer_variants(section):
         footer.is_linked_to_previous = False
         _clear(footer)
-        table = footer.add_table(rows=1, cols=3, width=Cm(usable_cm))
+        table = footer.add_table(rows=1, cols=3, width=Cm(content_cm))
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
         table.autofit = False
         _remove_table_borders(table)

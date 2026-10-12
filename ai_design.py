@@ -307,7 +307,7 @@ def create_ai_menu_pdf(data, background_bytes, icon_map, with_allergens=True):
     .dish-icon {{ width:5.4mm; height:5.4mm; object-fit:contain; }}
     .desc {{ margin-top:.45mm; font-size:8.4pt; color:#4b4b4b; font-style:italic; }}
     .extra {{ margin:4mm 0; padding:2.5mm; border:1px solid rgba(30,30,30,.18); background:rgba(255,255,255,.55); font-size:8.5pt; }}
-    .legend {{ margin-top:5mm; padding:2.2mm 2.5mm; border:1.75pt solid #333; background:rgba(255,255,255,.93); break-inside:avoid; }}
+    .legend {{ margin:5mm 8mm 4.5mm; padding:2.2mm 2.5mm; border:1.75pt solid #333; background:rgba(255,255,255,.93); break-inside:avoid; }}
     .legend-law {{ text-align:center; font-size:7.5pt; margin-bottom:1.5mm; }}
     .legend-grid {{ display:grid; grid-template-columns:repeat(7,1fr); gap:1.2mm 1.5mm; }}
     .legend-item {{ text-align:center; font-size:6.5pt; font-weight:700; line-height:1.05; }}

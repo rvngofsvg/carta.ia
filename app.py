@@ -687,7 +687,7 @@ def allergen_guide_panel_html(theme="dark", notice="", compact=False):
             f'<div style="{item_style}">{icon_img_html_inline(allergen, icon_style)}<span>{html_escape(ALLERGEN_LABELS[allergen])}</span></div>'
         )
     return (
-        f'<section class="allergen-guide-panel" style="{section_style}">'
+        f'<section class="allergen-guide-panel" style="margin-left:8mm; margin-right:8mm; margin-bottom:4.5mm; {section_style}">'
         f'<h3 style="{title_style}">Guía de alérgenos</h3>'
         f'<div style="display:grid; grid-template-columns:{grid_cols}; gap:2mm 2.4mm; align-items:start;">{"".join(items)}</div>'
         f'<div style="{notice_style}">{notice}</div>'
@@ -1855,17 +1855,19 @@ def configure_book_header_footer(section, data, theme):
 
     footer = section.footer
     footer.is_linked_to_previous = False
-    footer.distance = Cm(0.25)
+    footer.distance = Cm(0.45)
     footer.paragraphs[0].paragraph_format.space_after = Pt(0)
-    ft = footer.add_table(rows=1, cols=3, width=usable_width)
+    footer_usable_cm = max(12.0, usable_cm - 1.6)  # 0.8 cm extra por borde exterior
+    footer_side_cm = (footer_usable_cm - gutter_cm) / 2
+    ft = footer.add_table(rows=1, cols=3, width=Cm(footer_usable_cm))
     ft.alignment = WD_TABLE_ALIGNMENT.CENTER
     ft.autofit = False
-    set_table_grid_widths(ft, [side_cm, gutter_cm, side_cm])
-    set_cell_width(ft.cell(0, 0), side_cm)
+    set_table_grid_widths(ft, [footer_side_cm, gutter_cm, footer_side_cm])
+    set_cell_width(ft.cell(0, 0), footer_side_cm)
     set_cell_width(ft.cell(0, 1), gutter_cm)
-    set_cell_width(ft.cell(0, 2), side_cm)
-    add_book_legend_side(ft.cell(0, 0), data, theme, side_width_cm=side_cm)
-    add_book_legend_side(ft.cell(0, 2), data, theme, side_width_cm=side_cm)
+    set_cell_width(ft.cell(0, 2), footer_side_cm)
+    add_book_legend_side(ft.cell(0, 0), data, theme, side_width_cm=footer_side_cm)
+    add_book_legend_side(ft.cell(0, 2), data, theme, side_width_cm=footer_side_cm)
     set_cell_margins(ft.cell(0, 1), top=0, start=0, bottom=0, end=0)
 
 
@@ -1891,9 +1893,9 @@ def create_landscape_book_word(
     section.left_margin = Cm(0.8)
     section.right_margin = Cm(0.8)
     section.top_margin = Cm(2.25)
-    section.bottom_margin = Cm(3.35)
+    section.bottom_margin = Cm(4.2)
     section.header_distance = Cm(0.35)
-    section.footer_distance = Cm(0.25)
+    section.footer_distance = Cm(0.45)
     set_book_columns(section, gutter_cm=0.8)
     configure_book_header_footer(section, data, theme)
 
@@ -2259,7 +2261,7 @@ def allergen_guide_panel_v6(theme, notice=""):
         <div class="v6-notice">{notice}</div>
     </section>
     <style>
-    .v6-guide {{ margin-top:5.5mm; padding:4.8mm; border:1px solid {border}; border-radius:12px; background:{bg}; box-shadow:{theme['shadow']}; }}
+    .v6-guide {{ margin:5.5mm 8mm 4.5mm; padding:4.8mm; border:1px solid {border}; border-radius:12px; background:{bg}; box-shadow:{theme['shadow']}; }}
     .v6-guide h3 {{ margin:0 0 3.4mm; text-align:center; color:{title_color}; font-family:Georgia,'Times New Roman',serif; font-size:15px; letter-spacing:2.2px; text-transform:uppercase; }}
     .v6-guide-grid {{ display:grid; grid-template-columns:repeat(7,1fr); gap:2mm 2.4mm; align-items:start; }}
     .guide-item {{ min-height:15mm; padding:1.5mm .8mm; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:1mm; color:{text_color}; text-align:center; font-size:7.1px; line-height:1.08; border:1px solid {border}; border-radius:8px; background:{item_bg}; }}
