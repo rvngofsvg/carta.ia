@@ -1527,10 +1527,13 @@ def add_docx_allergen_legend(doc, data, theme):
     border_color = theme.get("muted", "6B7280")
 
     for section in doc.sections:
-        if section.bottom_margin < Cm(3.8):
-            section.bottom_margin = Cm(3.8)
-        section.footer_distance = Cm(0.12)
-        usable_cm = max(12.0, (section.page_width - section.left_margin - section.right_margin) / 360000.0)
+        # Alinea visualmente la leyenda con la sangría real del cuerpo de la carta.
+        # Antes ocupaba todo el ancho imprimible y quedaba demasiado pegada al borde inferior.
+        if section.bottom_margin < Cm(4.2):
+            section.bottom_margin = Cm(4.2)
+        section.footer_distance = Cm(0.45)
+        raw_usable_cm = max(12.0, (section.page_width - section.left_margin - section.right_margin) / 360000.0)
+        usable_cm = max(12.0, raw_usable_cm - 1.6)  # 0,8 cm extra por lado, igual que el cuerpo.
 
         for footer in (section.footer, section.first_page_footer, section.even_page_footer):
             footer.is_linked_to_previous = False
@@ -3269,7 +3272,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
         footer_css = """
         .allergen-footer {
             position: running(allergenFooter);
-            width: 180mm;
+            width: 164mm;
             height: 36mm;
             border: 1px solid #7a746e;
             padding: 1.4mm 2.5mm 1.0mm;
