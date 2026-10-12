@@ -1,0 +1,77 @@
+name: Apply global legend margin rule
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply-global-legend-margin-rule.py'
+      - '.github/workflows/apply-global-legend-margin-rule.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply global legend rule
+        run: python scripts/apply-global-legend-margin-rule.py
+      - name: Compile changed Python
+        run: python -m py_compile app.py ai_design.py serval_eider_patch/sitecustomize.py
+      - name: Validate every template family uses the margin contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('app.py').read_text(encoding='utf-8')
+          ai = Path('ai_design.py').read_text(encoding='utf-8')
+          legacy = Path('serval_eider_patch/sitecustomize.py').read_text(encoding='utf-8')
+
+          # Standard portrait Word/PDF.
+          assert 'usable_cm = max(12.0, raw_usable_cm - 1.6)' in app
+          assert 'section.footer_distance = Cm(0.45)' in app
+          assert 'width: 164mm;' in app
+
+          # Every legacy/premium HTML model routed through the shared panel.
+          assert 'margin-left:8mm; margin-right:8mm; margin-bottom:4.5mm; {section_style}' in app
+
+          # Premium v6/v7 family.
+          assert '.v6-guide {{ margin:5.5mm 8mm 4.5mm;' in app
+
+          # Landscape / book model.
+          assert 'footer_usable_cm = max(12.0, usable_cm - 1.6)' in app
+          assert 'footer.distance = Cm(0.45)' in app
+          assert 'section.bottom_margin = Cm(4.2)' in app
+          assert 'section.footer_distance = Cm(0.45)' in app
+
+          # AI-generated visual menu.
+          assert '.legend {{ margin:5mm 8mm 4.5mm;' in ai
+
+          # Legacy Word patch cannot re-expand the legend later on save().
+          assert 'usable_cm - 1.6' in legacy
+          assert legacy.count('section.footer_distance = Cm(0.45)') >= 2
+          assert 'width=Cm(content_cm)' in legacy
+
+          # Common symmetry rule stays intact.
+          assert 'col_widths = [usable_cm / 7.0] * 7' in app
+          assert 'grid-template-columns: repeat(7, 1fr);' in app
+
+          print('PASS global legend margin contract across Word, PDF, premium, book and AI design')
+          PY
+      - name: Commit runtime changes
+        run: |
+          if git diff --quiet -- app.py ai_design.py serval_eider_patch/sitecustomize.py; then
+            echo 'No runtime changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py ai_design.py serval_eider_patch/sitecustomize.py
+          git commit -m 'Apply legend margin rule to all menu templates'
+          git push
