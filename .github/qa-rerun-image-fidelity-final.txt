@@ -1,0 +1,1 @@
+Final QA trigger after Qwen image fallback and 3200px image fidelity update.
