@@ -21,7 +21,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-      - name: Validate exports, symmetry and Qwen fallbacks
+      - name: Validate exports, global legend margins, symmetry and Qwen fallbacks
         run: |
           python - <<'PY'
           from io import BytesIO
@@ -68,6 +68,14 @@ jobs:
           widths = [int(col.get(qn('w:w'))) for col in grid_cols]
           assert len(widths) == 7 and max(widths) - min(widths) <= 2, widths
 
+          # The portrait footer must stay inset from the printable width and lifted from the page edge.
+          section = reopened.sections[0]
+          printable_cm = (section.page_width - section.left_margin - section.right_margin) / 360000.0
+          wrapper_cm = footer_tables[0].columns[0].width / 360000.0
+          assert wrapper_cm <= printable_cm - 1.45, (wrapper_cm, printable_cm)
+          assert section.footer_distance >= Cm(0.40)
+          assert section.bottom_margin >= Cm(4.0)
+
           with zipfile.ZipFile('qa_word.docx') as z:
               footers = [z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('word/footer') and n.endswith('.xml')]
               richest = max(footers, key=lambda x: x.count('<w:drawing'))
@@ -94,11 +102,29 @@ jobs:
           assert plain['allergens'] == []
 
           source = Path('app.py').read_text(encoding='utf-8')
+          ai_source = Path('ai_design.py').read_text(encoding='utf-8')
+          legacy_source = Path('serval_eider_patch/sitecustomize.py').read_text(encoding='utf-8')
           qsource = Path('qwen_core.py').read_text(encoding='utf-8')
+
+          # Global design contract: every offered family keeps the legend inside the body grid.
+          assert 'usable_cm = max(12.0, raw_usable_cm - 1.6)' in source          # standard Word
+          assert 'width: 164mm;' in source                                      # standard PDF
+          assert 'margin-left:8mm; margin-right:8mm; margin-bottom:4.5mm; {section_style}' in source  # legacy/premium HTML
+          assert '.v6-guide {{ margin:5.5mm 8mm 4.5mm;' in source               # premium v6/v7
+          assert 'footer_usable_cm = max(12.0, usable_cm - 1.6)' in source       # landscape/book
+          assert 'footer.distance = Cm(0.45)' in source
+          assert 'section.bottom_margin = Cm(4.2)' in source
+          assert '.legend {{ margin:5mm 8mm 4.5mm;' in ai_source                # Qwen Image design mode
+          assert 'usable_cm - 1.6' in legacy_source                              # legacy docx safety patch
+          assert legacy_source.count('section.footer_distance = Cm(0.45)') >= 2
+          assert 'width=Cm(content_cm)' in legacy_source
+
+          # Symmetry and long-label layout remain intact.
           assert 'col_widths = [usable_cm / 7.0] * 7' in source
           assert 'grid-template-columns: repeat(7, 1fr);' in source
           assert 'height: 12.4mm;' in source and 'font-size: 6.8pt;' in source
           assert 'DIÓXIDO DE<br>AZUFRE Y SULFITOS' in source
+
           assert 'menu_structure_image_omni_fallback' in qsource
           assert 'menu_structure_image_max_fallback' in qsource
           assert 'recipe_risk_terms' in qsource
@@ -122,5 +148,5 @@ jobs:
           assert recovered['categories'][0]['dishes'][0]['name'] == 'Croquetas'
           assert calls == [qwen_core.QWEN_FLASH, qwen_core.QWEN_OMNI]
 
-          print('PASS Carta IA core: equal 2x7 legend + allergen coverage + Qwen recovery')
+          print('PASS Carta IA core: global legend margin rule + equal 2x7 + allergen coverage + Qwen recovery')
           PY
