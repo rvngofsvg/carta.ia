@@ -11,9 +11,9 @@ from zipfile import ZipFile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from qa.audit_runtime import MENU, load_app
 import qwen_core as q
-from word_legend import LEGEND_PATH, set_eider_footer
+from word_legend import LEGEND_PATH, ORIGINAL_LEGEND_PATH, set_eider_footer
 from docx import Document
-from PIL import Image
+from PIL import Image, ImageChops
 
 app = load_app()
 
@@ -55,6 +55,21 @@ class RegressionTests(unittest.TestCase):
                 # No original legend linked from body or header.
                 for part in [doc.part] + [s.header.part for s in doc.sections]:
                     self.assertNotIn(image, [r.target_part.blob for r in part.rels.values() if not r.is_external and r.reltype.endswith('/image')])
+
+    def test_cropped_legend_removes_white_background_without_changing_white_render(self):
+        source = Image.open(ORIGINAL_LEGEND_PATH).convert('RGB')
+        source_diff = ImageChops.difference(source, Image.new('RGB', source.size, 'white'))
+        content = source_diff.convert('L').point(lambda p: 255 if p else 0).getbbox()
+        self.assertIsNotNone(content)
+        left, top, right, bottom = content
+        padding = 12
+        expected_box = (left-padding, top-padding, right+padding, bottom+padding)
+        expected = source.crop(expected_box)
+        cropped = Image.open(LEGEND_PATH).convert('RGBA')
+        self.assertEqual(cropped.size, expected.size)
+        self.assertLess(cropped.getchannel('A').getextrema()[0], 255)
+        rendered_on_white = Image.alpha_composite(Image.new('RGBA', cropped.size, 'white'), cropped).convert('RGB')
+        self.assertIsNone(ImageChops.difference(expected, rendered_on_white).getbbox())
 
     def test_without_allergens_is_clean(self):
         for columns in (False, True):
@@ -247,6 +262,14 @@ class RegressionTests(unittest.TestCase):
         price.set_value('19,75').run()
         self.assertFalse(at.exception)
         self.assertEqual(at.session_state.menu_data['categories'][0]['dishes'][0]['price'], '19,75')
+
+    def test_generator_tabs_remain_visible_before_menu_is_loaded(self):
+        from streamlit.testing.v1 import AppTest
+        at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=90).run()
+        self.assertFalse(at.exception)
+        self.assertEqual(len(at.tabs), 7)
+        self.assertTrue(any('Prepara o carga una carta' in item.value for item in at.info))
+        self.assertEqual(len(at.get('download_button')), 0)
 
 
 if __name__ == '__main__':

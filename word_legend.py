@@ -1,9 +1,11 @@
-"""Embed Eider's unmodified artwork exclusively in real Word footers."""
+"""Embed Eider's artwork with its white matte removed in real Word footers."""
 from pathlib import Path
 from PIL import Image
 from docx.shared import Cm, Pt
 
-LEGEND_PATH = Path(__file__).resolve().parent / 'Public' / 'leyenda_Eider_recreada_colores_HD.png'
+PUBLIC_DIR = Path(__file__).resolve().parent / 'Public'
+ORIGINAL_LEGEND_PATH = PUBLIC_DIR / 'leyenda_Eider_recreada_colores_HD.png'
+LEGEND_PATH = PUBLIC_DIR / 'leyenda_Eider_recreada_colores_HD_recortada.png'
 
 
 def set_eider_footer(section):
@@ -12,8 +14,8 @@ def set_eider_footer(section):
     with Image.open(LEGEND_PATH) as artwork:
         height = int(width * artwork.height / artwork.width)
     section.footer_distance = Cm(0.45)
-    # Reserve the full image (including its original white margins), baseline
-    # and breathing room below body text. Never float it over the body.
+    # Reserve the cropped image, baseline, and breathing room below body text.
+    # Never float the legend over the body.
     section.bottom_margin = max(section.bottom_margin or 0, height + Cm(1.05))
     for footer in (section.footer, section.first_page_footer, section.even_page_footer):
         footer.is_linked_to_previous = False

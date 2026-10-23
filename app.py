@@ -3529,6 +3529,21 @@ if app_mode == "📝 Generador de Cartas":
         with tab7:
             render_allergen_validation(st.session_state.menu_data)
 
+    else:
+        st.markdown("---")
+        empty_tabs = st.tabs([
+            "✏️ Revisar",
+            "⬇️ Descargar",
+            "📝 Word editables",
+            "📖 Horizontal",
+            "🎨 Diseños",
+            "🌍 Traducir",
+            "🧪 Alérgenos",
+        ])
+        for tab in empty_tabs:
+            with tab:
+                st.info("Prepara o carga una carta arriba para habilitar este apartado y sus descargas.")
+
 elif app_mode == "📡 Radar de Clientes":
     st.title("Radar de Redes y Mapas 📡")
     import urllib.parse

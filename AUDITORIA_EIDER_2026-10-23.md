@@ -1,6 +1,6 @@
 # Auditoría local de Carta IA y leyenda Eider
 
-Fecha: 23 de octubre de 2026. Cambios locales, sin publicación, despliegue ni envío de claves.
+Fecha: 23 de octubre de 2026. Auditoría de la rama `main` con el nuevo recorte de leyenda y la comprobación de la pestaña Word. No se enviaron claves.
 
 ## Actualización tras configurar Secrets locales
 
@@ -12,7 +12,7 @@ Se generaron y renderizaron con los datos reales: Word con alérgenos, sin alér
 
 La prueba real descubrió un defecto adicional: Qwen conservaba correctamente el sufijo `EUR`, pero el formateador añadía `€`, produciendo `12,50 EUR€`. Se corrigió en `app.py` y `ai_design.py` para representar `12,50 €`. Los archivos se regeneraron a partir de las respuestas guardadas, sin repetir las llamadas pagadas. La suite ampliada pasa **12 pruebas de regresión**.
 
-Evidencia local: `qa/after/live/results.json`, `ui_results.json`, `export_checks.json`, respuestas JSON, documentos y renderizados. Script reproducible con llamadas reales: `qa/live_qwen_check.py`. El fichero de Secrets continúa ignorado y no versionado; no se modificó Cloud ni producción.
+Evidencia local: `qa/after/live/results.json`, `ui_results.json`, `export_checks.json`, respuestas JSON, documentos y renderizados. Script reproducible con llamadas reales: `qa/live_qwen_check.py`. El fichero de Secrets continúa ignorado y no versionado. La prueba de API no modificó Cloud; el código se publicó después, tras la autorización expresa del usuario.
 
 ## Resultado y alcance
 
@@ -77,11 +77,13 @@ Las funciones de exportación se conservan. El código eliminado corresponde a l
 
 ## Verificación funcional ampliada
 
-La suite se amplió a 16 pruebas. AppTest recorre Radar de Clientes y Extractor Universal con un TXT sintético, comprueba el Word de texto literal y confirma que una nota de revisión oculta las salidas con alérgenos en las pestañas normal, plantillas, horizontal y diseños hasta que el usuario marca una sola confirmación. Después, la prueba confirma que esas descargas se habilitan en todos los apartados. Una clasificación de confianza baja se convierte en una nota con el motivo de Qwen.
+La suite se amplió y ahora contiene 17 pruebas. AppTest recorre Radar de Clientes y Extractor Universal con un TXT sintético, comprueba el Word de texto literal y confirma que una nota de revisión oculta las salidas con alérgenos en las pestañas normal, plantillas, horizontal y diseños hasta que el usuario marca una sola confirmación. Después, la prueba confirma que esas descargas se habilitan en todos los apartados. Una clasificación de confianza baja se convierte en una nota con el motivo de Qwen.
 
-Además, una comprobación aislada recorrió las cinco estructuras de Diseño Premium (`cards`, `soft`, `compact`, `mesa` y `table`): cada una produjo un PDF con el plato y los 14 elementos de la guía. El aviso de retirada de `st.components.v1.html` desapareció tras migrar la vista previa a `st.iframe`.
+La prueba `test_all_premium_visual_structures_render` recorre las cinco estructuras de Diseño Premium (`cards`, `soft`, `compact`, `mesa` y `table`): cada una produjo un PDF con el plato y los 14 elementos de la guía. El aviso de retirada de `st.components.v1.html` desapareció tras migrar la vista previa a `st.iframe`.
 
-La batería completa actualizada pasó: `Ran 15 tests ... OK`. Los flujos de análisis de texto e imagen, detección de alérgenos y traducción contra Qwen ya se probaron en la ejecución autenticada descrita arriba. La voz y la generación remota de fondos no se han probado contra Alibaba; el PDF de diseño sí se genera con un fondo local sintético.
+GitHub Actions pasó las 17 pruebas (`Ran 17 tests ... OK`, ejecución `39967513421`, 23-10-2026). En local pasaron las 16 pruebas de regresión y la prueba premium, ejecutada por separado. Los flujos de análisis de texto e imagen, detección de alérgenos y traducción contra Qwen ya se probaron en la ejecución autenticada descrita arriba. La voz y la generación remota de fondos no se han probado contra Alibaba; el PDF de diseño sí se genera con un fondo local sintético.
+
+La app publicada carga en `https://cartaalergenos.streamlit.app/~/+/`. Durante la comprobación, la ruta raíz `https://cartaalergenos.streamlit.app/` permaneció en carga; es una incidencia de acceso a revisar si se usa esa URL concreta.
 
 Los renderizados comprueban LibreOffice; no se afirma una prueba en Microsoft Word nativo. La maquetación puede variar con las fuentes y el motor del equipo receptor. Las pruebas usan una carta sintética, no una carta real del restaurante. Los diseños automáticos se comprobaron con un fondo local; su generación remota sigue pendiente de credenciales.
 
@@ -101,5 +103,13 @@ La instalación portátil PDF ya está preparada en este equipo. Para reproducir
 ```
 
 `DASHSCOPE_API_KEY` ya está configurada localmente en Secrets por el usuario. La prueba real con carta conocida está completada. Para repetirla explícitamente: `& .venv/Scripts/python.exe qa/live_qwen_check.py` (realiza llamadas de pago a Alibaba). No se debe pegar la clave en el código ni subirla a Git.
+
+## Ajuste tras la nueva nota de Eider
+
+El PNG original de la clienta se conserva intacto. Para que la leyenda se pueda ajustar sin un rectángulo blanco detrás, añadí `Public/leyenda_Eider_recreada_colores_HD_recortada.png`: recorte con transparencia del blanco, conservando en blanco los pictogramas de los 14 discos. Al componer el nuevo PNG sobre blanco, la comparación píxel a píxel con el original recortado da diferencia máxima 0; no se redibujaron iconos ni textos. La imagen pasó de 7688 × 1496 a 7257 × 1049.
+
+`word_legend.py` usa la versión recortada en el pie real. Generé y convertí con LibreOffice a PDF las seis variantes (alérgenos, sin alérgenos, limpio, editable, premium y horizontal): hay una guía por página en las versiones con alérgenos, ninguna en la versión sin alérgenos y no hay superposición con el contenido. Los renderizados están en `qa/after/crop-audit/rendered/`.
+
+La pestaña `Word editables` desaparecía cuando la sesión no tenía una carta cargada porque la fila completa de pestañas se creaba solo dentro de esa condición. Ahora las siete pestañas siguen visibles y muestran una indicación para cargar la carta; las descargas siguen ocultas hasta que haya datos. La suite actualizada pasó en local: `Ran 19 tests ... OK`, incluidas las pruebas de estado vacío, revisión de navegación y fidelidad de la leyenda.
 
 Referencias oficiales consultadas: [modelos de Alibaba](https://www.alibabacloud.com/help/en/model-studio/models), [instalación de WeasyPrint](https://doc.courtbouillon.org/weasyprint/stable/first_steps.html), [distribución WeasyPrint 69](https://github.com/Kozea/WeasyPrint/releases/tag/v69.0).
