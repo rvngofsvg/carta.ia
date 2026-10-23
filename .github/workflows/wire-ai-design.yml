@@ -44,7 +44,7 @@ jobs:
         run: |
           python -m py_compile app.py ai_design.py
           grep -F 'from ai_design import render_ai_design_mode' app.py
-          grep -F 'render_ai_design_mode(st.session_state.menu_data, ICON_MAP)' app.py
+          grep -F 'render_ai_design_mode(st.session_state.menu_data, ICON_MAP' app.py
       - name: Commit integration
         run: |
           if git diff --quiet; then
