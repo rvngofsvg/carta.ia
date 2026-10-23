@@ -28,15 +28,15 @@ ALLERGEN_LABELS = {
 }
 
 STYLE_PRESETS = {
-    "Elegante editorial": "high-end editorial restaurant menu, refined typography zones, restrained luxury, sophisticated print design",
-    "Mediterráneo premium": "premium Mediterranean restaurant identity, warm natural stone, subtle sea and olive references, elegant handcrafted details",
-    "Gastrobar moderno": "modern urban gastrobar, premium contemporary graphic design, bold but refined geometry, sophisticated restaurant branding",
-    "Minimalista lujo": "luxury minimal restaurant design, generous negative space, subtle premium materials, timeless fine dining aesthetic",
-    "Vintage artesanal": "artisan vintage restaurant print design, tasteful paper texture, engraved decorative accents, premium old-world hospitality",
-    "Japonés contemporáneo": "contemporary Japanese fine dining design, restrained ink-inspired details, quiet luxury, elegant asymmetry",
-    "Italiano sofisticado": "sophisticated Italian restaurant identity, editorial Milanese design, subtle heritage references, premium print finish",
-    "Natural botánico": "premium botanical restaurant identity, elegant organic forms, natural materials, subtle foliage details, modern hospitality design",
-    "Libre": "unique professional restaurant menu design",
+    "Clásico": "high-end editorial restaurant menu, refined typography zones, restrained luxury, sophisticated print design",
+    "Cálido": "premium Mediterranean restaurant identity, warm natural stone, subtle sea and olive references, elegant handcrafted details",
+    "Moderno": "modern urban gastrobar, premium contemporary graphic design, bold but refined geometry, sophisticated restaurant branding",
+    "Sencillo": "luxury minimal restaurant design, generous negative space, subtle premium materials, timeless fine dining aesthetic",
+    "Artesanal": "artisan vintage restaurant print design, tasteful paper texture, engraved decorative accents, premium old-world hospitality",
+    "Tranquilo": "contemporary Japanese fine dining design, restrained ink-inspired details, quiet luxury, elegant asymmetry",
+    "Colorido": "sophisticated Italian restaurant identity, editorial Milanese design, subtle heritage references, premium print finish",
+    "Natural": "premium botanical restaurant identity, elegant organic forms, natural materials, subtle foliage details, modern hospitality design",
+    "A tu gusto": "unique professional restaurant menu design",
 }
 
 
@@ -317,11 +317,11 @@ def create_ai_menu_pdf(data, background_bytes, icon_map, with_allergens=True):
 
 
 def render_ai_design_mode(data, icon_map, can_export_allergens=True):
-    st.markdown("### ✨ Diseño IA")
-    st.caption("La IA crea el fondo y la dirección artística. Carta IA coloca después platos, precios y alérgenos reales para no alterar datos.")
+    st.markdown("### ✨ Crear un diseño")
+    st.caption("Elige un estilo y los colores. Después se añadirán el nombre, los platos, los precios y los alérgenos de tu carta.")
 
     if not _dashscope_key():
-        st.warning("El modo Diseño IA no está configurado. Contacta con el administrador.")
+        st.warning("Esta opción no está disponible ahora.")
         return
 
     c1, c2 = st.columns([1, 1])
@@ -331,12 +331,12 @@ def render_ai_design_mode(data, icon_map, can_export_allergens=True):
         colors = st.text_input("Colores (opcional)", placeholder="Ej.: burdeos, crema y dorado", key="ai_design_colors")
     brief = st.text_area(
         "Indicaciones opcionales",
-        placeholder="Ej.: restaurante de tapas premium en Barcelona, sobrio, sin fotografías de comida...",
+        placeholder="Ej.: colores cálidos, aspecto sencillo y sin fotos de comida...",
         height=80,
         key="ai_design_brief",
     )
 
-    if st.button("✨ GENERAR 4 PROPUESTAS", key="ai_design_generate", use_container_width=True):
+    if st.button("✨ CREAR 4 DISEÑOS", key="ai_design_generate", use_container_width=True):
         try:
             with st.spinner("Creando cuatro propuestas visuales..."):
                 images = generate_qwen_backgrounds(data, style_name, colors, brief, n=4)
@@ -368,19 +368,19 @@ def render_ai_design_mode(data, icon_map, can_export_allergens=True):
     c1, c2 = st.columns(2)
     with c1:
         st.download_button(
-            "⬇️ DESCARGAR FONDO PNG",
+            "⬇️ DESCARGAR IMAGEN",
             chosen,
-            file_name="CartaIA_Fondo_Qwen.png",
+            file_name="Carta_Fondo.png",
             mime="image/png",
             use_container_width=True,
         )
     with c2:
-        if st.button("✨ REFINAR ESTA PROPUESTA CON PRO", key="ai_design_refine", use_container_width=True):
+        if st.button("✨ MEJORAR ESTE DISEÑO", key="ai_design_refine", use_container_width=True):
             try:
                 with st.spinner("Refinando el concepto seleccionado..."):
                     st.session_state["ai_design_final"] = refine_qwen_background(chosen, data, style_name, colors, brief)
             except Exception as exc:
-                st.error(str(exc))
+                st.error("No se pudo mejorar el diseño. Inténtalo de nuevo.")
 
     final_bg = st.session_state.get("ai_design_final") or chosen
     if st.session_state.get("ai_design_final"):
@@ -393,9 +393,9 @@ def render_ai_design_mode(data, icon_map, can_export_allergens=True):
         with c1:
             if can_export_allergens:
                 st.download_button(
-                    "⬇️ PDF IA CON ALÉRGENOS",
+                    "⬇️ PDF CON ALÉRGENOS",
                     pdf_all,
-                    file_name="Carta_IA_Con_Alergenos.pdf",
+                    file_name="Carta_Con_Alergenos.pdf",
                     mime="application/pdf",
                     key="ai_pdf_allergens",
                     use_container_width=True,
@@ -404,13 +404,13 @@ def render_ai_design_mode(data, icon_map, can_export_allergens=True):
                 st.info("El PDF con alérgenos se habilitará al completar las revisiones pendientes.")
         with c2:
             st.download_button(
-                "⬇️ PDF IA SIN ALÉRGENOS",
+                "⬇️ PDF SIN ALÉRGENOS",
                 pdf_clean,
-                file_name="Carta_IA_Sin_Alergenos.pdf",
+                file_name="Carta_Sin_Alergenos.pdf",
                 mime="application/pdf",
                 key="ai_pdf_clean",
                 use_container_width=True,
             )
-        st.info("Los textos, precios y alérgenos se colocan desde los datos reales de Carta IA encima del diseño generado.")
+        st.info("El nombre, los platos, los precios y los alérgenos salen de la carta que has revisado.")
     except Exception as exc:
-        st.error(f"No se pudo construir el PDF final: {exc}")
+        st.error("No se pudo crear el PDF. Prueba a descargarlo de nuevo.")

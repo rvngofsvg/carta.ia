@@ -32,7 +32,7 @@ from qwen_core import (
 # ======================================================
 # CONFIGURACIÓN GENERAL
 # ======================================================
-st.set_page_config(page_title="Carta IA · Serval TECH", layout="wide")
+st.set_page_config(page_title="Cartas de restaurante", layout="wide")
 
 MODELO_A_USAR = QWEN_FLASH
 MODELO_ALERGENOS = QWEN_MAX
@@ -181,10 +181,10 @@ NEGATIVE_REMOVALS = [
 ]
 
 REVIEW_WARNING_PATTERNS = [
-    (r"\bfrit[oa]s?\b|\bfritura\b|\bfreidora\b", "Frito/freidora: revisar protocolo real de contaminación cruzada."),
-    (r"\bsin\s+lactosa\b", "Sin lactosa no equivale necesariamente a sin leche: revisar si contiene proteína láctea."),
-    (r"\bsalsa\b|\bmayonesa\b|\balioli\b|\bcaldo\b|\bfondo\b", "Salsa/caldo: revisar ficha técnica del proveedor."),
-    (r"\bproducto\s+industrial\b|\bcaser[oa]\b", "Confirmar receta real y fichas de proveedor."),
+    (r"\bfrit[oa]s?\b|\bfritura\b|\bfreidora\b", "Comprueba que la freidora y el aceite no se usen para otros alimentos."),
+    (r"\bsin\s+lactosa\b", "Sin lactosa no siempre significa sin leche: comprueba los ingredientes."),
+    (r"\bsalsa\b|\bmayonesa\b|\balioli\b|\bcaldo\b|\bfondo\b", "Comprueba los ingredientes de la salsa o el caldo."),
+    (r"\bproducto\s+industrial\b|\bcaser[oa]\b", "Comprueba la receta y la lista de ingredientes del producto."),
 ]
 
 # ======================================================
@@ -371,7 +371,7 @@ def add_allergen(current, key):
 try:
     ensure_configured()
 except RuntimeError as exc:
-    st.warning(f"{exc} Las funciones locales siguen disponibles; el análisis y la traducción requieren la clave.")
+    st.warning("El análisis, el dictado y la traducción no están disponibles ahora. Las demás opciones siguen funcionando.")
 
 
 # ======================================================
@@ -426,7 +426,7 @@ def extract_text_from_pdf_scanned_with_qwen(file):
 
         chunks = []
         failed_pages = []
-        progress = st.progress(0, text=f"Procesando PDF escaneado · 0/{total_pages} páginas")
+        progress = st.progress(0, text=f"Leyendo páginas · 0/{total_pages}")
 
         for i in range(total_pages):
             try:
@@ -444,7 +444,7 @@ def extract_text_from_pdf_scanned_with_qwen(file):
             finally:
                 progress.progress(
                     (i + 1) / total_pages,
-                    text=f"Procesando PDF escaneado · {i + 1}/{total_pages} páginas",
+                    text=f"Leyendo páginas · {i + 1}/{total_pages}",
                 )
 
         progress.empty()
@@ -462,7 +462,7 @@ def extract_text_from_pdf_scanned_with_qwen(file):
             file.seek(0)
         except Exception:
             pass
-        st.error(f"No se pudo procesar el PDF escaneado: {exc}")
+        st.error("No se pudo leer el PDF. Prueba a subir las páginas como imágenes.")
         return None
     finally:
         if doc is not None:
@@ -843,7 +843,7 @@ def brand_html(data, logo_src=None, mode="dark"):
 
 def qr_html(qr_src=None, dark=False):
     if qr_src:
-        return f'<div class="qr-wrap"><img class="qr-img" src="{qr_src}" alt="QR menú"><span>Escanea el menú</span></div>'
+        return f'<div class="qr-wrap"><img class="qr-img" src="{qr_src}" alt="Código del menú"><span>Abre la carta</span></div>'
     return ""
 
 
@@ -851,7 +851,7 @@ def build_notice(data):
     generated = data.get("_generated_at", datetime.now().strftime("%d/%m/%Y %H:%M"))
     return (
         f"Generado el {generated}. Información orientativa basada en carta, receta habitual y reglas de revisión. "
-        "Debe validarse con ingredientes reales, fichas técnicas de proveedor y protocolo de cocina. "
+        "Compruebe la receta y la lista de ingredientes de cada producto. "
         "Si tiene alergia o intolerancia, consulte siempre al personal antes de pedir."
     )
 
@@ -969,7 +969,7 @@ def create_modern_html(data, logo_src=None, qr_src=None):
     extra = html_escape(data.get("texto_extra", ""))
     extra_html = f'<div class="modern-extra"><strong>Notas de carta:</strong> {extra}</div>' if extra else ""
     return f"""<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><title>Carta Premium - {html_escape(data.get('restaurant_name','Menú'))}</title>
+<html lang="es"><head><meta charset="UTF-8"><title>Carta - {html_escape(data.get('restaurant_name','Menú'))}</title>
 <style>
 @page {{ size:A4 portrait; margin:8mm; }}
 * {{ box-sizing:border-box; }}
@@ -1004,7 +1004,7 @@ h1 {{ margin:0; font-family:Georgia,'Times New Roman',serif; font-size:36px; lin
 </style></head>
 <body><div class="page">
 <header class="header">
-    <div><div class="label">Carta premium · alérgenos</div><div class="brandline">{brand_html(data, logo_src)}</div></div>
+    <div><div class="label">Carta con alérgenos</div><div class="brandline">{brand_html(data, logo_src)}</div></div>
     {qr_html(qr_src)}
 </header>
 <main class="layout">{''.join(blocks)}</main>
@@ -1032,7 +1032,7 @@ def create_matrix_html(data, logo_src=None, qr_src=None):
             </tr>
             """)
     notice = html_escape(build_notice(data))
-    return f"""<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Matriz Alérgenos - {html_escape(data.get('restaurant_name','Menú'))}</title>
+    return f"""<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Lista de alérgenos - {html_escape(data.get('restaurant_name','Menú'))}</title>
 <style>
 @page {{ size:A3 landscape; margin:7mm; }}
 * {{ box-sizing:border-box; }}
@@ -1062,8 +1062,7 @@ th small {{ display:block; font-size:5.8px; line-height:1.05; }}
 .notice {{ font-size:7.6px; line-height:1.35; color:#444; text-align:right; }}
 </style></head><body><div class="page">
 <header class="header">
-    <div><div class="header-left">{brand_html(data, logo_src)}</div><h1>{html_escape(data.get('restaurant_name','MENÚ'))} · Matriz de alérgenos</h1><p>Marcado con icono = alérgeno presente según revisión IA + reglas. Validar con fichas técnicas.</p></div>
-    <div class="badge">Serval TECH · Carta Pro</div>
+    <div><div class="header-left">{brand_html(data, logo_src)}</div><h1>{html_escape(data.get('restaurant_name','MENÚ'))} · Alérgenos</h1><p>Los iconos señalan los alérgenos que se han encontrado. Comprueba siempre los ingredientes.</p></div>
 </header>
 <table><thead><tr><th>Categoría</th><th>Producto / descripción</th><th>Precio</th>{''.join(header_cells)}</tr></thead><tbody>{''.join(rows)}</tbody></table>
 <footer class="footer">{allergen_guide_panel_html(theme="technical", notice=notice, compact=True)}</footer>
@@ -1071,7 +1070,7 @@ th small {{ display:block; font-size:5.8px; line-height:1.05; }}
 
 
 def create_qr_mesa_html(data, logo_src=None, qr_src=None):
-    # Plantilla compacta para mesa/barra: A4, QR visible, lectura rápida e iconos reales.
+    # Plantilla compacta para mesa o barra: A4 y lectura rápida.
     notice = html_escape(build_notice(data))
     restaurant_name = html_escape(data.get("restaurant_name", "MENÚ"))
 
@@ -1081,9 +1080,9 @@ def create_qr_mesa_html(data, logo_src=None, qr_src=None):
         brand_block = f'<div class="brand-wordmark">{restaurant_name}</div>'
 
     if qr_src:
-        qr_block = f'<div class="qr-card"><img class="qr-img" src="{qr_src}" alt="QR menú"><div>Escanea la carta digital</div></div>'
+        qr_block = f'<div class="qr-card"><img class="qr-img" src="{qr_src}" alt="Código del menú"><div>Abre la carta digital</div></div>'
     else:
-        qr_block = '<div class="qr-card empty"><div class="qr-placeholder">QR</div><div>Añade un QR o URL desde la app</div></div>'
+        qr_block = '<div class="qr-card empty"><div class="qr-placeholder">Código</div><div>Añade un código o enlace</div></div>'
 
     category_blocks = []
     for cat in data.get("categories", []):
@@ -1116,7 +1115,7 @@ def create_qr_mesa_html(data, logo_src=None, qr_src=None):
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Mesa QR Alérgenos - {restaurant_name}</title>
+<title>Carta para mesa - {restaurant_name}</title>
 <style>
 @page {{ size:A4 portrait; margin:0; }}
 * {{ box-sizing:border-box; }}
@@ -1154,12 +1153,12 @@ body {{ margin:0; background:#efe6d7; color:#211915; font-family:'Trebuchet MS',
 </head>
 <body><div class="page">
 <header class="header">
-    <div class="brand">{brand_block}<div class="header-text"><div class="label">Mesa QR · Alérgenos</div><h1>Consulta rápida</h1></div></div>
+    <div class="brand">{brand_block}<div class="header-text"><div class="label">Alérgenos</div><h1>Consulta rápida</h1></div></div>
     {qr_block}
 </header>
 <section class="intro">
     <div class="intro-main">Carta compacta para consulta en mesa o barra. Los iconos junto a cada producto indican alérgenos presentes o de revisión recomendada.</div>
-    <div class="intro-badge">Iconos reales</div>
+    <div class="intro-badge">Alérgenos</div>
 </section>
 <main class="menu-grid">{''.join(category_blocks)}</main>
 <footer class="footer">{extra_html}{allergen_guide_panel_html(theme="light", notice=notice)}</footer>
@@ -1167,7 +1166,7 @@ body {{ margin:0; background:#efe6d7; color:#211915; font-family:'Trebuchet MS',
 
 
 
-def _premium_brand_header(data, logo_src=None, qr_src=None, label="Carta premium · alérgenos"):
+def _premium_brand_header(data, logo_src=None, qr_src=None, label="Carta con alérgenos"):
     return f"""
     <header class="header">
         <div><div class="label">{html_escape(label)}</div>{brand_html(data, logo_src)}</div>
@@ -1205,7 +1204,7 @@ def create_premium_compact_html(data, logo_src=None, qr_src=None):
     extra = html_escape(data.get("texto_extra", ""))
     extra_html = f'<div class="premium-note">{extra}</div>' if extra else ""
     return f"""<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><title>Premium Compacta - {html_escape(data.get('restaurant_name','Menú'))}</title>
+<html lang="es"><head><meta charset="UTF-8"><title>Carta compacta - {html_escape(data.get('restaurant_name','Menú'))}</title>
 <style>
 @page {{ size:A4 portrait; margin:8mm; }}
 * {{ box-sizing:border-box; }}
@@ -1235,7 +1234,7 @@ body {{ margin:0; background:#efe4d1; color:#1f1711; font-family:'Trebuchet MS',
 .premium-note {{ margin-bottom:3mm; padding:2.5mm; border:1px solid #dcc299; background:#fff7e8; color:#493b2d; font-size:8px; text-align:center; }}
 </style></head>
 <body><div class="page">
-{_premium_brand_header(data, logo_src, qr_src, 'Carta premium compacta · alérgenos')}
+{_premium_brand_header(data, logo_src, qr_src, 'Carta con alérgenos')}
 <main class="layout">{''.join(blocks)}</main>
 <footer class="footer">{extra_html}{allergen_guide_panel_html(theme="light", notice=notice)}</footer>
 </div></body></html>"""
@@ -1268,7 +1267,7 @@ def create_premium_clean_html(data, logo_src=None, qr_src=None):
     extra = html_escape(data.get("texto_extra", ""))
     extra_html = f'<div class="clean-extra"><strong>Notas:</strong> {extra}</div>' if extra else ""
     return f"""<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><title>Premium Claro - {html_escape(data.get('restaurant_name','Menú'))}</title>
+<html lang="es"><head><meta charset="UTF-8"><title>Carta clara - {html_escape(data.get('restaurant_name','Menú'))}</title>
 <style>
 @page {{ size:A4 portrait; margin:8mm; }}
 * {{ box-sizing:border-box; }}
@@ -1298,7 +1297,7 @@ body {{ margin:0; background:#eadfcf; color:#201814; font-family:'Trebuchet MS',
 .clean-extra {{ margin-bottom:3mm; padding:2.8mm; border:1px solid #e0ceb2; background:#fff4e0; color:#493b2d; font-size:8.4px; text-align:center; }}
 </style></head>
 <body><div class="page">
-{_premium_brand_header(data, logo_src, qr_src, 'Carta premium clara · alérgenos')}
+{_premium_brand_header(data, logo_src, qr_src, 'Carta con alérgenos')}
 <main class="layout">{''.join(sections)}</main>
 <footer class="footer">{extra_html}{allergen_guide_panel_html(theme="light", notice=notice)}</footer>
 </div></body></html>"""
@@ -1329,7 +1328,7 @@ def create_premium_table_html(data, logo_src=None, qr_src=None):
         </section>
         """)
     return f"""<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><title>Premium Técnico - {html_escape(data.get('restaurant_name','Menú'))}</title>
+<html lang="es"><head><meta charset="UTF-8"><title>Carta en tabla - {html_escape(data.get('restaurant_name','Menú'))}</title>
 <style>
 @page {{ size:A4 portrait; margin:8mm; }}
 * {{ box-sizing:border-box; }}
@@ -1357,7 +1356,7 @@ body {{ margin:0; background:#eee1cf; color:#1f1813; font-family:'Trebuchet MS',
 .footer {{ margin-top:5mm; }}
 </style></head>
 <body><div class="page">
-{_premium_brand_header(data, logo_src, qr_src, 'Carta premium técnica · alérgenos')}
+{_premium_brand_header(data, logo_src, qr_src, 'Carta en tabla · alérgenos')}
 <main class="layout">{''.join(blocks)}</main>
 <footer class="footer">{allergen_guide_panel_html(theme="light", notice=notice)}</footer>
 </div></body></html>"""
@@ -1381,7 +1380,7 @@ def set_docx_margins(section):
 
 
 def create_premium_editable_word(data):
-    # DOCX editable en Word/Google Docs. Diseño premium en dos columnas, pensado para cambios manuales.
+    # Documento editable de Word en dos columnas.
     doc = Document()
     section = doc.sections[0]
     set_docx_margins(section)
@@ -1391,27 +1390,27 @@ def create_premium_editable_word(data):
     styles['Normal'].font.size = Pt(8.5)
 
     try:
-        title_style = styles.add_style('Serval Premium Title', WD_STYLE_TYPE.PARAGRAPH)
+        title_style = styles.add_style('Carta Title', WD_STYLE_TYPE.PARAGRAPH)
     except Exception:
-        title_style = styles['Serval Premium Title']
+        title_style = styles['Carta Title']
     title_style.font.name = 'Georgia'
     title_style.font.size = Pt(22)
     title_style.font.bold = True
 
     try:
-        cat_style = styles.add_style('Serval Premium Category', WD_STYLE_TYPE.PARAGRAPH)
+        cat_style = styles.add_style('Carta Category', WD_STYLE_TYPE.PARAGRAPH)
     except Exception:
-        cat_style = styles['Serval Premium Category']
+        cat_style = styles['Carta Category']
     cat_style.font.name = 'Georgia'
     cat_style.font.size = Pt(13)
     cat_style.font.bold = True
 
-    p = doc.add_paragraph(style='Serval Premium Title')
+    p = doc.add_paragraph(style='Carta Title')
     p.alignment = 1
     p.add_run(data.get('restaurant_name', 'MENÚ'))
     sub = doc.add_paragraph()
     sub.alignment = 1
-    run = sub.add_run('Carta premium de alérgenos · Documento editable')
+    run = sub.add_run('Carta con alérgenos · Documento editable')
     run.bold = True
     run.font.size = Pt(8.5)
 
@@ -1420,7 +1419,7 @@ def create_premium_editable_word(data):
     set_docx_two_columns(section)
 
     for cat in data.get('categories', []):
-        p_cat = doc.add_paragraph(style='Serval Premium Category')
+        p_cat = doc.add_paragraph(style='Carta Category')
         p_cat.paragraph_format.space_before = Pt(6)
         p_cat.paragraph_format.space_after = Pt(3)
         p_cat.add_run(cat.get('name', 'Categoría'))
@@ -1489,23 +1488,23 @@ def set_run_color(run, color):
 
 
 EDITABLE_WORD_THEMES = {
-    'neutral': {'name':'Neutra', 'header':'1F2937', 'cat':'374151', 'text':'111827', 'muted':'6B7280', 'bg':'FFFFFF', 'light':'F9FAFB'},
-    'cafe': {'name':'Café editorial', 'header':'8A5A2B', 'cat':'7B4C20', 'text':'211A14', 'muted':'6A5848', 'bg':'FFF4E2', 'light':'FFF9ED'},
-    'noir': {'name':'Noir elegante', 'header':'111111', 'cat':'C8A45D', 'text':'111111', 'muted':'555555', 'bg':'F7F1E6', 'light':'FFFFFF'},
-    'oliva': {'name':'Oliva natural', 'header':'556B3E', 'cat':'4F6F3A', 'text':'1E261A', 'muted':'59644F', 'bg':'F3F5E8', 'light':'FFFFFF'},
-    'burdeos': {'name':'Burdeos gastrobar', 'header':'6D1F2C', 'cat':'7B1E2E', 'text':'261516', 'muted':'654D45', 'bg':'FFF1E8', 'light':'FFFFFF'},
-    'azul': {'name':'Azul noche', 'header':'123047', 'cat':'1E4C66', 'text':'14222D', 'muted':'566B75', 'bg':'EDF6FA', 'light':'FFFFFF'},
-    'arena': {'name':'Mediterráneo arena', 'header':'B68143', 'cat':'9A642B', 'text':'2A2119', 'muted':'695A4C', 'bg':'FFF7E8', 'light':'FFFFFF'},
-    'minimal': {'name':'Minimal blanco', 'header':'222222', 'cat':'222222', 'text':'111111', 'muted':'666666', 'bg':'FFFFFF', 'light':'FFFFFF'},
-    'terracota': {'name':'Terracota cálida', 'header':'A64B2A', 'cat':'A64B2A', 'text':'2A1710', 'muted':'735142', 'bg':'FFF0E8', 'light':'FFFFFF'},
-    'rosa': {'name':'Rosa pastel', 'header':'B76E79', 'cat':'9B4F5B', 'text':'2A181C', 'muted':'725963', 'bg':'FFF1F3', 'light':'FFFFFF'},
-    'botanico': {'name':'Botánico claro', 'header':'2F6B4F', 'cat':'2F6B4F', 'text':'1A241E', 'muted':'52645A', 'bg':'EEF8F1', 'light':'FFFFFF'},
-    'gris': {'name':'Gris urbano', 'header':'3B3F45', 'cat':'2F343B', 'text':'181A1E', 'muted':'5C626A', 'bg':'F3F4F6', 'light':'FFFFFF'},
-    'dorado': {'name':'Dorado clásico', 'header':'8A6A2F', 'cat':'8A6A2F', 'text':'211A14', 'muted':'6A5848', 'bg':'FBF4E5', 'light':'FFFFFF'},
+    'neutral': {'name':'Clásica', 'header':'1F2937', 'cat':'374151', 'text':'111827', 'muted':'6B7280', 'bg':'FFFFFF', 'light':'F9FAFB'},
+    'cafe': {'name':'Café', 'header':'8A5A2B', 'cat':'7B4C20', 'text':'211A14', 'muted':'6A5848', 'bg':'FFF4E2', 'light':'FFF9ED'},
+    'noir': {'name':'Oscura', 'header':'111111', 'cat':'C8A45D', 'text':'111111', 'muted':'555555', 'bg':'F7F1E6', 'light':'FFFFFF'},
+    'oliva': {'name':'Verde oliva', 'header':'556B3E', 'cat':'4F6F3A', 'text':'1E261A', 'muted':'59644F', 'bg':'F3F5E8', 'light':'FFFFFF'},
+    'burdeos': {'name':'Burdeos', 'header':'6D1F2C', 'cat':'7B1E2E', 'text':'261516', 'muted':'654D45', 'bg':'FFF1E8', 'light':'FFFFFF'},
+    'azul': {'name':'Azul oscuro', 'header':'123047', 'cat':'1E4C66', 'text':'14222D', 'muted':'566B75', 'bg':'EDF6FA', 'light':'FFFFFF'},
+    'arena': {'name':'Arena', 'header':'B68143', 'cat':'9A642B', 'text':'2A2119', 'muted':'695A4C', 'bg':'FFF7E8', 'light':'FFFFFF'},
+    'minimal': {'name':'Blanca', 'header':'222222', 'cat':'222222', 'text':'111111', 'muted':'666666', 'bg':'FFFFFF', 'light':'FFFFFF'},
+    'terracota': {'name':'Terracota', 'header':'A64B2A', 'cat':'A64B2A', 'text':'2A1710', 'muted':'735142', 'bg':'FFF0E8', 'light':'FFFFFF'},
+    'rosa': {'name':'Rosa', 'header':'B76E79', 'cat':'9B4F5B', 'text':'2A181C', 'muted':'725963', 'bg':'FFF1F3', 'light':'FFFFFF'},
+    'botanico': {'name':'Verde claro', 'header':'2F6B4F', 'cat':'2F6B4F', 'text':'1A241E', 'muted':'52645A', 'bg':'EEF8F1', 'light':'FFFFFF'},
+    'gris': {'name':'Gris', 'header':'3B3F45', 'cat':'2F343B', 'text':'181A1E', 'muted':'5C626A', 'bg':'F3F4F6', 'light':'FFFFFF'},
+    'dorado': {'name':'Dorada', 'header':'8A6A2F', 'cat':'8A6A2F', 'text':'211A14', 'muted':'6A5848', 'bg':'FBF4E5', 'light':'FFFFFF'},
 }
 
 EIDER_BASE_THEME = {
-    'name':'Eider · plantilla base', 'header':'171717', 'cat':'941100',
+    'name':'Carta clásica', 'header':'171717', 'cat':'941100',
     'text':'111111', 'muted':'595959', 'bg':'FFFFFF', 'light':'FFFFFF'
 }
 
@@ -1902,25 +1901,25 @@ def create_landscape_book_word(
 
 
 def render_landscape_book_word(data):
-    st.subheader('📖 Word horizontal · modo libro')
-    st.caption('A4 horizontal editable: dos lados, cabecero en cada lado y una leyenda inferior por página. Los símbolos quedan justo después del plato y el precio al final.')
+    st.subheader('📖 Word en horizontal')
+    st.caption('Carta editable en hoja horizontal con dos columnas y la guía de alérgenos abajo. Los iconos van junto al plato y el precio al final.')
     if not render_export_preflight(data, key_prefix="book_exports", compact=True):
         return
 
     c1, c2, c3 = st.columns([1.25, 0.8, 0.9])
     with c1:
         theme_key = st.selectbox(
-            'Estilo del libro',
+            'Diseño de la carta',
             list(EDITABLE_WORD_THEMES.keys()),
             format_func=lambda k: EDITABLE_WORD_THEMES[k]['name'],
             key='book_theme_v9'
         )
     with c2:
-        dish_size = st.selectbox('Tamaño de platos', [10, 11, 12], index=2, key='book_font_v9')
+        dish_size = st.selectbox('Tamaño de letra', [10, 11, 12], index=2, key='book_font_v9')
     with c3:
         include_desc = st.checkbox('Incluir descripciones', value=True, key='book_desc_v9')
 
-    st.info('Este formato se añade como opción nueva. No reemplaza el Word limpio, las plantillas editables, el Radar de Clientes ni el Extractor Universal.')
+    st.info('También puedes usar el Word limpio, las plantillas editables, la búsqueda de información o la opción para sacar texto de otros archivos.')
     output = create_landscape_book_word(
         data,
         theme_key=theme_key,
@@ -1928,9 +1927,9 @@ def render_landscape_book_word(data):
         include_descriptions=include_desc,
         icons_after_dish=True,
     )
-    filename = 'Carta_Horizontal_Modo_Libro_' + slugify_filename(data.get('restaurant_name', 'menu')) + '.docx'
+    filename = 'Carta_Horizontal_' + slugify_filename(data.get('restaurant_name', 'menu')) + '.docx'
     st.download_button(
-        '⬇️ DESCARGAR WORD HORIZONTAL MODO LIBRO',
+        '⬇️ DESCARGAR WORD HORIZONTAL',
         output,
         file_name=filename,
         mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -1948,47 +1947,47 @@ def create_editable_templates_zip(data, two_columns=True):
 
 
 def render_editable_clean_templates(data):
-    st.subheader('📝 Plantillas editables sin iconos junto a platos')
-    st.caption('Estas plantillas mantienen la carta limpia: plato + precio, sin símbolos al lado. La guía inferior conserva los iconos oficiales de alérgenos.')
+    st.subheader('📝 Plantillas Word editables')
+    st.caption('Elige una plantilla para cambiar el texto a tu gusto. Los alérgenos aparecen en la guía de abajo, no junto a cada plato.')
     if not render_export_preflight(data, key_prefix="editable_templates", compact=True):
         return
 
     c1, c2 = st.columns([1.25, 1])
     with c1:
         theme_key = st.selectbox(
-            'Elige plantilla editable',
+            'Elige una plantilla',
             list(EDITABLE_WORD_THEMES.keys()),
             format_func=lambda k: EDITABLE_WORD_THEMES[k]['name'],
             key='editable_clean_theme_v8'
         )
     with c2:
-        two_cols = st.checkbox('Trabajar en 2 columnas', value=True, key='editable_clean_two_cols_v8')
+        two_cols = st.checkbox('Usar dos columnas', value=True, key='editable_clean_two_cols_v8')
 
     base_name = 'Plantilla_Editable_' + slugify_filename(EDITABLE_WORD_THEMES[theme_key]['name']) + '_' + slugify_filename(data.get('restaurant_name','menu'))
     c1, c2 = st.columns(2)
     with c1:
         st.download_button(
-            '⬇️ Descargar esta plantilla Word',
+            '⬇️ Descargar esta plantilla de Word',
             create_editable_word_clean_template(data, theme_key, two_columns=two_cols),
             file_name=f'{base_name}.docx',
             mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         )
     with c2:
         st.download_button(
-            '⬇️ Descargar pack completo de plantillas',
+            '⬇️ Descargar todas las plantillas',
             create_editable_templates_zip(data, two_columns=two_cols),
-            file_name='Pack_Plantillas_Editables_Sin_Iconos_Por_Plato.zip',
+            file_name='Plantillas_Word.zip',
             mime='application/zip'
         )
 
-    st.info('El Word limpio original se mantiene en una columna, conserva numeración si existe, añade los textos auxiliares detectados y usa letra 12 en los platos. Este apartado es para plantillas editables de cliente.')
+    st.info('El Word limpio sigue disponible en una columna. Mantiene la numeración y los textos extraídos de la carta, y puedes editarlo después de descargarlo.')
 
 def html_to_pdf_bytes(html_code):
     try:
         from pdf_backend import render_pdf
         return render_pdf(html_code, BASE_DIR)
     except Exception as exc:
-        st.warning(f"No se pudo generar el PDF: {exc}")
+        st.warning("No se pudo crear el PDF. Prueba a descargarlo de nuevo.")
         return None
 
 # ======================================================
@@ -1996,10 +1995,9 @@ def html_to_pdf_bytes(html_code):
 # ======================================================
 def show_asset_diagnostics():
     missing = [ALLERGEN_LABELS[a] for a in ALLERGEN_ORDER if not ICON_MAP.get(a) or not os.path.exists(ICON_MAP.get(a))]
-    with st.sidebar.expander("🧪 Diagnóstico archivos", expanded=False):
-        st.write("**BASE_DIR:**", BASE_DIR)
-        st.write("**Plantilla Word:**", "✅" if PLANTILLA_PATH and os.path.exists(PLANTILLA_PATH) else "❌ No encontrada")
-        st.write("**Carpeta iconos:**", ICONOS_DIR or "❌ No encontrada")
+    with st.sidebar.expander("🧪 Estado de los archivos", expanded=False):
+        st.write("**Plantilla de Word:**", "✅ Lista" if PLANTILLA_PATH and os.path.exists(PLANTILLA_PATH) else "❌ No encontrada")
+        st.write("**Dibujos de alérgenos:**", "✅ Listos" if not missing else "❌ Faltan algunos")
         if missing:
             st.error("Faltan iconos: " + ", ".join(missing))
         else:
@@ -2008,13 +2006,13 @@ def show_asset_diagnostics():
 
 def render_editor(data):
     data["restaurant_name"] = st.text_input("Nombre del restaurante", data.get("restaurant_name", ""))
-    data["texto_extra"] = st.text_area("📝 Texto suelto detectado / textos no plato", data.get("texto_extra", ""), height=120, help="Aquí deben quedar teléfonos, horarios, dirección, notas, suplementos, avisos y cualquier texto de la carta que no sea un plato.")
+    data["texto_extra"] = st.text_area("📝 Otro texto de la carta", data.get("texto_extra", ""), height=120, help="Teléfonos, horarios, dirección, notas, suplementos y avisos que no sean platos.")
 
     st.info("Puedes editar cualquier plato, precio o alérgeno directamente aquí antes de descargar.")
     for c_idx, cat in enumerate(data.get("categories", [])):
         with st.expander(f"📂 {cat.get('name', 'Categoría')}", expanded=True):
             cat["name"] = st.text_input("Categoría", cat.get("name", ""), key=f"cat_{c_idx}")
-            cat["category_text"] = st.text_area("Texto auxiliar de esta categoría", cat.get("category_text", ""), key=f"cat_text_{c_idx}", height=54)
+            cat["category_text"] = st.text_area("Texto extra de esta sección", cat.get("category_text", ""), key=f"cat_text_{c_idx}", height=54)
             for d_idx, dish in enumerate(cat.get("dishes", [])):
                 st.markdown(f"**Plato {d_idx + 1}**")
                 col0, col1, col2 = st.columns([0.75, 3, 1.35])
@@ -2038,9 +2036,9 @@ def render_editor(data):
                 if dish.get("review_notes") or ai_confidence or ai_reason:
                     with st.expander("ℹ️ Sugerencia opcional", expanded=False):
                         if ai_confidence:
-                            st.caption(f"Confianza IA: {ai_confidence}")
+                            st.caption(f"Seguridad de la sugerencia: {ai_confidence}")
                         if ai_reason:
-                            st.caption(f"Motivo IA: {ai_reason}")
+                            st.caption(f"Por qué se sugiere: {ai_reason}")
                         for note in dish.get("review_notes", []):
                             st.caption(note)
                 st.divider()
@@ -2055,8 +2053,8 @@ def render_editor(data):
 # ======================================================
 PREMIUM_V6_THEMES = {
     "cafe": {
-        "name": "Premium Café Editorial",
-        "label": "Carta premium café · alérgenos",
+        "name": "Café",
+        "label": "Carta con alérgenos",
         "body_bg": "#eadbc5",
         "page_bg": "linear-gradient(145deg,#fff9ed 0%,#f1dfc4 100%)",
         "page_border": "#2a2119",
@@ -2075,8 +2073,8 @@ PREMIUM_V6_THEMES = {
         "guide_theme": "light",
     },
     "noir": {
-        "name": "Premium Noir",
-        "label": "Carta premium noir · alérgenos",
+        "name": "Oscura",
+        "label": "Carta con alérgenos",
         "body_bg": "#090807",
         "page_bg": "linear-gradient(145deg,#171411 0%,#0d0b0a 55%,#050505 100%)",
         "page_border": "#d2aa5c",
@@ -2095,8 +2093,8 @@ PREMIUM_V6_THEMES = {
         "guide_theme": "dark",
     },
     "oliva": {
-        "name": "Premium Oliva Natural",
-        "label": "Carta premium oliva · alérgenos",
+        "name": "Verde",
+        "label": "Carta con alérgenos",
         "body_bg": "#dfe5d5",
         "page_bg": "linear-gradient(145deg,#fbfbef 0%,#e4ead7 100%)",
         "page_border": "#3f4a33",
@@ -2115,8 +2113,8 @@ PREMIUM_V6_THEMES = {
         "guide_theme": "light",
     },
     "burdeos": {
-        "name": "Premium Burdeos Gastrobar",
-        "label": "Carta premium burdeos · alérgenos",
+        "name": "Burdeos",
+        "label": "Carta con alérgenos",
         "body_bg": "#2b0f15",
         "page_bg": "linear-gradient(150deg,#fff7ec 0%,#f4dccb 64%,#ead0bd 100%)",
         "page_border": "#5a1824",
@@ -2135,8 +2133,8 @@ PREMIUM_V6_THEMES = {
         "guide_theme": "light",
     },
     "azul": {
-        "name": "Premium Azul Noche",
-        "label": "Carta premium azul noche · alérgenos",
+        "name": "Azul",
+        "label": "Carta con alérgenos",
         "body_bg": "#071521",
         "page_bg": "linear-gradient(145deg,#0f2a3a 0%,#0a1a26 58%,#06101a 100%)",
         "page_border": "#d8c08a",
@@ -2161,8 +2159,8 @@ def premium_v6_theme(theme_key="cafe", custom=None):
     theme = dict(PREMIUM_V6_THEMES.get(theme_key, PREMIUM_V6_THEMES["cafe"]))
     if custom:
         theme.update({k: v for k, v in custom.items() if v})
-        theme["name"] = custom.get("name", "Premium Personalizado")
-        theme["label"] = custom.get("label", "Carta premium personalizada · alérgenos")
+        theme["name"] = custom.get("name", "Diseño a tu gusto")
+        theme["label"] = custom.get("label", "Carta con alérgenos")
         theme.setdefault("guide_theme", "light")
     return theme
 
@@ -2199,11 +2197,11 @@ def allergen_guide_panel_v6(theme, notice=""):
 
 
 def _premium_v6_header(data, theme, logo_src=None, qr_src=None, label=None, qr_large=False):
-    label = label or theme.get("label", "Carta premium · alérgenos")
+    label = label or theme.get("label", "Carta con alérgenos")
     brand = brand_html(data, logo_src)
     qr = qr_html(qr_src)
     if qr_large and not qr:
-        qr = '<div class="qr-wrap qr-empty"><div class="qr-placeholder">QR</div><span>Añade QR o URL</span></div>'
+        qr = '<div class="qr-wrap qr-empty"><div class="qr-placeholder">Código</div><span>Añade una imagen o enlace</span></div>'
     return f'''
     <header class="header">
         <div class="head-main"><div class="label">{html_escape(label)}</div><div class="brandline">{brand}</div></div>
@@ -2272,10 +2270,10 @@ def create_premium_v6_html(data, logo_src=None, qr_src=None, theme_key="cafe", v
 
     if variant == "table":
         content = _build_table_sections(data, show_dish_icons=show_dish_icons)
-        label = theme.get("label", "Carta premium técnica · alérgenos")
+        label = theme.get("label", "Carta con alérgenos")
     else:
         content = _build_cards_sections(data, variant=variant, show_dish_icons=show_dish_icons)
-        label = theme.get("label", "Carta premium · alérgenos")
+        label = theme.get("label", "Carta con alérgenos")
 
     intro = ""
     qr_large = False
@@ -2284,7 +2282,7 @@ def create_premium_v6_html(data, logo_src=None, qr_src=None, theme_key="cafe", v
         intro = f'''
         <section class="intro-box">
             <div><strong>Consulta rápida en mesa o barra.</strong><br>La carta queda limpia, sin iconos junto a cada plato. La guía de alérgenos se mantiene al final.</div>
-            <div class="intro-badge">2 columnas · QR</div>
+            <div class="intro-badge">2 columnas · código</div>
         </section>
         '''
 
@@ -2365,45 +2363,45 @@ body {{ margin:0; background:{theme['body_bg']}; color:{theme['text']}; font-fam
 
 
 def render_visual_downloads(data, can_export_allergens=True):
-    st.subheader("🎨 Plantillas premium en dos columnas · v7")
+    st.subheader("🎨 Diseños en dos columnas")
     st.caption(
         "Todas mantienen 2 columnas y la guía de alérgenos abajo. Por defecto NO muestran iconos junto a cada plato, "
-        "para que la carta quede más limpia y parecida a una carta editable real."
+        "para que la carta quede más limpia y fácil de editar."
     )
 
     colA, colB, colC = st.columns([1.15, 1.15, 1])
     with colA:
-        logo_file = st.file_uploader("Subir logo del restaurante", type=["png", "jpg", "jpeg", "webp"], key="logo_visual_v6")
+        logo_file = st.file_uploader("Subir imagen del restaurante", type=["png", "jpg", "jpeg", "webp"], key="logo_visual_v6")
     with colB:
-        qr_file = st.file_uploader("Subir QR del menú", type=["png", "jpg", "jpeg", "webp"], key="qr_visual_v6")
+        qr_file = st.file_uploader("Subir imagen del código", type=["png", "jpg", "jpeg", "webp"], key="qr_visual_v6")
     with colC:
-        qr_url = st.text_input("O generar QR desde URL", placeholder="https://...", key="qr_url_v6")
+        qr_url = st.text_input("O crear código desde un enlace", placeholder="https://...", key="qr_url_v6")
 
     logo_src = uploaded_image_to_data_uri(logo_file, max_side=900) if logo_file else None
     qr_src = uploaded_image_to_data_uri(qr_file, max_side=700) if qr_file else generate_qr_data_uri(qr_url)
 
     show_dish_icons = st.checkbox("Mostrar iconos junto a cada plato", value=False, key="show_dish_icons_v8")
 
-    template = st.selectbox("Elige plantilla final", [
-        "Premium Café Editorial · 2 columnas",
-        "Premium Noir · 2 columnas",
-        "Premium Oliva Natural · 2 columnas",
-        "Premium Burdeos Gastrobar · 2 columnas",
-        "Premium Azul Noche Mesa QR · 2 columnas",
-        "Premium Personalizable · 2 columnas"
+    template = st.selectbox("Elige un diseño", [
+        "Café · 2 columnas",
+        "Oscura · 2 columnas",
+        "Verde · 2 columnas",
+        "Burdeos · 2 columnas",
+        "Azul · 2 columnas",
+        "A tu gusto · 2 columnas"
     ], key="template_v6")
 
     mapping = {
-        "Premium Café Editorial · 2 columnas": ("cafe", "cards", "Carta_Premium_Cafe_Editorial_"),
-        "Premium Noir · 2 columnas": ("noir", "cards", "Carta_Premium_Noir_"),
-        "Premium Oliva Natural · 2 columnas": ("oliva", "soft", "Carta_Premium_Oliva_"),
-        "Premium Burdeos Gastrobar · 2 columnas": ("burdeos", "compact", "Carta_Premium_Burdeos_"),
-        "Premium Azul Noche Mesa QR · 2 columnas": ("azul", "mesa", "Carta_Premium_Azul_Noche_"),
+        "Café · 2 columnas": ("cafe", "cards", "Carta_Cafe_"),
+        "Oscura · 2 columnas": ("noir", "cards", "Carta_Oscura_"),
+        "Verde · 2 columnas": ("oliva", "soft", "Carta_Verde_"),
+        "Burdeos · 2 columnas": ("burdeos", "compact", "Carta_Burdeos_"),
+        "Azul · 2 columnas": ("azul", "mesa", "Carta_Azul_"),
     }
 
     custom_theme = None
-    if template == "Premium Personalizable · 2 columnas":
-        st.markdown("#### Personalización visual")
+    if template == "A tu gusto · 2 columnas":
+        st.markdown("#### Elige los colores")
         c1, c2, c3 = st.columns(3)
         with c1:
             body_bg = st.color_picker("Fondo exterior", "#eadbc5", key="v6_body_bg")
@@ -2416,10 +2414,10 @@ def render_visual_downloads(data, can_export_allergens=True):
         with c3:
             accent_2 = st.color_picker("Líneas/detalles", "#c49a59", key="v6_accent2")
             border = st.color_picker("Borde carta", "#2a2119", key="v6_border")
-            variant = st.radio("Estructura", ["cards", "soft", "compact", "mesa", "table"], format_func=lambda x: {"cards":"Editorial", "soft":"Suave", "compact":"Compacta", "mesa":"Mesa QR", "table":"Técnica"}[x], horizontal=True, key="v6_variant")
+            variant = st.radio("Forma de mostrar los platos", ["cards", "soft", "compact", "mesa", "table"], format_func=lambda x: {"cards":"Bloques", "soft":"Suave", "compact":"Compacta", "mesa":"En mesa", "table":"Tabla"}[x], horizontal=True, key="v6_variant")
         custom_theme = {
-            "name": "Premium Personalizado",
-            "label": "Carta premium personalizada · alérgenos",
+            "name": "Diseño a tu gusto",
+            "label": "Carta con alérgenos",
             "body_bg": body_bg,
             "page_bg": f"linear-gradient(145deg,{page_color} 0%,{page_color} 100%)",
             "page_border": border,
@@ -2438,7 +2436,7 @@ def render_visual_downloads(data, can_export_allergens=True):
             "guide_theme": "light",
         }
         theme_key = "cafe"
-        prefix = "Carta_Premium_Personalizada_"
+        prefix = "Carta_A_Tu_Gusto_"
     else:
         theme_key, variant, prefix = mapping[template]
 
@@ -2454,14 +2452,14 @@ def render_visual_downloads(data, can_export_allergens=True):
     base_name = prefix + slugify_filename(data.get("restaurant_name", "menu"))
 
     if not can_export_allergens:
-        st.info("Las plantillas premium incluyen la guía de alérgenos y se habilitarán al completar las revisiones pendientes.")
+        st.info("Estos diseños incluyen la guía de alérgenos. Estarán disponibles al terminar las revisiones pendientes.")
         return
 
     st.markdown("#### Descargas")
     c1, c2, c3 = st.columns(3)
     with c1:
         st.download_button(
-            "⬇️ HTML imprimible",
+            "⬇️ Archivo para imprimir",
             html_code.encode("utf-8"),
             file_name=f"{base_name}.html",
             mime="text/html"
@@ -2469,9 +2467,9 @@ def render_visual_downloads(data, can_export_allergens=True):
     with c2:
         pdf_bytes = html_to_pdf_bytes(html_code)
         if pdf_bytes:
-            st.download_button("⬇️ PDF visual", pdf_bytes, file_name=f"{base_name}.pdf", mime="application/pdf")
+            st.download_button("⬇️ PDF de la carta", pdf_bytes, file_name=f"{base_name}.pdf", mime="application/pdf")
         else:
-            st.info("PDF directo no activo. Abre el HTML y usa Imprimir → Guardar como PDF, o instala WeasyPrint.")
+            st.info("No se pudo crear el PDF. Descarga el archivo para imprimir y usa la opción de guardar como PDF.")
     with c3:
         st.download_button(
             "⬇️ Word editable",
@@ -2481,8 +2479,8 @@ def render_visual_downloads(data, can_export_allergens=True):
         )
 
     st.info(
-        "Para edición manual real usa el apartado de plantillas editables. Este HTML/PDF es visual. "
-        "Por defecto queda limpio: sin iconos junto a platos y con leyenda inferior."
+        "Para cambiar el diseño después de descargarlo, usa las plantillas de Word. "
+        "La carta muestra los alérgenos en la guía de abajo."
     )
 
     with st.expander("👀 Vista previa", expanded=True):
@@ -2623,7 +2621,7 @@ La selección podrá ser corregida manualmente después por el establecimiento.
             if normalize_text(dish["_allergen_ai_confidence"]) in {"baja", "low"}:
                 notes = dish.setdefault("review_notes", [])
                 reason = str(dish.get("_allergen_ai_reason") or "").strip()
-                note = "Confianza baja de la IA: validar la receta y sus alérgenos."
+                note = "El resultado no es seguro: comprueba la receta y sus alérgenos."
                 if reason:
                     note += f" Motivo: {reason}"
                 if note not in notes:
@@ -2639,7 +2637,7 @@ La selección podrá ser corregida manualmente después por el establecimiento.
         for category in data.get("categories", []):
             for dish in category.get("dishes", []):
                 notes = dish.setdefault("review_notes", [])
-                note = "La clasificación IA no se completó: revisar alérgenos de la receta."
+                note = "No se pudieron revisar todos los alérgenos: comprueba la receta."
                 if note not in notes:
                     notes.append(note)
         return data
@@ -2709,25 +2707,25 @@ V11_1_COMPOUND_CONFIRMED = [
 
 # Casos variables: no se convierten en iconos automáticamente.
 V11_1_REVIEW_PATTERNS = [
-    (r"\bmarisco\b", ["crustaceos", "moluscos"], "'Marisco' es genérico: confirmar si se trata de crustáceos, moluscos o ambos."),
-    (r"\balioli\b|\bali-oli\b", ["huevos"], "Alioli: confirmar receta; puede llevar huevo o ser alioli tradicional sin huevo."),
-    (r"\bhummus\b", ["sesamo"], "Hummus: confirmar si la receta lleva tahini/sésamo."),
-    (r"\bpesto\b", ["frutos de cascara", "lacteos"], "Pesto: confirmar frutos de cáscara y queso de la receta concreta."),
-    (r"\bromesco\b", ["frutos de cascara", "gluten"], "Romesco: confirmar frutos de cáscara y espesantes/pan de la receta."),
-    (r"\b(c[eé]sar|cesar)\b", ["huevos", "pescado", "lacteos", "mostaza", "gluten"], "César: revisar salsa, queso y croutons/pan de la receta concreta."),
-    (r"\bcaldo\b|\bfondo\b|\bpastilla de caldo\b|\bsofrito\b", ["apio"], "Caldo/fondo/sofrito: confirmar apio y ficha técnica del proveedor."),
-    (r"\bvino\b|\bcava\b|\bvermut\b|\bvermouth\b|\bvinagre\b|\bsidra\b|\blicor\b", ["sulfitos"], "Bebida/ingrediente fermentado: revisar etiquetado y presencia declarable de sulfitos."),
-    (r"\bteriyaki\b|\bsalsa de soja\b|\bsalsa de soya\b", ["gluten"], "Salsa de soja/teriyaki: confirmar si contiene trigo/gluten o si es una variante sin gluten."),
-    (r"\bburger\b|\bhamburguesa\b", ["gluten"], "Burger/hamburguesa: no asumir pan; confirmar si se sirve con pan/brioche."),
-    (r"\bsushi\b|\btataki\b", ["pescado"], "Sushi/tataki: confirmar el ingrediente principal; el nombre por sí solo no implica pescado."),
-    (r"\btortilla\b(?!\s+(?:de\s+(?:trigo|patatas|maiz)|espanola|francesa))", ["huevos", "gluten"], "'Tortilla' es ambiguo: distinguir tortilla de huevo de tortilla de trigo/maíz."),
-    (r"\bpi[nñ][oó]n(?:es)?\b", [], "Piñones: no se clasifican automáticamente como 'frutos de cáscara' dentro de los 14 grupos obligatorios."),
-    (r"\bfrutos secos\b", ["frutos de cascara", "cacahuetes"], "'Frutos secos' es genérico: identificar el fruto concreto antes de marcar el grupo legal correspondiente."),
-    (r"\balb[oó]ndigas?\b", ["gluten", "huevos"], "Albóndigas: confirmar pan/harina y huevo de la receta concreta."),
-    (r"\bcallos\b|\bmanitas?\b.*\bsalsa\b", ["gluten", "apio", "sulfitos"], "Guiso/salsa: revisar espesante, fondo y vino de la receta concreta."),
-    (r"\badobad[oa]s?\b|\bchorizo\b|\bsalchich[oó]n\b", ["sulfitos", "lacteos"], "Adobo/embutido: revisar etiqueta o ficha técnica del proveedor."),
-    (r"\bfrit[oa]s?\b|\bfritura\b|\bfreidora\b", [], "Fritura/freidora: revisar el protocolo real de contaminación cruzada."),
-    (r"\bsin lactosa\b", ["lacteos"], "Sin lactosa no equivale necesariamente a sin leche: confirmar proteína de leche."),
+    (r"\bmarisco\b", ["crustaceos", "moluscos"], "Averigua qué tipo de marisco lleva: crustáceos, moluscos o ambos."),
+    (r"\balioli\b|\bali-oli\b", ["huevos"], "Comprueba si el alioli lleva huevo."),
+    (r"\bhummus\b", ["sesamo"], "Comprueba si el hummus lleva sésamo."),
+    (r"\bpesto\b", ["frutos de cascara", "lacteos"], "Comprueba si el pesto lleva frutos secos o queso."),
+    (r"\bromesco\b", ["frutos de cascara", "gluten"], "Comprueba si el romesco lleva frutos secos, pan o harina."),
+    (r"\b(c[eé]sar|cesar)\b", ["huevos", "pescado", "lacteos", "mostaza", "gluten"], "Comprueba los ingredientes de la salsa César, el queso y el pan."),
+    (r"\bcaldo\b|\bfondo\b|\bpastilla de caldo\b|\bsofrito\b", ["apio"], "Comprueba si el caldo o el sofrito lleva apio."),
+    (r"\bvino\b|\bcava\b|\bvermut\b|\bvermouth\b|\bvinagre\b|\bsidra\b|\blicor\b", ["sulfitos"], "Comprueba la etiqueta para ver si contiene sulfitos."),
+    (r"\bteriyaki\b|\bsalsa de soja\b|\bsalsa de soya\b", ["gluten"], "Comprueba si la salsa de soja o teriyaki contiene trigo."),
+    (r"\bburger\b|\bhamburguesa\b", ["gluten"], "Comprueba si la hamburguesa se sirve con pan."),
+    (r"\bsushi\b|\btataki\b", ["pescado"], "Comprueba qué ingredientes lleva el sushi o el tataki."),
+    (r"\btortilla\b(?!\s+(?:de\s+(?:trigo|patatas|maiz)|espanola|francesa))", ["huevos", "gluten"], "Comprueba si es tortilla de huevo, de trigo o de maíz."),
+    (r"\bpi[nñ][oó]n(?:es)?\b", [], "Los piñones no están entre los frutos secos que se marcan en esta guía."),
+    (r"\bfrutos secos\b", ["frutos de cascara", "cacahuetes"], "'Frutos secos' puede referirse a varios alimentos: averigua cuál lleva."),
+    (r"\balb[oó]ndigas?\b", ["gluten", "huevos"], "Comprueba si las albóndigas llevan pan, harina o huevo."),
+    (r"\bcallos\b|\bmanitas?\b.*\bsalsa\b", ["gluten", "apio", "sulfitos"], "Comprueba los ingredientes de la salsa, el caldo y el vino."),
+    (r"\badobad[oa]s?\b|\bchorizo\b|\bsalchich[oó]n\b", ["sulfitos", "lacteos"], "Comprueba la etiqueta del adobo o el embutido."),
+    (r"\bfrit[oa]s?\b|\bfritura\b|\bfreidora\b", [], "Comprueba que la freidora y el aceite no se usen para otros alimentos."),
+    (r"\bsin lactosa\b", ["lacteos"], "Sin lactosa no siempre significa sin leche: comprueba los ingredientes."),
 ]
 
 
@@ -2753,7 +2751,7 @@ def _evidence_from_text(text):
 
     if re.search(r"\bsin\s+gluten\b|\bgluten\s*free\b", normalize_text(text), flags=re.IGNORECASE):
         confirmed = [a for a in confirmed if a != "gluten"]
-        notes.append("Marcado como sin gluten: confirmar ficha técnica y manipulación separada.")
+        notes.append("Marcado como sin gluten: comprueba los ingredientes y que se prepare por separado.")
 
     return get_ordered_allergens(confirmed), notes
 
@@ -2793,7 +2791,7 @@ def apply_allergen_rules(data):
 
 def analyze_content(content, content_type="image"):
     try:
-        with st.spinner(f"🧠 Analizando carta con {MODELO_A_USAR} + motor experto de alérgenos..."):
+        with st.spinner("Leyendo la carta y revisando los alérgenos..."):
             prompt = build_ai_prompt()
             if content_type == "image":
                 data = menu_json_from_image(prompt, content)
@@ -2805,7 +2803,7 @@ def analyze_content(content, content_type="image"):
             data["_system_mode"] = f"{MODELO_A_USAR} + {data.get('_allergen_model', MODELO_ALERGENOS)} para alérgenos"
             return data
     except Exception as exc:
-        st.error(f"Error IA/análisis: {exc}")
+        st.error("No se pudo leer la carta. Comprueba que el texto se vea claro e inténtalo de nuevo.")
         return None
 
 
@@ -3037,7 +3035,7 @@ def run_allergen_smoke_tests():
 
 
 def render_allergen_validation(data):
-    st.markdown("#### Control de alérgenos")
+    st.markdown("#### Revisar alérgenos")
     stats = allergen_validation_stats(data)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Platos", stats["platos"])
@@ -3045,7 +3043,7 @@ def render_allergen_validation(data):
     c3.metric("Sin alérgenos", stats["sin_alergenos"])
     c4.metric("Revisar", stats["requieren_revision"])
 
-    if st.button("🧪 Comprobar motor", key="v11_1_smoke_allergens"):
+    if st.button("🧪 Comprobar detección", key="v11_1_smoke_allergens"):
         results = run_allergen_smoke_tests()
         if all(row[1] for row in results):
             st.success("Prueba interna superada.")
@@ -3054,7 +3052,7 @@ def render_allergen_validation(data):
         for name, ok, required, forbidden, got, notes in results:
             st.write(("✅" if ok else "❌") + f" {name} · detectado: {', '.join(got) or 'ninguno'}")
 
-    st.warning("Antes de entregar una carta de alérgenos debe validarse con la receta real, fichas técnicas y protocolo del establecimiento. Las dudas quedan como avisos de revisión, no como iconos confirmados.")
+    st.warning("Comprueba los alérgenos con la receta y los ingredientes reales del restaurante. Las dudas se muestran para revisar y no se marcan como confirmadas.")
 
 
 def menu_preflight(data):
@@ -3112,7 +3110,7 @@ def render_export_preflight(data, key_prefix="export", compact=False, require_al
     ack_widget_key = f"{ack_state_key}_{key_prefix}"
 
     if not compact:
-        st.markdown("#### Control previo a descarga")
+        st.markdown("#### Revisión antes de descargar")
         c1, c2, c3 = st.columns(3)
         c1.metric("Platos", report["dishes"])
         c2.metric("Revisiones pendientes", report["review_count"])
@@ -3130,7 +3128,7 @@ def render_export_preflight(data, key_prefix="export", compact=False, require_al
     acknowledged = True
     if report["review_items"] and require_allergen_review:
         with st.expander(
-            f"🧾 Platos que requieren validar receta/proveedor ({report['review_count']})",
+            f"🧾 Platos que debes revisar ({report['review_count']})",
             expanded=True,
         ):
             for item in report["review_items"]:
@@ -3140,7 +3138,7 @@ def render_export_preflight(data, key_prefix="export", compact=False, require_al
         acknowledged = bool(st.session_state.get(ack_state_key, False))
         if not acknowledged:
             acknowledged = st.checkbox(
-                "He revisado estos casos con la receta, ficha técnica o responsable del establecimiento.",
+                "He comprobado estos platos con la receta o con la persona responsable.",
                 key=ack_widget_key,
                 help="Esta confirmación se reinicia automáticamente si cambia el contenido de la carta.",
             )
@@ -3151,7 +3149,7 @@ def render_export_preflight(data, key_prefix="export", compact=False, require_al
 
     can_export = not report["blocking"] and acknowledged
     if can_export and (report["review_items"] or report["warnings"]):
-        st.success("Preflight superado para la salida con alérgenos.")
+        st.success("La revisión está lista para descargar la carta con alérgenos.")
     return can_export
 
 
@@ -3310,7 +3308,7 @@ def create_client_pdf_bytes(data, theme_key="neutral", with_allergens=True):
     return html_to_pdf_bytes(create_client_pdf_html(data, theme_key=theme_key, with_allergens=with_allergens))
 
 def render_quick_outputs(data):
-    st.subheader("⬇️ Descargar")
+    st.subheader("⬇️ Descargar carta")
     st.caption("Elige el diseño una vez y descarga la versión que necesites. Los Word son editables.")
     can_export_allergens = render_export_preflight(
         data, key_prefix="quick_exports", compact=True, require_allergen_review=True
@@ -3330,7 +3328,7 @@ def render_quick_outputs(data):
 
     with c1:
         st.markdown("### 🛡️ Con alérgenos")
-        st.caption("Alérgenos calculados automáticamente y editables en Revisar.")
+        st.caption("Los alérgenos se añaden automáticamente y puedes cambiarlos en Revisar.")
         if can_export_allergens:
             word_all = create_word(data, theme_key=theme_key)
             pdf_all = create_client_pdf_bytes(data, theme_key=theme_key, with_allergens=True)
@@ -3350,8 +3348,8 @@ def render_quick_outputs(data):
             if pdf_clean:
                 st.download_button("⬇️ PDF SIN ALÉRGENOS", pdf_clean, file_name=f"Carta_Sin_Alergenos_{restaurant}.pdf", mime="application/pdf", key="v12_pdf_clean", use_container_width=True)
 
-    st.markdown("### ✏️ Word limpio clásico")
-    st.caption("Documento de trabajo editable en una columna, sin símbolos junto a cada plato. Es distinto de la carta sin alérgenos.")
+    st.markdown("### ✏️ Word editable en una columna")
+    st.caption("Incluye los alérgenos abajo y no muestra iconos junto a cada plato.")
     if can_export_allergens:
         st.download_button(
             "⬇️ DESCARGAR WORD LIMPIO EDITABLE",
@@ -3362,7 +3360,7 @@ def render_quick_outputs(data):
             use_container_width=True,
         )
     elif can_export_clean:
-        st.caption("El Word limpio clásico incluye leyenda de alérgenos y se habilitará junto a esas salidas.")
+        st.caption("El Word editable incluye la guía de alérgenos y estará disponible al terminar la revisión.")
 
 
 def menu_signature(data):
@@ -3492,11 +3490,11 @@ JSON:
 
 
 def render_voice_menu_capture():
-    with st.expander("🎙️ Dictar menú por voz", expanded=True):
-        st.caption("Habla de forma natural. La app ignora muletillas y correcciones, estructura el menú y después lo deja editable para revisar.")
+    with st.expander("🎙️ Dictar el menú", expanded=True):
+        st.caption("Habla de forma natural. El menú se ordena para que puedas revisarlo y corregirlo.")
         recorded = st.audio_input("Grabar menú", sample_rate=16000, key="v11_1_voice_record") if hasattr(st, "audio_input") else None
         if recorded is None and not hasattr(st, "audio_input"):
-            st.info("La versión instalada de Streamlit no permite grabación directa; puedes subir un audio.")
+            st.info("Para dictar, sube una grabación de audio.")
         uploaded_audio = st.file_uploader(
             "O subir audio ya grabado",
             type=["wav", "mp3", "aac", "ogg", "flac"],
@@ -3505,9 +3503,9 @@ def render_voice_menu_capture():
         audio_source = recorded or uploaded_audio
         if audio_source:
             st.audio(audio_source)
-            if st.button("✨ CONVERTIR AUDIO EN MENÚ", type="primary", key="v11_1_process_voice"):
+            if st.button("✨ PASAR AUDIO A TEXTO", type="primary", key="v11_1_process_voice"):
                 try:
-                    with st.spinner("Transcribiendo y estructurando el menú..."):
+                    with st.spinner("Leyendo el audio y ordenando el menú..."):
                         data = analyze_audio_menu(audio_source)
                     if data:
                         st.session_state.menu_data = data
@@ -3518,8 +3516,8 @@ def render_voice_menu_capture():
                     else:
                         st.error("No se pudo obtener un menú válido del audio.")
                 except Exception as exc:
-                    st.error(f"No se pudo procesar el audio: {exc}")
-        st.caption("La IA ayuda a estructurar y detectar; la validación final de alérgenos corresponde a la receta y fichas reales del establecimiento.")
+                    st.error("No se pudo leer el audio. Prueba con una grabación más clara.")
+        st.caption("Comprueba los alérgenos con la receta y los ingredientes reales del restaurante.")
 
 
 def render_translation(data):
@@ -3545,7 +3543,7 @@ def render_translation(data):
             st.success(f"Carta traducida al {target}.")
         except Exception as exc:
             invalidate_translation()
-            st.error(f"No se pudo traducir la carta: {exc}")
+            st.error("No se pudo traducir la carta. Prueba de nuevo dentro de un momento.")
 
     translated = st.session_state.get("translated_menu_data")
     if translated:
@@ -3583,13 +3581,13 @@ def render_translation(data):
 # ======================================================
 # APP
 # ======================================================
-st.sidebar.title("Menú Principal 🚀")
+st.sidebar.title("Menú")
 show_asset_diagnostics()
-app_mode = st.sidebar.radio("Navegación", ["📝 Generador de Cartas", "📡 Radar de Clientes", "📄 Extractor de Texto Universal"])
+app_mode = st.sidebar.radio("Navegación", ["📝 Crear carta", "🔎 Buscar información", "📄 Sacar texto de un archivo"])
 
-if app_mode == "📝 Generador de Cartas":
-    st.title("Sistema Integral de Cartas 🥘")
-    st.caption("Crea, revisa y descarga tu carta de forma sencilla.")
+if app_mode == "📝 Crear carta":
+    st.title("Crear una carta 🥘")
+    st.caption("Sube una carta, revísala y descarga los archivos que necesites.")
 
     if "menu_data" not in st.session_state:
         st.session_state.menu_data = None
@@ -3598,8 +3596,8 @@ if app_mode == "📝 Generador de Cartas":
 
     render_voice_menu_capture()
 
-    st.markdown("#### O subir una carta existente")
-    uploaded_file = st.file_uploader("Sube el menú", type=["jpg", "png", "jpeg", "pdf", "docx"])
+    st.markdown("#### O subir una carta que ya tienes")
+    uploaded_file = st.file_uploader("Sube una imagen, PDF o Word", type=["jpg", "png", "jpeg", "pdf", "docx"])
 
     if uploaded_file:
         ft = uploaded_file.name.split(".")[-1].lower()
@@ -3607,12 +3605,12 @@ if app_mode == "📝 Generador de Cartas":
             try:
                 preview_img, info = prepare_image_for_ai(uploaded_file)
                 st.session_state.last_image_info = info
-                with st.expander("👀 Previsualización de imagen preparada", expanded=False):
-                    st.image(preview_img, caption=f"Imagen normalizada para análisis · Original: {info.get('size')} · modo {info.get('mode')}")
+                with st.expander("👀 Ver imagen", expanded=False):
+                    st.image(preview_img, caption="Imagen lista para leer")
             except Exception as e:
-                st.error(f"No se pudo preparar la imagen: {e}")
+                st.error("No se pudo abrir la imagen. Prueba con otra imagen.")
 
-    if uploaded_file and st.button("1. ANALIZAR MENÚ", type="primary"):
+    if uploaded_file and st.button("1. LEER CARTA", type="primary"):
         ft = uploaded_file.name.split(".")[-1].lower()
         data = None
         if ft in ["jpg", "png", "jpeg"]:
@@ -3620,7 +3618,7 @@ if app_mode == "📝 Generador de Cartas":
                 img, info = prepare_image_for_ai(uploaded_file)
                 data = analyze_content(img, "image")
             except Exception as e:
-                st.error(f"Error preparando imagen: {e}")
+                st.error("No se pudo leer la imagen. Prueba con otra imagen.")
         elif ft == "pdf":
             native = extract_text_from_pdf(uploaded_file)
             if native and len(native.strip()) > 80:
@@ -3630,14 +3628,14 @@ if app_mode == "📝 Generador de Cartas":
                 if scanned_text:
                     data = analyze_content(scanned_text, "text")
                 else:
-                    st.error("El PDF parece escaneado y no se pudo procesar. Convierte la página a imagen JPG/PNG o instala PyMuPDF en requirements.txt.")
+                    st.error("No se pudo leer el PDF. Prueba a subir sus páginas como imágenes.")
         elif ft == "docx":
             data = analyze_content(extract_text_from_docx(uploaded_file), "text")
         if data:
             st.session_state.menu_data = data
             invalidate_translation()
             st.session_state["_last_menu_signature"] = menu_signature(data)
-            st.success("✅ Carta preparada. Revisa lo que quieras cambiar y después pulsa Descargar.")
+            st.success("✅ Carta lista. Revísala y haz los cambios que necesites antes de descargar.")
             st.rerun()
 
     if st.session_state.menu_data:
@@ -3645,8 +3643,8 @@ if app_mode == "📝 Generador de Cartas":
         tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
             "✏️ Revisar",
             "⬇️ Descargar",
-            "📝 Word editables",
-            "📖 Horizontal",
+            "📝 Word para editar",
+            "📖 Carta horizontal",
             "🎨 Diseños",
             "🌍 Traducir",
             "🧪 Alérgenos",
@@ -3690,18 +3688,18 @@ if app_mode == "📝 Generador de Cartas":
         empty_tabs = st.tabs([
             "✏️ Revisar",
             "⬇️ Descargar",
-            "📝 Word editables",
-            "📖 Horizontal",
+            "📝 Word para editar",
+            "📖 Carta horizontal",
             "🎨 Diseños",
             "🌍 Traducir",
             "🧪 Alérgenos",
         ])
         for tab in empty_tabs:
             with tab:
-                st.info("Prepara o carga una carta arriba para habilitar este apartado y sus descargas.")
+                st.info("Sube o lee una carta para usar esta opción y descargar tus archivos.")
 
-elif app_mode == "📡 Radar de Clientes":
-    st.title("Radar de Redes y Mapas 📡")
+elif app_mode == "🔎 Buscar información":
+    st.title("Buscar información del restaurante 🔎")
     import urllib.parse
     c1, c2 = st.columns(2)
     with c1:
@@ -3711,23 +3709,23 @@ elif app_mode == "📡 Radar de Clientes":
     if st.button("🚀 Buscar"):
         if r_nombre and r_prov:
             q = urllib.parse.quote_plus(f"{r_nombre} {r_prov}")
-            st.markdown(f"### 📍 [Google Maps](https://www.google.com/maps/search/?api=1&query={q})")
-            st.markdown(f"### 📸 [Instagram](https://www.google.com/search?q=site%3Ainstagram.com+{q})")
-            st.markdown(f"### 📘 [Facebook](https://www.google.com/search?q=site%3Afacebook.com+{q})")
-            st.markdown(f"### 🦉 [TripAdvisor](https://www.google.com/search?q=site%3Atripadvisor.es+{q})")
-            st.markdown(f"### 🌐 [Búsqueda General Carta](https://www.google.com/search?q={q}+carta+menu)")
+            st.markdown(f"### 📍 [Ver el mapa](https://www.google.com/maps/search/?api=1&query={q})")
+            st.markdown(f"### 📸 [Ver fotos y redes](https://www.google.com/search?q=site%3Ainstagram.com+{q})")
+            st.markdown(f"### 📘 [Ver página del restaurante](https://www.google.com/search?q=site%3Afacebook.com+{q})")
+            st.markdown(f"### 🦉 [Leer opiniones](https://www.google.com/search?q=site%3Atripadvisor.es+{q})")
+            st.markdown(f"### 🌐 [Buscar la carta](https://www.google.com/search?q={q}+carta+menu)")
 
-elif app_mode == "📄 Extractor de Texto Universal":
-    st.title("Extractor de Texto Plano 📄➡️📝")
-    st.caption("Sube imagen, PDF, TXT o DOCX para volcar todo su texto literal a Word.")
+elif app_mode == "📄 Sacar texto de un archivo":
+    st.title("Sacar texto de un archivo 📄")
+    st.caption("Sube una imagen, PDF, Word o archivo de texto para copiar su contenido a Word.")
 
     if "universal_bytes" not in st.session_state:
         st.session_state.universal_bytes = None
 
     up_any = st.file_uploader("Sube tu archivo", type=["pdf", "jpg", "jpeg", "png", "txt", "docx"], key="universal_upload")
 
-    if up_any and st.button("🔄 Extraer Todo el Texto"):
-        with st.spinner("Leyendo y procesando el archivo..."):
+    if up_any and st.button("🔄 Sacar el texto"):
+        with st.spinner("Leyendo el archivo..."):
             ext = up_any.name.split(".")[-1].lower()
             texto_extraido = ""
             if ext == "txt":
@@ -3766,4 +3764,4 @@ elif app_mode == "📄 Extractor de Texto Universal":
 
     if st.session_state.universal_bytes and up_any:
         name = f"Texto_Extraido_{slugify_filename(up_any.name.rsplit('.',1)[0])}.docx"
-        st.download_button("⬇️ Descargar Word con Texto Literal", st.session_state.universal_bytes, name)
+        st.download_button("⬇️ Descargar Word con el texto", st.session_state.universal_bytes, name)
