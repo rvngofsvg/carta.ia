@@ -5,6 +5,7 @@ import re
 import base64
 import zipfile
 import unicodedata
+import copy
 from collections import Counter
 from html import escape as html_escape
 from datetime import datetime
@@ -223,16 +224,21 @@ def find_file_insensitive(folder, filename):
         return None
     target = filename.lower()
     try:
-        for entry in os.scandir(folder):
-            if entry.is_file() and entry.name.lower() == target:
-                return entry.path
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                if entry.is_file() and entry.name.lower() == target:
+                    return entry.path
     except Exception:
         return None
     direct = os.path.join(folder, filename)
     return direct if os.path.exists(direct) else None
 
 
-PLANTILLA_PATH = find_path_insensitive(BASE_DIR, ["public", "plantilla", "plantilla_menu.docx"])
+PLANTILLA_EIDER_PATH = find_path_insensitive(
+    BASE_DIR, ["public", "plantilla", "plantilla_base_carta_eider.docx"]
+)
+PLANTILLA_LEGACY_PATH = find_path_insensitive(BASE_DIR, ["public", "plantilla", "plantilla_menu.docx"])
+PLANTILLA_PATH = PLANTILLA_EIDER_PATH or PLANTILLA_LEGACY_PATH
 ICONOS_DIR = find_path_insensitive(BASE_DIR, ["public", "iconos"])
 if not ICONOS_DIR:
     ICONOS_DIR = find_path_insensitive(BASE_DIR, ["Public", "Iconos"])
@@ -490,10 +496,124 @@ def release_paragraph_constraints(paragraph, indent, is_dish=False):
     paragraph.paragraph_format.left_indent = indent
 
 
-def new_doc_from_template():
-    if PLANTILLA_PATH and os.path.exists(PLANTILLA_PATH):
-        return Document(PLANTILLA_PATH)
-    return Document()
+def _remove_part_images(part):
+    for rel_id, relationship in list(part.rels.items()):
+        if relationship.reltype.endswith("/image"):
+            part.drop_rel(rel_id)
+
+
+def _clear_docx_footer(footer):
+    footer.is_linked_to_previous = False
+    for child in list(footer._element):
+        footer._element.remove(child)
+    footer.add_paragraph()
+    _remove_part_images(footer.part)
+
+
+def _prepare_template_header(section, title, title_rpr=None):
+    header = section.header
+    header.is_linked_to_previous = False
+    paragraphs = header.paragraphs
+    paragraph = paragraphs[0] if paragraphs else header.add_paragraph()
+    for child in list(paragraph._p):
+        if child.tag != qn("w:pPr"):
+            paragraph._p.remove(child)
+    for extra in paragraphs[1:]:
+        header._element.remove(extra._p)
+    _remove_part_images(header.part)
+    if title:
+        run = paragraph.add_run(str(title))
+        if title_rpr is not None:
+            run._r.insert(0, copy.deepcopy(title_rpr))
+
+
+def new_doc_from_template(title=None):
+    """Load the Eider base page furniture without its example menu content."""
+    if not PLANTILLA_PATH or not os.path.exists(PLANTILLA_PATH):
+        doc = Document()
+        doc._carta_eider_template = False
+        doc._carta_eider_styles = {}
+        return doc
+
+    doc = Document(PLANTILLA_PATH)
+    paragraphs = list(doc.paragraphs)
+    category = next((p for p in paragraphs if p.text.strip().casefold() == "entrantes"), None)
+    dish = next((p for p in paragraphs if p.text.strip().casefold().startswith("plato\t")), None)
+    title_rpr = None
+    for run in doc.sections[0].header.paragraphs[0].runs:
+        if run.text.strip():
+            title_rpr = copy.deepcopy(run._r.rPr) if run._r.rPr is not None else None
+            break
+
+    styles = {}
+    if category and category.runs:
+        styles["category_pPr"] = copy.deepcopy(category._p.pPr) if category._p.pPr is not None else None
+        styles["category_rPr"] = copy.deepcopy(category.runs[0]._r.rPr) if category.runs[0]._r.rPr is not None else None
+    if dish and dish.runs:
+        price_sample = next((run for run in dish.runs[2:] if run._r.rPr is not None), dish.runs[-1])
+        styles["dish_pPr"] = copy.deepcopy(dish._p.pPr) if dish._p.pPr is not None else None
+        styles["dish_name_rPr"] = copy.deepcopy(dish.runs[0]._r.rPr) if dish.runs[0]._r.rPr is not None else None
+        styles["dish_price_rPr"] = copy.deepcopy(price_sample._r.rPr) if price_sample._r.rPr is not None else None
+
+    body = doc._element.body
+    for child in list(body):
+        if child.tag != qn("w:sectPr"):
+            body.remove(child)
+
+    for section in doc.sections:
+        _prepare_template_header(section, title, title_rpr)
+        for footer in (section.footer, section.first_page_footer, section.even_page_footer):
+            _clear_docx_footer(footer)
+
+    doc._carta_eider_template = True
+    doc._carta_eider_styles = styles
+    return doc
+
+
+def _add_template_paragraph(doc, kind):
+    paragraph = doc.add_paragraph()
+    properties = getattr(doc, "_carta_eider_styles", {}).get(f"{kind}_pPr")
+    if properties is not None:
+        if paragraph._p.pPr is not None:
+            paragraph._p.remove(paragraph._p.pPr)
+        paragraph._p.insert(0, copy.deepcopy(properties))
+    return paragraph
+
+
+def _apply_template_run_style(run, key, doc):
+    properties = getattr(doc, "_carta_eider_styles", {}).get(key)
+    if properties is not None:
+        if run._r.rPr is not None:
+            run._r.remove(run._r.rPr)
+        run._r.insert(0, copy.deepcopy(properties))
+
+
+def _add_template_category(doc, name, color=None):
+    paragraph = _add_template_paragraph(doc, "category")
+    paragraph.paragraph_format.keep_with_next = True
+    run = paragraph.add_run(str(name or "Categoría").upper())
+    _apply_template_run_style(run, "category_rPr", doc)
+    if color:
+        set_run_color(run, color)
+    return paragraph
+
+
+def _add_template_dish_line(doc, dish, with_allergens=False, text_color=None):
+    paragraph = _add_template_paragraph(doc, "dish")
+    name = paragraph.add_run(dish_display_name(dish))
+    _apply_template_run_style(name, "dish_name_rPr", doc)
+    if text_color:
+        set_run_color(name, text_color)
+
+    if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
+        paragraph.add_run("  ")
+        _add_allergen_icons_to_run(paragraph, dish.get("allergens", []), width_cm=0.4)
+
+    price = paragraph.add_run("\t" + format_price(dish.get("price", "")))
+    _apply_template_run_style(price, "dish_price_rPr", doc)
+    if text_color:
+        set_run_color(price, text_color)
+    return paragraph
 
 
 def format_price(price):
@@ -570,39 +690,55 @@ def add_text_block_to_doc(doc, text, indent=None, font_size=10.5, italic=True, c
 
 
 
-def create_clean_word(data):
+def create_clean_word(data, theme_key='eider'):
     """Word limpio clásico: una columna, editable, sin iconos junto a platos.
     Conserva numeración de platos si existe, texto auxiliar de la carta y cuerpo a 12 pt.
     """
-    doc = new_doc_from_template()
+    rest_name = data.get("restaurant_name", "MENÚ")
+    doc = new_doc_from_template(rest_name)
+    theme = get_menu_theme(theme_key, default_key='eider')
     for section in doc.sections:
         section.bottom_margin = MARGEN_INFERIOR_FORZADO
 
-    rest_name = data.get("restaurant_name", "MENÚ")
-    p_title = doc.add_heading(rest_name, 0)
-    release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
+    if not getattr(doc, "_carta_eider_template", False):
+        p_title = doc.add_paragraph()
+        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
+        title_run = p_title.add_run(rest_name)
+        title_run.bold = True
+        title_run.font.size = Pt(24)
+        set_run_color(title_run, theme['header'])
 
     # Texto auxiliar general detectado en la carta: teléfonos, horarios, dirección, avisos, etc.
     for block in unique_text_blocks(data.get("texto_extra"), data.get("header_text"), data.get("footer_text"), data.get("notes")):
         add_text_block_to_doc(doc, block, SANGRIA_CATEGORIA, font_size=10.5, italic=True)
 
     for category in data.get("categories", []):
-        p_cat = doc.add_heading(category.get("name", "Categoría"), level=1)
-        release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
-        p_cat.paragraph_format.space_before = Pt(6)
+        if getattr(doc, "_carta_eider_template", False):
+            p_cat = _add_template_category(doc, category.get("name", "Categoría"), theme['cat'])
+        else:
+            p_cat = doc.add_paragraph()
+            release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
+            p_cat.paragraph_format.space_before = Pt(6)
+            category_run = p_cat.add_run(category.get("name", "Categoría"))
+            category_run.bold = True
+            category_run.font.size = Pt(16)
+            set_run_color(category_run, theme['cat'])
 
         for block in unique_text_blocks(category.get("category_text"), category.get("texto_extra"), category.get("notes")):
             add_text_block_to_doc(doc, block, SANGRIA_PLATOS, font_size=10.5, italic=True)
 
         for dish in category.get("dishes", []):
-            p = doc.add_paragraph()
-            release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
-            p.paragraph_format.tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            rn = p.add_run(dish_display_name(dish))
-            rn.bold = True
-            rn.font.size = Pt(CLEAN_WORD_DISH_FONT_SIZE)
-            rp = p.add_run(f"\t{format_price(dish.get('price', ''))}")
-            rp.font.size = Pt(CLEAN_WORD_PRICE_FONT_SIZE)
+            if getattr(doc, "_carta_eider_template", False):
+                p = _add_template_dish_line(doc, dish, text_color=theme['text'])
+            else:
+                p = doc.add_paragraph()
+                release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
+                p.paragraph_format.tab_stops.add_tab_stop(Cm(15.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+                rn = p.add_run(dish_display_name(dish))
+                rn.bold = True
+                rn.font.size = Pt(CLEAN_WORD_DISH_FONT_SIZE)
+                rp = p.add_run(f"\t{format_price(dish.get('price', ''))}")
+                rp.font.size = Pt(CLEAN_WORD_PRICE_FONT_SIZE)
             if dish.get("description"):
                 p_desc = doc.add_paragraph()
                 release_paragraph_constraints(p_desc, SANGRIA_PLATOS, is_dish=True)
@@ -1367,6 +1503,21 @@ EDITABLE_WORD_THEMES = {
     'gris': {'name':'Gris urbano', 'header':'3B3F45', 'cat':'2F343B', 'text':'181A1E', 'muted':'5C626A', 'bg':'F3F4F6', 'light':'FFFFFF'},
     'dorado': {'name':'Dorado clásico', 'header':'8A6A2F', 'cat':'8A6A2F', 'text':'211A14', 'muted':'6A5848', 'bg':'FBF4E5', 'light':'FFFFFF'},
 }
+
+EIDER_BASE_THEME = {
+    'name':'Eider · plantilla base', 'header':'171717', 'cat':'941100',
+    'text':'111111', 'muted':'595959', 'bg':'FFFFFF', 'light':'FFFFFF'
+}
+
+
+def get_menu_theme(theme_key, default_key='neutral'):
+    if theme_key == 'eider':
+        return EIDER_BASE_THEME
+    if theme_key in EDITABLE_WORD_THEMES:
+        return EDITABLE_WORD_THEMES[theme_key]
+    if default_key == 'eider':
+        return EIDER_BASE_THEME
+    return EDITABLE_WORD_THEMES.get(default_key, EDITABLE_WORD_THEMES['neutral'])
 
 
 def add_docx_heading_block(doc, data, theme, subtitle='Plantilla editable sin iconos por plato'):
@@ -2752,73 +2903,78 @@ def _add_allergen_icons_to_run(paragraph, allergens, width_cm=0.46):
     return added
 
 
-def _create_client_word(data, with_allergens=False, theme_key="neutral", two_columns=False):
+def _create_client_word(data, with_allergens=False, theme_key="eider", two_columns=False):
     """Genera las dos cartas Word desde la misma plantilla visual.
 
     La versión con alérgenos añade iconos y footer; la versión sin alérgenos
     limpia cualquier leyenda heredada de la plantilla base.
     """
-    theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES["neutral"])
-    doc = new_doc_from_template() if not two_columns else Document()
-
-    def clear_footer(footer):
-        footer.is_linked_to_previous = False
-        for child in list(footer._element):
-            footer._element.remove(child)
+    theme = get_menu_theme(theme_key, default_key="eider")
+    rest_name = data.get("restaurant_name", "MENÚ")
+    doc = new_doc_from_template(rest_name) if not two_columns else Document()
+    template_mode = getattr(doc, "_carta_eider_template", False)
 
     # La plantilla histórica llevaba una imagen de leyenda en el footer.
     # Se elimina siempre y solo se reconstruye si la salida pide alérgenos.
     for sec in doc.sections:
         for footer in (sec.footer, sec.first_page_footer, sec.even_page_footer):
-            clear_footer(footer)
+            _clear_docx_footer(footer)
         if two_columns:
             set_docx_margins(sec)
             set_docx_two_columns(sec)
-        else:
+        elif not template_mode:
             sec.bottom_margin = Cm(1.8)
 
-    rest_name = data.get("restaurant_name", "MENÚ")
-    p_title = doc.add_heading(rest_name, 0)
-    release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
-    for run in p_title.runs:
-        run.bold = True
-        run.font.size = Pt(24)
-        set_run_color(run, theme["header"])
+    if not template_mode:
+        p_title = doc.add_paragraph()
+        release_paragraph_constraints(p_title, SANGRIA_CATEGORIA)
+        title_run = p_title.add_run(rest_name)
+        title_run.bold = True
+        title_run.font.size = Pt(24)
+        set_run_color(title_run, theme["header"])
 
     for block in unique_text_blocks(data.get("texto_extra"), data.get("header_text"), data.get("footer_text"), data.get("notes")):
         add_text_block_to_doc(doc, block, SANGRIA_CATEGORIA, font_size=10.5, italic=True, color=theme["muted"])
 
     for category in data.get("categories", []):
-        p_cat = doc.add_heading(category.get("name", "Categoría"), level=1)
-        release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
-        p_cat.paragraph_format.space_before = Pt(6)
-        for run in p_cat.runs:
-            run.bold = True
-            run.font.size = Pt(16)
-            set_run_color(run, theme["cat"])
+        if template_mode:
+            p_cat = _add_template_category(doc, category.get("name", "Categoría"), theme["cat"])
+        else:
+            p_cat = doc.add_paragraph()
+            release_paragraph_constraints(p_cat, SANGRIA_CATEGORIA)
+            p_cat.paragraph_format.space_before = Pt(6)
+            cat_run = p_cat.add_run(category.get("name", "Categoría"))
+            cat_run.bold = True
+            cat_run.font.size = Pt(16)
+            set_run_color(cat_run, theme["cat"])
 
         for block in unique_text_blocks(category.get("category_text"), category.get("texto_extra"), category.get("notes")):
             add_text_block_to_doc(doc, block, SANGRIA_PLATOS, font_size=10.0, italic=True, color=theme["muted"])
 
         for dish in category.get("dishes", []):
-            p = doc.add_paragraph()
-            release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
-            price_tab_cm = (12.6 if not two_columns else 5.6) if with_allergens else (15.0 if not two_columns else 7.8)
-            p.paragraph_format.tab_stops.add_tab_stop(Cm(price_tab_cm), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
-            name_run = p.add_run(dish_display_name(dish))
-            name_run.bold = True
-            name_run.font.size = Pt(11.5)
-            set_run_color(name_run, theme["text"])
+            if template_mode:
+                p = _add_template_dish_line(
+                    doc, dish, with_allergens=with_allergens, text_color=theme["text"]
+                )
+            else:
+                p = doc.add_paragraph()
+                release_paragraph_constraints(p, SANGRIA_PLATOS, is_dish=True)
+                price_tab_cm = (12.6 if not two_columns else 5.6) if with_allergens else (15.0 if not two_columns else 7.8)
+                p.paragraph_format.tab_stops.add_tab_stop(Cm(price_tab_cm), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+                name_run = p.add_run(dish_display_name(dish))
+                name_run.bold = True
+                name_run.font.size = Pt(11.5)
+                set_run_color(name_run, theme["text"])
 
-            if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
-                p.add_run("  ")
-                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.46)
+                if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
+                    p.add_run("  ")
+                    _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.46)
 
-            # Plato → símbolos de alérgenos → precio, siempre al extremo derecho.
-            price_run = p.add_run("\t" + format_price(dish.get("price", "")))
-            price_run.bold = True
-            price_run.font.size = Pt(11.2)
-            set_run_color(price_run, theme["cat"])
+                # Plato → símbolos de alérgenos → precio, siempre al extremo derecho.
+                price_run = p.add_run("\t" + format_price(dish.get("price", "")))
+                price_run.bold = True
+                price_run.font.size = Pt(11.2)
+                set_run_color(price_run, theme["cat"])
 
             if dish.get("description"):
                 pd = doc.add_paragraph()
@@ -2837,11 +2993,11 @@ def _create_client_word(data, with_allergens=False, theme_key="neutral", two_col
     return buffer
 
 
-def create_word(data, theme_key="neutral"):
+def create_word(data, theme_key="eider"):
     return _create_client_word(data, with_allergens=True, theme_key=theme_key, two_columns=False)
 
 
-def create_client_word_without_allergens(data, theme_key="neutral", two_columns=False):
+def create_client_word_without_allergens(data, theme_key="eider", two_columns=False):
     return _create_client_word(data, with_allergens=False, theme_key=theme_key, two_columns=two_columns)
 
 
@@ -3000,7 +3156,7 @@ def render_export_preflight(data, key_prefix="export", compact=False, require_al
 
 
 def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
-    theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES["neutral"])
+    theme = get_menu_theme(theme_key)
     cat = "#" + theme.get("cat", "374151")
     text = "#" + theme.get("text", "111827")
     muted = "#" + theme.get("muted", "6B7280")
@@ -3160,13 +3316,13 @@ def render_quick_outputs(data):
         data, key_prefix="quick_exports", compact=True, require_allergen_review=True
     )
     can_export_clean = not menu_preflight(data)["blocking"]
-    theme_keys = list(EDITABLE_WORD_THEMES.keys())
-    default_idx = theme_keys.index("neutral") if "neutral" in theme_keys else 0
+    theme_keys = ["eider", *EDITABLE_WORD_THEMES.keys()]
+    default_idx = 0
     theme_key = st.selectbox(
         "Diseño de la carta",
         theme_keys,
         index=default_idx,
-        format_func=lambda k: EDITABLE_WORD_THEMES[k]["name"],
+        format_func=lambda k: get_menu_theme(k)["name"],
         key="v12_main_theme",
     )
     restaurant = slugify_filename(data.get("restaurant_name", "menu"))
@@ -3199,7 +3355,7 @@ def render_quick_outputs(data):
     if can_export_allergens:
         st.download_button(
             "⬇️ DESCARGAR WORD LIMPIO EDITABLE",
-            create_clean_word(data),
+            create_clean_word(data, theme_key=theme_key),
             file_name=f"Word_Limpio_{restaurant}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             key="v12_word_limpio_classic",

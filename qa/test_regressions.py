@@ -76,7 +76,43 @@ class RegressionTests(unittest.TestCase):
             doc = Document(app.create_client_word_without_allergens(MENU, two_columns=columns))
             self.assertEqual(len(doc.inline_shapes), 0)
             self.assertTrue(all(not s.footer._element.xpath('.//pic:pic') for s in doc.sections))
+            self.assertTrue(all(not s.header._element.xpath('.//pic:pic') for s in doc.sections))
             self.assertIn('12,50', '\n'.join(p.text for p in doc.paragraphs))
+
+    def test_eider_template_default_and_dish_allergen_price_order(self):
+        self.assertEqual(Path(app.PLANTILLA_PATH).name, 'plantilla_base_carta_eider.docx')
+
+        with_allergens = Document(app.create_word(MENU))
+        self.assertEqual(with_allergens.sections[0].header.paragraphs[0].text, 'Restaurante QA')
+        self.assertEqual(len(with_allergens.sections[0].footer._element.xpath('.//pic:pic')), 1)
+        self.assertFalse(with_allergens.sections[0].header._element.xpath('.//pic:pic'))
+        self.assertNotIn('Plato\t00,00', '\n'.join(p.text for p in with_allergens.paragraphs))
+
+        def assert_icons_before_leader_price(doc, dish_fragment):
+            row = next(p for p in doc.paragraphs if dish_fragment in p.text)
+            runs = row.runs
+            name_index = next(i for i, run in enumerate(runs) if dish_fragment in run.text)
+            icon_indices = [i for i, run in enumerate(runs) if run._r.xpath('.//pic:pic')]
+            price_index = next(i for i, run in enumerate(runs) if run.text.startswith('\t'))
+            self.assertTrue(icon_indices)
+            self.assertLess(name_index, min(icon_indices))
+            self.assertLess(max(icon_indices), price_index)
+            self.assertTrue(row._p.xpath(".//w:tab[@w:leader='dot']"))
+
+        assert_icons_before_leader_price(with_allergens, 'Ensalada de queso y nueces')
+
+        without_allergens = Document(app.create_client_word_without_allergens(MENU))
+        self.assertEqual(without_allergens.sections[0].header.paragraphs[0].text, 'Restaurante QA')
+        self.assertFalse(without_allergens.sections[0].footer._element.xpath('.//pic:pic'))
+        self.assertFalse(without_allergens.sections[0].header._element.xpath('.//pic:pic'))
+        self.assertFalse(without_allergens.inline_shapes)
+        self.assertNotIn('Plato\t00,00', '\n'.join(p.text for p in without_allergens.paragraphs))
+
+        book = Document(app.create_landscape_book_word(MENU))
+        assert_icons_before_leader_price(book, 'Ensalada de queso y nueces')
+        clean = Document(app.create_clean_word(MENU))
+        self.assertEqual(clean.sections[0].header.paragraphs[0].text, 'Restaurante QA')
+        self.assertEqual(len(clean.sections[0].footer._element.xpath('.//pic:pic')), 1)
 
     def test_all_templates_and_zip(self):
         for theme in app.EDITABLE_WORD_THEMES:
@@ -183,6 +219,8 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(any(button.label == '⬇️ Descargar Word con Texto Literal' for button in at.get('download_button')))
         exported = Document(BytesIO(at.session_state.universal_bytes))
         self.assertIn('Ensalada QA', '\n'.join(paragraph.text for paragraph in exported.paragraphs))
+        self.assertNotIn('Plato\t00,00', '\n'.join(paragraph.text for paragraph in exported.paragraphs))
+        self.assertFalse(exported.sections[0].header._element.xpath('.//pic:pic'))
 
     def test_text_extractors_read_pdf_and_docx(self):
         import fitz
