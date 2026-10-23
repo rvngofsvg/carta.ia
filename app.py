@@ -3015,14 +3015,15 @@ def _create_client_word(data, with_allergens=False, theme_key="neutral", two_col
             name_run.font.size = Pt(11.5)
             set_run_color(name_run, theme["text"])
 
+            if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
+                p.add_run("  ")
+                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.46)
+
+            # Plato → símbolos de alérgenos → precio, siempre al extremo derecho.
             price_run = p.add_run("\t" + format_price(dish.get("price", "")))
             price_run.bold = True
             price_run.font.size = Pt(11.2)
             set_run_color(price_run, theme["cat"])
-
-            if with_allergens and get_ordered_allergens(dish.get("allergens", [])):
-                p.add_run("  ")
-                _add_allergen_icons_to_run(p, dish.get("allergens", []), width_cm=0.46)
 
             if dish.get("description"):
                 pd = doc.add_paragraph()
@@ -3384,6 +3385,16 @@ def render_quick_outputs(data):
         if pdf_clean:
             st.download_button("⬇️ PDF SIN ALÉRGENOS", pdf_clean, file_name=f"Carta_Sin_Alergenos_{restaurant}.pdf", mime="application/pdf", key="v12_pdf_clean", use_container_width=True)
 
+    st.markdown("### ✏️ Word limpio clásico")
+    st.caption("Documento de trabajo editable en una columna, sin símbolos junto a cada plato. Es distinto de la carta sin alérgenos.")
+    st.download_button(
+        "⬇️ DESCARGAR WORD LIMPIO EDITABLE",
+        create_clean_word(data),
+        file_name=f"Word_Limpio_{restaurant}.docx",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        key="v12_word_limpio_classic",
+        use_container_width=True,
+    )
     st.info("Para cambiar un alérgeno manualmente, vuelve a Revisar y usa el selector del plato. No hay validaciones obligatorias.")
 
 
@@ -3655,10 +3666,14 @@ if app_mode == "📝 Generador de Cartas":
 
     if st.session_state.menu_data:
         st.markdown("---")
-        tab1, tab2, tab3 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
             "✏️ Revisar",
             "⬇️ Descargar",
-            "⋯ Más opciones",
+            "📝 Word editables",
+            "📖 Horizontal",
+            "🎨 Diseños",
+            "🌍 Traducir",
+            "🧪 Alérgenos",
         ])
         data = st.session_state.menu_data
 
@@ -3675,19 +3690,21 @@ if app_mode == "📝 Generador de Cartas":
             render_quick_outputs(st.session_state.menu_data)
 
         with tab3:
-            st.caption("Estas herramientas son opcionales. No necesitas entrar aquí para descargar una carta normal.")
-            with st.expander("🌍 Traducir la carta", expanded=False):
-                render_translation(st.session_state.menu_data)
-            with st.expander("🎨 Diseños y plantillas", expanded=False):
-                render_ai_design_mode(st.session_state.menu_data, ICON_MAP)
-                st.divider()
-                render_editable_clean_templates(st.session_state.menu_data)
-                st.markdown("---")
-                render_visual_downloads(st.session_state.menu_data)
-            with st.expander("📖 Formato horizontal / modo libro", expanded=False):
-                render_landscape_book_word(st.session_state.menu_data)
-            with st.expander("🧪 Revisión técnica de alérgenos (opcional)", expanded=False):
-                render_allergen_validation(st.session_state.menu_data)
+            render_editable_clean_templates(st.session_state.menu_data)
+
+        with tab4:
+            render_landscape_book_word(st.session_state.menu_data)
+
+        with tab5:
+            render_ai_design_mode(st.session_state.menu_data, ICON_MAP)
+            st.divider()
+            render_visual_downloads(st.session_state.menu_data)
+
+        with tab6:
+            render_translation(st.session_state.menu_data)
+
+        with tab7:
+            render_allergen_validation(st.session_state.menu_data)
 
 elif app_mode == "📡 Radar de Clientes":
     st.title("Radar de Redes y Mapas 📡")
