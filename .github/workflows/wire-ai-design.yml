@@ -33,7 +33,7 @@ jobs:
 
           old = '''            with st.expander("🎨 Diseños y plantillas", expanded=False):\n                render_editable_clean_templates(st.session_state.menu_data)'''
           new = '''            with st.expander("🎨 Diseños y plantillas", expanded=False):\n                render_ai_design_mode(st.session_state.menu_data, ICON_MAP)\n                st.divider()\n                render_editable_clean_templates(st.session_state.menu_data)'''
-          if new not in s and "render_ai_design_mode(st.session_state.menu_data, ICON_MAP)" not in s:
+          if new not in s and "render_ai_design_mode(st.session_state.menu_data, ICON_MAP" not in s:
               if old not in s:
                   raise SystemExit('Design expander anchor not found')
               s = s.replace(old, new, 1)
