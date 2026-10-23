@@ -20,6 +20,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from word_legend import set_eider_footer
 from ai_design import render_ai_design_mode
 from qwen_core import (
     QWEN_FLASH, QWEN_MAX, QWEN_OMNI, ensure_configured,
@@ -364,8 +365,7 @@ def add_allergen(current, key):
 try:
     ensure_configured()
 except RuntimeError as exc:
-    st.error(f"❌ {exc}")
-    st.stop()
+    st.warning(f"{exc} Las funciones locales siguen disponibles; el análisis y la traducción requieren la clave.")
 
 
 # ======================================================
@@ -498,6 +498,7 @@ def new_doc_from_template():
 
 def format_price(price):
     p = str(price or "").strip()
+    p = re.sub(r"\bEUR\b", "€", p, flags=re.IGNORECASE)
     if not p:
         return ""
     if "€" in p:
@@ -608,6 +609,8 @@ def create_clean_word(data):
                 rd = p_desc.add_run(dish["description"])
                 rd.italic = True
                 rd.font.size = Pt(CLEAN_WORD_DESCRIPTION_FONT_SIZE)
+
+    add_docx_allergen_legend(doc, data, {})
 
     buffer = BytesIO()
     doc.save(buffer)
@@ -1276,7 +1279,8 @@ def create_premium_editable_word(data):
     run.bold = True
     run.font.size = Pt(8.5)
 
-    doc.add_paragraph()
+    section = doc.add_section(WD_SECTION.CONTINUOUS)
+    set_docx_margins(section)
     set_docx_two_columns(section)
 
     for cat in data.get('categories', []):
@@ -1291,7 +1295,7 @@ def create_premium_editable_word(data):
             r = p.add_run(dish_display_name(dish))
             r.bold = True
             r.font.size = Pt(8.4)
-            p.add_run('\t' + format_price(dish.get('price', '')) + '  ')
+            p.add_run('  ')
             icon_run = p.add_run()
             for allergen in get_ordered_allergens(dish.get('allergens', [])):
                 icon_path = ICON_MAP.get(allergen)
@@ -1300,6 +1304,7 @@ def create_premium_editable_word(data):
                         icon_run.add_picture(icon_path, width=Cm(0.34))
                     except Exception:
                         p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}]')
+            p.add_run('\t' + format_price(dish.get('price', '')))
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
                 p_desc.paragraph_format.space_after = Pt(2)
@@ -1307,36 +1312,7 @@ def create_premium_editable_word(data):
                 d.italic = True
                 d.font.size = Pt(7.4)
 
-    footer_section = doc.add_section(WD_SECTION.CONTINUOUS)
-    set_docx_margins(footer_section)
-    doc.add_paragraph()
-    legend_title = doc.add_paragraph()
-    legend_title.alignment = 1
-    legend_title.add_run('GUÍA DE ALÉRGENOS').bold = True
-
-    table = doc.add_table(rows=2, cols=7)
-    table.autofit = True
-    for idx, allergen in enumerate(ALLERGEN_ORDER):
-        row = 0 if idx < 7 else 1
-        col = idx if idx < 7 else idx - 7
-        cell = table.cell(row, col)
-        par = cell.paragraphs[0]
-        par.alignment = 1
-        icon_path = ICON_MAP.get(allergen)
-        if icon_path and os.path.exists(icon_path):
-            try:
-                par.add_run().add_picture(icon_path, width=Cm(0.55))
-                par.add_run('\n')
-            except Exception:
-                pass
-        txt = par.add_run(ALLERGEN_LABELS.get(allergen, allergen))
-        txt.font.size = Pt(6.5)
-
-    notice = doc.add_paragraph()
-    notice.alignment = 1
-    nr = notice.add_run(build_notice(data))
-    nr.font.size = Pt(6.5)
-    nr.italic = True
+    add_docx_allergen_legend(doc, data, {})
 
     buffer = BytesIO()
     doc.save(buffer)
@@ -1414,204 +1390,9 @@ def add_docx_heading_block(doc, data, theme, subtitle='Plantilla editable sin ic
 
 
 def add_docx_allergen_legend(doc, data, theme):
-    """Leyenda 2x7 limpia: un único marco exterior y retícula interior invisible."""
-    legal_text = (
-        "Informamos de acuerdo con el Reglamento de la UE 1169/2011, que nuestros productos "
-        "contienen o pueden contener los siguientes alérgenos."
-    )
-    legend_labels = {
-        "gluten": "GLUTEN",
-        "crustaceos": "CRUSTÁCEOS",
-        "huevos": "HUEVOS",
-        "pescado": "PESCADO",
-        "cacahuetes": "CACAHUETES",
-        "soja": "SOJA",
-        "lacteos": "LÁCTEOS",
-        "frutos de cascara": "FRUTOS DE\nCÁSCARA",
-        "apio": "APIO",
-        "mostaza": "MOSTAZA",
-        "sesamo": "GRANOS DE\nSÉSAMO",
-        "sulfitos": "DIÓXIDO DE AZUFRE\nY SULFITOS",
-        "altramuces": "ALTRAMUCES",
-        "moluscos": "MOLUSCOS",
-    }
-
-    def clear(container):
-        for child in list(container._element):
-            container._element.remove(child)
-
-    def compact(p):
-        p.paragraph_format.space_before = Pt(0)
-        p.paragraph_format.space_after = Pt(0)
-        p.paragraph_format.line_spacing = 1
-
-    def set_cell_width(cell, width_cm):
-        width = Cm(width_cm)
-        cell.width = width
-        tc_pr = cell._tc.get_or_add_tcPr()
-        tc_w = tc_pr.find(qn("w:tcW"))
-        if tc_w is None:
-            tc_w = OxmlElement("w:tcW")
-            tc_pr.append(tc_w)
-        tc_w.set(qn("w:w"), str(int(width.twips)))
-        tc_w.set(qn("w:type"), "dxa")
-
-    def set_grid_widths(table, widths_cm):
-        grid_cols = table._tbl.tblGrid.findall(qn("w:gridCol"))
-        for idx, width_cm in enumerate(widths_cm):
-            if idx < len(grid_cols):
-                grid_cols[idx].set(qn("w:w"), str(int(Cm(width_cm).twips)))
-
-    def set_cell_margins_local(cell, top=0, start=0, bottom=0, end=0):
-        tc_pr = cell._tc.get_or_add_tcPr()
-        tc_mar = tc_pr.find(qn("w:tcMar"))
-        if tc_mar is None:
-            tc_mar = OxmlElement("w:tcMar")
-            tc_pr.append(tc_mar)
-        for edge, value in (("top", top), ("start", start), ("bottom", bottom), ("end", end)):
-            node = tc_mar.find(qn(f"w:{edge}"))
-            if node is None:
-                node = OxmlElement(f"w:{edge}")
-                tc_mar.append(node)
-            node.set(qn("w:w"), str(int(value)))
-            node.set(qn("w:type"), "dxa")
-
-    def set_outer_border(table, color):
-        tbl_pr = table._tbl.tblPr
-        borders = tbl_pr.first_child_found_in("w:tblBorders")
-        if borders is None:
-            borders = OxmlElement("w:tblBorders")
-            tbl_pr.append(borders)
-        for edge in ("top", "start", "bottom", "end"):
-            node = borders.find(qn(f"w:{edge}"))
-            if node is None:
-                node = OxmlElement(f"w:{edge}")
-                borders.append(node)
-            node.set(qn("w:val"), "single")
-            node.set(qn("w:sz"), "10")
-            node.set(qn("w:space"), "0")
-            node.set(qn("w:color"), color)
-        for edge in ("insideH", "insideV"):
-            node = borders.find(qn(f"w:{edge}"))
-            if node is None:
-                node = OxmlElement(f"w:{edge}")
-                borders.append(node)
-            node.set(qn("w:val"), "nil")
-
-    def nil_table_borders(table):
-        tbl_pr = table._tbl.tblPr
-        borders = tbl_pr.first_child_found_in("w:tblBorders")
-        if borders is None:
-            borders = OxmlElement("w:tblBorders")
-            tbl_pr.append(borders)
-        for edge in ("top", "start", "bottom", "end", "insideH", "insideV"):
-            node = borders.find(qn(f"w:{edge}"))
-            if node is None:
-                node = OxmlElement(f"w:{edge}")
-                borders.append(node)
-            node.set(qn("w:val"), "nil")
-
-    def nil_cell_borders(cell):
-        tc_pr = cell._tc.get_or_add_tcPr()
-        borders = tc_pr.find(qn("w:tcBorders"))
-        if borders is None:
-            borders = OxmlElement("w:tcBorders")
-            tc_pr.append(borders)
-        for edge in ("top", "start", "bottom", "end", "insideH", "insideV"):
-            node = borders.find(qn(f"w:{edge}"))
-            if node is None:
-                node = OxmlElement(f"w:{edge}")
-                borders.append(node)
-            node.set(qn("w:val"), "nil")
-
-    border_color = theme.get("muted", "6B7280")
-
+    """Imagen original de Eider, una vez por página y fuera del cuerpo."""
     for section in doc.sections:
-        # Alinea visualmente la leyenda con la sangría real del cuerpo de la carta.
-        # Antes ocupaba todo el ancho imprimible y quedaba demasiado pegada al borde inferior.
-        if section.bottom_margin < Cm(4.2):
-            section.bottom_margin = Cm(4.2)
-        section.footer_distance = Cm(0.45)
-        raw_usable_cm = max(12.0, (section.page_width - section.left_margin - section.right_margin) / 360000.0)
-        usable_cm = max(12.0, raw_usable_cm - 1.6)  # 0,8 cm extra por lado, igual que el cuerpo.
-
-        for footer in (section.footer, section.first_page_footer, section.even_page_footer):
-            footer.is_linked_to_previous = False
-            clear(footer)
-
-            wrapper = footer.add_table(rows=1, cols=1, width=Cm(usable_cm))
-            wrapper.alignment = WD_TABLE_ALIGNMENT.CENTER
-            wrapper.autofit = False
-            set_grid_widths(wrapper, [usable_cm])
-            set_outer_border(wrapper, border_color)
-
-            cell = wrapper.cell(0, 0)
-            set_cell_width(cell, usable_cm)
-            set_cell_margins_local(cell, top=16, start=42, bottom=12, end=42)
-            cell.text = ""
-
-            legal = cell.paragraphs[0]
-            legal.alignment = 1
-            compact(legal)
-            legal.paragraph_format.space_after = Pt(1.2)
-            lr = legal.add_run(legal_text)
-            lr.font.size = Pt(8.4)
-            lr.bold = True
-            set_run_color(lr, theme.get("text", "111111"))
-
-            # Simetría visual real: las siete posiciones deben ser equidistantes.
-            # Los nombres largos ya llevan saltos de línea controlados, por lo que
-            # no necesitamos deformar el ancho de sus columnas.
-            col_widths = [usable_cm / 7.0] * 7
-            grid = cell.add_table(rows=2, cols=7)
-            grid.alignment = WD_TABLE_ALIGNMENT.CENTER
-            grid.autofit = False
-            set_grid_widths(grid, col_widths)
-            nil_table_borders(grid)
-
-            trailing = cell.paragraphs[-1]
-            compact(trailing)
-            trailing.paragraph_format.line_spacing = Pt(1)
-            if not trailing.runs:
-                trailing.add_run("")
-            for run in trailing.runs:
-                run.font.size = Pt(1)
-
-            for idx, allergen in enumerate(ALLERGEN_ORDER):
-                r, c = divmod(idx, 7)
-                item = grid.cell(r, c)
-                nil_cell_borders(item)
-                set_cell_width(item, col_widths[c])
-                set_cell_margins_local(item, top=0, start=14, bottom=0, end=14)
-                item.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-
-                tc_pr = item._tc.get_or_add_tcPr()
-                no_wrap = tc_pr.find(qn("w:noWrap"))
-                if no_wrap is None:
-                    no_wrap = OxmlElement("w:noWrap")
-                    tc_pr.append(no_wrap)
-
-                item.text = ""
-                p = item.paragraphs[0]
-                p.alignment = 1
-                compact(p)
-                icon_path = ICON_MAP.get(allergen)
-                if icon_path and os.path.exists(icon_path):
-                    try:
-                        p.add_run().add_picture(icon_path, width=Cm(0.92))
-                    except Exception:
-                        pass
-
-                lp = item.add_paragraph()
-                lp.alignment = 1
-                compact(lp)
-                lp.paragraph_format.line_spacing = Pt(7.7)
-                label = lp.add_run(legend_labels.get(allergen, ALLERGEN_LABELS.get(allergen, allergen)))
-                label.font.size = Pt(7.4)
-                label.bold = True
-                set_run_color(label, theme.get("text", "111111"))
-
-            nil_table_borders(grid)
+        set_eider_footer(section)
 
 
 def create_editable_word_clean_template(data, theme_key='cafe', two_columns=True):
@@ -1629,6 +1410,8 @@ def create_editable_word_clean_template(data, theme_key='cafe', two_columns=True
     for block in unique_text_blocks(data.get('texto_extra'), data.get('header_text'), data.get('footer_text'), data.get('notes')):
         add_text_block_to_doc(doc, block, None, font_size=8.2 if two_columns else 10.5, italic=True, color=theme['muted'])
     if two_columns:
+        section = doc.add_section(WD_SECTION.CONTINUOUS)
+        set_docx_margins(section)
         set_docx_two_columns(section)
 
     for cat in data.get('categories', []):
@@ -1661,9 +1444,6 @@ def create_editable_word_clean_template(data, theme_key='cafe', two_columns=True
                 rd.font.size = Pt(7.4)
                 set_run_color(rd, theme['muted'])
 
-    footer_section = doc.add_section(WD_SECTION.CONTINUOUS)
-    set_docx_margins(footer_section)
-    set_docx_one_column(footer_section)
     add_docx_allergen_legend(doc, data, theme)
 
     buffer = BytesIO()
@@ -1831,7 +1611,7 @@ def add_book_legend_side(cell, data, theme, side_width_cm=13.5):
 
 
 def configure_book_header_footer(section, data, theme):
-    """Duplica cabecero y leyenda en los lados izquierdo y derecho de cada página horizontal."""
+    """Duplica el cabecero y coloca una leyenda inferior por página horizontal."""
     usable_width = section.page_width - section.left_margin - section.right_margin
     usable_cm = usable_width / 360000.0
     gutter_cm = 0.8
@@ -1853,22 +1633,7 @@ def configure_book_header_footer(section, data, theme):
     set_cell_shading(ht.cell(0, 1), 'FFFFFF')
     set_cell_margins(ht.cell(0, 1), top=0, start=0, bottom=0, end=0)
 
-    footer = section.footer
-    footer.is_linked_to_previous = False
-    footer.distance = Cm(0.45)
-    footer.paragraphs[0].paragraph_format.space_after = Pt(0)
-    footer_usable_cm = max(12.0, usable_cm - 1.6)  # 0.8 cm extra por borde exterior
-    footer_side_cm = (footer_usable_cm - gutter_cm) / 2
-    ft = footer.add_table(rows=1, cols=3, width=Cm(footer_usable_cm))
-    ft.alignment = WD_TABLE_ALIGNMENT.CENTER
-    ft.autofit = False
-    set_table_grid_widths(ft, [footer_side_cm, gutter_cm, footer_side_cm])
-    set_cell_width(ft.cell(0, 0), footer_side_cm)
-    set_cell_width(ft.cell(0, 1), gutter_cm)
-    set_cell_width(ft.cell(0, 2), footer_side_cm)
-    add_book_legend_side(ft.cell(0, 0), data, theme, side_width_cm=footer_side_cm)
-    add_book_legend_side(ft.cell(0, 2), data, theme, side_width_cm=footer_side_cm)
-    set_cell_margins(ft.cell(0, 1), top=0, start=0, bottom=0, end=0)
+    set_eider_footer(section)
 
 
 def create_landscape_book_word(
@@ -1881,7 +1646,7 @@ def create_landscape_book_word(
     """Word editable A4 horizontal en modo libro.
 
     - Dos columnas reales que fluyen de izquierda a derecha.
-    - Cabecero y leyenda inferior repetidos en cada lado.
+    - Cabecero en cada lado y una leyenda inferior por página.
     - Número + plato + símbolos inmediatamente después + precio alineado al final.
     """
     theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES['cafe'])
@@ -1941,18 +1706,13 @@ def create_landscape_book_word(
             p.paragraph_format.space_after = Pt(2)
             p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
             p.paragraph_format.tab_stops.add_tab_stop(
-                Cm(9.2), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS
+                Cm(13.4), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS
             )
 
             name_run = p.add_run(dish_display_name(dish))
             name_run.bold = True
             name_run.font.size = Pt(dish_font_size)
             set_run_color(name_run, theme['text'])
-
-            price_run = p.add_run('\t' + format_price(dish.get('price', '')))
-            price_run.bold = True
-            price_run.font.size = Pt(dish_font_size)
-            set_run_color(price_run, theme['text'])
 
             if icons_after_dish:
                 p.add_run('  ')
@@ -1969,6 +1729,11 @@ def create_landscape_book_word(
                         fb = p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}] ')
                         fb.font.size = Pt(max(6, dish_font_size - 4))
                         set_run_color(fb, theme['cat'])
+
+            price_run = p.add_run('\t' + format_price(dish.get('price', '')))
+            price_run.bold = True
+            price_run.font.size = Pt(dish_font_size)
+            set_run_color(price_run, theme['text'])
 
             if include_descriptions and dish.get('description'):
                 pd = doc.add_paragraph()
@@ -1987,7 +1752,7 @@ def create_landscape_book_word(
 
 def render_landscape_book_word(data):
     st.subheader('📖 Word horizontal · modo libro')
-    st.caption('A4 horizontal editable: dos lados, cabecero y leyenda repetidos en cada lado. Los símbolos quedan justo después del plato y el precio al final.')
+    st.caption('A4 horizontal editable: dos lados, cabecero en cada lado y una leyenda inferior por página. Los símbolos quedan justo después del plato y el precio al final.')
 
     c1, c2, c3 = st.columns([1.25, 0.8, 0.9])
     with c1:
@@ -2065,9 +1830,10 @@ def render_editable_clean_templates(data):
 
 def html_to_pdf_bytes(html_code):
     try:
-        from weasyprint import HTML
-        return HTML(string=html_code, base_url=BASE_DIR).write_pdf()
-    except Exception:
+        from pdf_backend import render_pdf
+        return render_pdf(html_code, BASE_DIR)
+    except Exception as exc:
+        st.warning(f"No se pudo generar el PDF: {exc}")
         return None
 
 # ======================================================
@@ -2696,6 +2462,12 @@ La selección podrá ser corregida manualmente después por el establecimiento.
     except Exception as exc:
         data["_allergen_model"] = "estimación inicial + reglas locales"
         data["_allergen_model_error"] = str(exc)[-1200:]
+        for category in data.get("categories", []):
+            for dish in category.get("dishes", []):
+                notes = dish.setdefault("review_notes", [])
+                note = "La clasificación IA no se completó: revisar alérgenos de la receta."
+                if note not in notes:
+                    notes.append(note)
         return data
 
 def _word_or_phrase(text, phrase):
@@ -3223,9 +2995,10 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
             dishes_html.append(
                 '<div class="dish">'
                 f'<div class="dish-main"><span class="dish-name">{html_escape(dish_display_name(dish))}</span>'
+                f'<span class="dish-icons">{icons}</span>'
                 f'<span class="dots"></span>'
                 f'<span class="price">{html_escape(format_price(dish.get("price", "")))}</span>'
-                f'<span class="dish-icons">{icons}</span></div>{desc_html}</div>'
+                f'</div>{desc_html}</div>'
             )
         cat_note = html_escape(str(category.get("category_text") or ""))
         note_html = f'<div class="cat-note">{cat_note}</div>' if cat_note else ""
@@ -3268,7 +3041,7 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
             margin: 15mm 15mm 45mm 15mm;
             @bottom-center {
                 content: element(allergenFooter);
-                vertical-align: bottom;
+                vertical-align: middle;
             }
         }
         """
@@ -3511,7 +3284,7 @@ JSON:
         category["category_text"] = translated_cat.get("category_text", category.get("category_text", ""))
         dst_dishes = {d.get("id"): d for d in translated_cat.get("dishes", [])}
         expected_dish_ids = [f"{cat_id}_dish_{di}" for di, _ in enumerate(category.get("dishes", []))]
-        if set(dst_dishes.keys()) != set(expected_dish_ids):
+        if len(translated_cat.get("dishes", [])) != len(expected_dish_ids) or set(dst_dishes.keys()) != set(expected_dish_ids):
             raise ValueError(f"La traducción alteró los platos de {cat_id}. Se ha bloqueado la salida.")
         for di, dish in enumerate(category.get("dishes", [])):
             translated_dish = dst_dishes[f"{cat_id}_dish_{di}"]

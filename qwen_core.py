@@ -139,6 +139,8 @@ def _extract_text(response):
     choices = response.get("choices") or []
     if not choices:
         raise RuntimeError("Alibaba no devolvió ninguna respuesta de texto.")
+    if choices[0].get("finish_reason") == "length":
+        raise ValueError("Alibaba truncó la respuesta por el límite de tokens; no se aceptará una carta incompleta.")
     message = (choices[0] or {}).get("message") or {}
     content = message.get("content")
     if isinstance(content, str):
@@ -359,6 +361,7 @@ def _normalize_menu_payload(payload):
             continue
         total_dishes += len(normalized_dishes)
         normalized_categories.append({
+            **{key: cat[key] for key in ('texto_extra', 'notes') if key in cat},
             "name": _as_text(
                 cat.get("name") if "name" in cat else cat.get("nombre"),
                 "Categoría",
@@ -380,6 +383,7 @@ def _normalize_menu_payload(payload):
         texto_extra = _as_text(payload.get("extra_text"))
 
     return {
+        **{key: payload[key] for key in ('header_text', 'footer_text', 'notes') if key in payload},
         "restaurant_name": restaurant_name,
         "texto_extra": texto_extra,
         "categories": normalized_categories,
@@ -497,8 +501,21 @@ def _allergen_source_dishes(prompt):
     return []
 
 
-def _valid_allergen_result(result):
-    return isinstance(result, dict) and isinstance(result.get("items"), list)
+def _valid_allergen_result(result, source=None):
+    if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+        return False
+    keys = []
+    for item in result['items']:
+        if not isinstance(item, dict) or not isinstance(item.get('allergens'), list):
+            return False
+        key = (item.get('category_index'), item.get('dish_index'))
+        if any(type(i) is not int or i < 0 for i in key) or key in keys:
+            return False
+        keys.append(key)
+    if source is not None:
+        expected = {(d['category_index'], d['dish_index']) for d in source}
+        return set(keys) == expected
+    return bool(keys)
 
 
 def _merge_allergen_items(base_result, reviewed_result):
@@ -531,6 +548,7 @@ def allergen_reasoning_json(system_instruction, prompt):
     latency low while retaining a stronger reviewer for ambiguous recipes.
     """
     errors = []
+    source = _allergen_source_dishes(prompt)
     fast_messages = [
         {"role": "system", "content": system_instruction.strip()},
         {"role": "user", "content": prompt.strip() +
@@ -549,7 +567,7 @@ def allergen_reasoning_json(system_instruction, prompt):
             timeout=55,
         )
         fast_result = parse_json_text(text)
-        if not _valid_allergen_result(fast_result):
+        if not _valid_allergen_result(fast_result, source):
             raise ValueError("respuesta JSON sin items")
 
         # Escalate only low-confidence items, plus medium-confidence empty
@@ -636,7 +654,7 @@ def allergen_reasoning_json(system_instruction, prompt):
                 timeout=60,
             )
             reviewed = parse_json_text(max_text)
-            if _valid_allergen_result(reviewed):
+            if _valid_allergen_result(reviewed, uncertain):
                 return _merge_allergen_items(fast_result, reviewed), f"{QWEN_FLASH}+{QWEN_MAX}"
         except Exception as exc:
             errors.append(f"selective {QWEN_MAX}: {exc}")
@@ -662,7 +680,7 @@ def allergen_reasoning_json(system_instruction, prompt):
             timeout=70,
         )
         result = parse_json_text(text)
-        if _valid_allergen_result(result):
+        if _valid_allergen_result(result, source):
             return result, QWEN_MAX
         raise ValueError("respuesta JSON sin items")
     except Exception as exc:

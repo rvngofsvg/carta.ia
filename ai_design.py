@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+import re
 import urllib.error
 import urllib.request
 from html import escape as html_escape
@@ -205,6 +206,7 @@ def _data_uri(image_bytes, mime="image/png"):
 
 def _format_price(value):
     text = str(value or "").strip()
+    text = re.sub(r"\bEUR\b", "€", text, flags=re.IGNORECASE)
     if not text:
         return ""
     if "€" in text:
@@ -258,10 +260,7 @@ def _legend_html(icon_map):
 
 
 def create_ai_menu_pdf(data, background_bytes, icon_map, with_allergens=True):
-    try:
-        from weasyprint import HTML
-    except Exception as exc:
-        raise RuntimeError("WeasyPrint no está disponible para generar el PDF visual.") from exc
+    from pdf_backend import render_pdf
 
     background = _data_uri(background_bytes)
     categories = []
@@ -274,9 +273,10 @@ def create_ai_menu_pdf(data, background_bytes, icon_map, with_allergens=True):
             rows.append(
                 '<div class="dish">'
                 f'<div class="line"><span class="name">{html_escape(_dish_name(dish))}</span>'
+                f'<span class="icons">{icons}</span>'
                 '<span class="dots"></span>'
                 f'<span class="price">{html_escape(_format_price(dish.get("price")))}</span>'
-                f'<span class="icons">{icons}</span></div>{desc_html}</div>'
+                f'</div>{desc_html}</div>'
             )
         cat_text = html_escape(str(cat.get("category_text") or ""))
         cat_note = f'<div class="cat-note">{cat_text}</div>' if cat_text else ""
@@ -313,7 +313,7 @@ def create_ai_menu_pdf(data, background_bytes, icon_map, with_allergens=True):
     .legend-item {{ text-align:center; font-size:6.5pt; font-weight:700; line-height:1.05; }}
     .legend-item img {{ display:block; width:9mm; height:9mm; object-fit:contain; margin:0 auto .6mm; }}
     </style></head><body><main class="sheet"><h1>{title}</h1>{''.join(categories)}{extra_html}{legend}</main></body></html>"""
-    return HTML(string=html, base_url=os.getcwd()).write_pdf()
+    return render_pdf(html, os.path.dirname(os.path.abspath(__file__)))
 
 
 def render_ai_design_mode(data, icon_map):
