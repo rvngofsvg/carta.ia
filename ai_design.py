@@ -9,6 +9,7 @@ from html import escape as html_escape
 from io import BytesIO
 
 import streamlit as st
+from word_legend import eider_legend_data_uri
 
 _PRIVATE_LOG = logging.getLogger("carta_ia.private_usage")
 _PRIVATE_LOG.setLevel(logging.INFO)
@@ -244,19 +245,7 @@ def _allergen_icons_html(allergens, icon_map, css_class="dish-icon"):
 
 
 def _legend_html(icon_map):
-    items = []
-    for allergen in ALLERGEN_ORDER:
-        src = _icon_uri(icon_map.get(allergen))
-        icon = f'<img src="{src}" alt="">' if src else ""
-        label = ALLERGEN_LABELS[allergen]
-        if allergen == "sulfitos":
-            label = "Dióxido de azufre<br>y sulfitos"
-        items.append(f'<div class="legend-item">{icon}<span>{label}</span></div>')
-    return (
-        '<section class="legend"><div class="legend-law"><strong>'
-        'Informamos de acuerdo con el Reglamento de la UE 1169/2011, que nuestros productos contienen o pueden contener los siguientes alérgenos.'
-        '</strong></div><div class="legend-grid">' + "".join(items) + '</div></section>'
-    )
+    return f'<section class="legend"><img src="{eider_legend_data_uri()}" alt="Leyenda de los 14 alérgenos de Eider"></section>'
 
 
 def create_ai_menu_pdf(data, background_bytes, icon_map, with_allergens=True):
@@ -307,11 +296,8 @@ def create_ai_menu_pdf(data, background_bytes, icon_map, with_allergens=True):
     .dish-icon {{ width:5.4mm; height:5.4mm; object-fit:contain; }}
     .desc {{ margin-top:.45mm; font-size:8.4pt; color:#4b4b4b; font-style:italic; }}
     .extra {{ margin:4mm 0; padding:2.5mm; border:1px solid rgba(30,30,30,.18); background:rgba(255,255,255,.55); font-size:8.5pt; }}
-    .legend {{ margin:5mm 8mm 4.5mm; padding:2.2mm 2.5mm; border:1.75pt solid #333; background:rgba(255,255,255,.93); break-inside:avoid; }}
-    .legend-law {{ text-align:center; font-size:7.5pt; margin-bottom:1.5mm; }}
-    .legend-grid {{ display:grid; grid-template-columns:repeat(7,1fr); gap:1.2mm 1.5mm; }}
-    .legend-item {{ text-align:center; font-size:6.5pt; font-weight:700; line-height:1.05; }}
-    .legend-item img {{ display:block; width:9mm; height:9mm; object-fit:contain; margin:0 auto .6mm; }}
+    .legend {{ margin:5mm 0 4.5mm; background:#fff; break-inside:avoid; }}
+    .legend img {{ display:block; width:100%; height:auto; }}
     </style></head><body><main class="sheet"><h1>{title}</h1>{''.join(categories)}{extra_html}{legend}</main></body></html>"""
     return render_pdf(html, os.path.dirname(os.path.abspath(__file__)))
 

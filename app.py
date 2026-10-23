@@ -21,7 +21,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from word_legend import set_eider_footer
+from word_legend import eider_legend_data_uri, set_eider_footer
 from ai_design import render_ai_design_mode
 from qwen_core import (
     QWEN_FLASH, QWEN_MAX, QWEN_OMNI, ensure_configured,
@@ -1379,8 +1379,22 @@ def set_docx_margins(section):
     section.right_margin = Cm(1.3)
 
 
-def create_premium_editable_word(data):
+def _word_print_color(value, fallback='333333'):
+    color = str(value or '').lstrip('#')
+    if not re.fullmatch(r'[0-9A-Fa-f]{6}', color):
+        return fallback
+    red, green, blue = (int(color[i:i + 2], 16) for i in (0, 2, 4))
+    brightness = .2126 * red + .7152 * green + .0722 * blue
+    return color if brightness < 190 else fallback
+
+
+def create_premium_editable_word(data, theme_key='cafe', custom_theme=None, show_dish_icons=True):
     # Documento editable de Word en dos columnas.
+    visual = premium_v6_theme(theme_key, custom=custom_theme)
+    dark = visual.get('guide_theme') == 'dark'
+    title_color = _word_print_color(visual['accent'])
+    body_color = '211A14' if dark else _word_print_color(visual['text'], '111111')
+    muted_color = '555555' if dark else _word_print_color(visual['muted'], '555555')
     doc = Document()
     section = doc.sections[0]
     set_docx_margins(section)
@@ -1407,12 +1421,14 @@ def create_premium_editable_word(data):
 
     p = doc.add_paragraph(style='Carta Title')
     p.alignment = 1
-    p.add_run(data.get('restaurant_name', 'MENÚ'))
+    title = p.add_run(data.get('restaurant_name', 'MENÚ'))
+    set_run_color(title, title_color)
     sub = doc.add_paragraph()
     sub.alignment = 1
     run = sub.add_run('Carta con alérgenos · Documento editable')
     run.bold = True
     run.font.size = Pt(8.5)
+    set_run_color(run, muted_color)
 
     section = doc.add_section(WD_SECTION.CONTINUOUS)
     set_docx_margins(section)
@@ -1422,30 +1438,28 @@ def create_premium_editable_word(data):
         p_cat = doc.add_paragraph(style='Carta Category')
         p_cat.paragraph_format.space_before = Pt(6)
         p_cat.paragraph_format.space_after = Pt(3)
-        p_cat.add_run(cat.get('name', 'Categoría'))
+        category_name = p_cat.add_run(cat.get('name', 'Categoría'))
+        set_run_color(category_name, title_color)
         for dish in cat.get('dishes', []):
             p = doc.add_paragraph()
             p.paragraph_format.space_after = Pt(2)
-            p.paragraph_format.tab_stops.add_tab_stop(Cm(7.6), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(8.55), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             r = p.add_run(dish_display_name(dish))
             r.bold = True
             r.font.size = Pt(8.4)
-            p.add_run('  ')
-            icon_run = p.add_run()
-            for allergen in get_ordered_allergens(dish.get('allergens', [])):
-                icon_path = ICON_MAP.get(allergen)
-                if icon_path and os.path.exists(icon_path):
-                    try:
-                        icon_run.add_picture(icon_path, width=Cm(0.34))
-                    except Exception:
-                        p.add_run(f'[{ALLERGEN_SHORT.get(allergen, allergen[:3]).upper()}]')
-            p.add_run('\t' + format_price(dish.get('price', '')))
+            set_run_color(r, body_color)
+            if show_dish_icons and get_ordered_allergens(dish.get('allergens', [])):
+                p.add_run('  ')
+                _add_allergen_icons_to_run(p, dish.get('allergens', []), width_cm=0.4)
+            price_run = p.add_run('\t' + format_price(dish.get('price', '')))
+            set_run_color(price_run, title_color)
             if dish.get('description'):
                 p_desc = doc.add_paragraph()
                 p_desc.paragraph_format.space_after = Pt(2)
                 d = p_desc.add_run(dish.get('description', ''))
                 d.italic = True
                 d.font.size = Pt(7.4)
+                set_run_color(d, muted_color)
 
     add_docx_allergen_legend(doc, data, {})
 
@@ -1495,7 +1509,7 @@ EDITABLE_WORD_THEMES = {
     'burdeos': {'name':'Burdeos', 'header':'6D1F2C', 'cat':'7B1E2E', 'text':'261516', 'muted':'654D45', 'bg':'FFF1E8', 'light':'FFFFFF'},
     'azul': {'name':'Azul oscuro', 'header':'123047', 'cat':'1E4C66', 'text':'14222D', 'muted':'566B75', 'bg':'EDF6FA', 'light':'FFFFFF'},
     'arena': {'name':'Arena', 'header':'B68143', 'cat':'9A642B', 'text':'2A2119', 'muted':'695A4C', 'bg':'FFF7E8', 'light':'FFFFFF'},
-    'minimal': {'name':'Blanca', 'header':'222222', 'cat':'222222', 'text':'111111', 'muted':'666666', 'bg':'FFFFFF', 'light':'FFFFFF'},
+    'minimal': {'name':'Carta clara', 'header':'222222', 'cat':'222222', 'text':'111111', 'muted':'666666', 'bg':'FFFFFF', 'light':'FFFFFF'},
     'terracota': {'name':'Terracota', 'header':'A64B2A', 'cat':'A64B2A', 'text':'2A1710', 'muted':'735142', 'bg':'FFF0E8', 'light':'FFFFFF'},
     'rosa': {'name':'Rosa', 'header':'B76E79', 'cat':'9B4F5B', 'text':'2A181C', 'muted':'725963', 'bg':'FFF1F3', 'light':'FFFFFF'},
     'botanico': {'name':'Verde claro', 'header':'2F6B4F', 'cat':'2F6B4F', 'text':'1A241E', 'muted':'52645A', 'bg':'EEF8F1', 'light':'FFFFFF'},
@@ -1519,7 +1533,7 @@ def get_menu_theme(theme_key, default_key='neutral'):
     return EDITABLE_WORD_THEMES.get(default_key, EDITABLE_WORD_THEMES['neutral'])
 
 
-def add_docx_heading_block(doc, data, theme, subtitle='Plantilla editable sin iconos por plato'):
+def add_docx_heading_block(doc, data, theme, subtitle='Plantilla editable con alérgenos por plato'):
     table = doc.add_table(rows=1, cols=1)
     table.autofit = True
     cell = table.cell(0, 0)
@@ -1546,7 +1560,7 @@ def add_docx_allergen_legend(doc, data, theme):
 
 
 def create_editable_word_clean_template(data, theme_key='cafe', two_columns=True):
-    # DOCX editable: sin iconos junto a platos. Solo conserva la leyenda inferior con iconos reales.
+    # DOCX editable con iconos junto al plato y la leyenda original en el pie.
     theme = EDITABLE_WORD_THEMES.get(theme_key, EDITABLE_WORD_THEMES['cafe'])
     doc = Document()
     section = doc.sections[0]
@@ -1577,11 +1591,14 @@ def create_editable_word_clean_template(data, theme_key='cafe', two_columns=True
         for dish in cat.get('dishes', []):
             p = doc.add_paragraph()
             p.paragraph_format.space_after = Pt(1.6)
-            p.paragraph_format.tab_stops.add_tab_stop(Cm(7.8 if two_columns else 15.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(8.55 if two_columns else 15.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             r = p.add_run(dish_display_name(dish))
             r.bold = True
             r.font.size = Pt(8.7)
             set_run_color(r, theme['text'])
+            if get_ordered_allergens(dish.get('allergens', [])):
+                p.add_run('  ')
+                _add_allergen_icons_to_run(p, dish.get('allergens', []), width_cm=0.4)
             pr = p.add_run('\t' + format_price(dish.get('price', '')))
             pr.bold = True
             pr.font.size = Pt(8.4)
@@ -1948,7 +1965,7 @@ def create_editable_templates_zip(data, two_columns=True):
 
 def render_editable_clean_templates(data):
     st.subheader('📝 Plantillas Word editables')
-    st.caption('Elige una plantilla para cambiar el texto a tu gusto. Los alérgenos aparecen en la guía de abajo, no junto a cada plato.')
+    st.caption('Elige una plantilla para cambiar el texto a tu gusto. Los iconos van junto a cada plato y la leyenda de Eider queda abajo.')
     if not render_export_preflight(data, key_prefix="editable_templates", compact=True):
         return
 
@@ -1973,19 +1990,32 @@ def render_editable_clean_templates(data):
             mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         )
     with c2:
-        st.download_button(
-            '⬇️ Descargar todas las plantillas',
-            create_editable_templates_zip(data, two_columns=two_cols),
-            file_name='Plantillas_Word.zip',
-            mime='application/zip'
-        )
+        zip_signature = (menu_signature(data), two_cols)
+        if st.button('Preparar todas las plantillas', key='prepare_editable_templates'):
+            with st.spinner('Preparando las plantillas...'):
+                st.session_state['editable_templates_zip'] = (
+                    zip_signature, create_editable_templates_zip(data, two_columns=two_cols).getvalue()
+                )
+        prepared = st.session_state.get('editable_templates_zip')
+        if prepared and prepared[0] == zip_signature:
+            st.download_button(
+                '⬇️ Descargar todas las plantillas',
+                prepared[1],
+                file_name='Plantillas_Word.zip',
+                mime='application/zip'
+            )
 
     st.info('El Word limpio sigue disponible en una columna. Mantiene la numeración y los textos extraídos de la carta, y puedes editarlo después de descargarlo.')
 
+@st.cache_data(show_spinner=False, max_entries=6, ttl=1800)
+def _render_pdf_cached(html_code):
+    from pdf_backend import render_pdf
+    return render_pdf(html_code, BASE_DIR)
+
+
 def html_to_pdf_bytes(html_code):
     try:
-        from pdf_backend import render_pdf
-        return render_pdf(html_code, BASE_DIR)
+        return _render_pdf_cached(html_code)
     except Exception as exc:
         st.warning("No se pudo crear el PDF. Prueba a descargarlo de nuevo.")
         return None
@@ -2166,32 +2196,15 @@ def premium_v6_theme(theme_key="cafe", custom=None):
 
 
 def allergen_guide_panel_v6(theme, notice=""):
-    dark = theme.get("guide_theme") == "dark"
-    bg = "linear-gradient(135deg, rgba(0,0,0,.22), rgba(255,255,255,.045))" if dark else f"linear-gradient(135deg,{theme['panel_bg_alt']},rgba(255,255,255,.72))"
-    title_color = theme["accent"]
-    text_color = theme["text"]
-    muted = theme["muted"]
-    border = theme["panel_border"]
-    item_bg = "rgba(255,255,255,.06)" if dark else "rgba(255,255,255,.68)"
-    icon_filter = "drop-shadow(0 1px 2px rgba(0,0,0,.65))" if dark else "drop-shadow(0 1px 1px rgba(80,50,20,.18))"
-    items = []
-    for allergen in ALLERGEN_ORDER:
-        icon = icon_img_html_inline(allergen, f"width:8mm; height:8mm; object-fit:contain; filter:{icon_filter};")
-        items.append(
-            f'<div class="guide-item">{icon}<span>{html_escape(ALLERGEN_LABELS[allergen])}</span></div>'
-        )
     return f'''
     <section class="v6-guide">
-        <h3>Guía de alérgenos</h3>
-        <div class="v6-guide-grid">{"".join(items)}</div>
+        <img src="{eider_legend_data_uri()}" alt="Leyenda de los 14 alérgenos de Eider">
         <div class="v6-notice">{notice}</div>
     </section>
     <style>
-    .v6-guide {{ margin:5.5mm 8mm 4.5mm; padding:4.8mm; border:1px solid {border}; border-radius:12px; background:{bg}; box-shadow:{theme['shadow']}; }}
-    .v6-guide h3 {{ margin:0 0 3.4mm; text-align:center; color:{title_color}; font-family:Georgia,'Times New Roman',serif; font-size:15px; letter-spacing:2.2px; text-transform:uppercase; }}
-    .v6-guide-grid {{ display:grid; grid-template-columns:repeat(7,1fr); gap:2mm 2.4mm; align-items:start; }}
-    .guide-item {{ min-height:15mm; padding:1.5mm .8mm; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:1mm; color:{text_color}; text-align:center; font-size:7.1px; line-height:1.08; border:1px solid {border}; border-radius:8px; background:{item_bg}; }}
-    .v6-notice {{ margin-top:3.1mm; color:{muted}; font-size:6.9px; line-height:1.3; text-align:center; }}
+    .v6-guide {{ margin:5.5mm 0 4.5mm; background:#fff; break-inside:avoid; }}
+    .v6-guide img {{ display:block; width:100%; height:auto; }}
+    .v6-notice {{ padding:1.5mm; color:#333; font-size:6.9px; line-height:1.3; text-align:center; }}
     </style>
     '''
 
@@ -2218,17 +2231,17 @@ def _build_cards_sections(data, variant="cards", show_dish_icons=True):
             desc = html_escape(dish.get("description", ""))
             desc_html = f'<p class="dish-desc">{desc}</p>' if desc else ""
             icons = allergen_icons_html(dish.get("allergens", []), small=(variant != "cards")) if show_dish_icons else ""
-            icon_line = f'<div class="icon-line">{icons}</div>' if show_dish_icons else ""
+            icon_line = f'<span class="dish-icons">{icons}</span>' if show_dish_icons and icons else ""
             price = html_escape(format_price(dish.get("price", "")))
             dishes.append(f'''
             <article class="dish {variant}">
-                <div class="dish-line"><h3>{html_escape(dish_display_name(dish))}</h3><strong>{price}</strong></div>
+                <div class="dish-line"><h3>{html_escape(dish_display_name(dish))}</h3>{icon_line}<span class="dish-dots"></span><strong>{price}</strong></div>
                 {desc_html}
-                {icon_line}
             </article>
             ''')
+        long_class = ' long' if len(cat.get('dishes', [])) > 12 else ''
         sections.append(f'''
-        <section class="category {variant}">
+        <section class="category {variant}{long_class}">
             <h2>{html_escape(cat.get('name','Categoría'))}</h2>
             {''.join(dishes)}
         </section>
@@ -2244,17 +2257,19 @@ def _build_table_sections(data, show_dish_icons=True):
             desc = html_escape(dish.get("description", ""))
             desc_html = f'<div class="table-desc">{desc}</div>' if desc else ""
             icons = allergen_icons_html(dish.get("allergens", []), small=True) if show_dish_icons else ""
-            icons_html = f'<div class="table-icons">{icons}</div>' if show_dish_icons else ""
+            icons_html = f'<span class="table-icons">{icons}</span>' if show_dish_icons and icons else ""
             price = html_escape(format_price(dish.get("price", "")))
             rows.append(f'''
             <div class="table-row">
                 <div class="table-product"><strong>{html_escape(dish_display_name(dish))}</strong>{desc_html}</div>
                 {icons_html}
+                <span class="table-dots"></span>
                 <div class="table-price">{price}</div>
             </div>
             ''')
+        long_class = ' long' if len(cat.get('dishes', [])) > 12 else ''
         blocks.append(f'''
-        <section class="table-category">
+        <section class="table-category{long_class}">
             <h2>{html_escape(cat.get('name','Categoría'))}</h2>
             {''.join(rows)}
         </section>
@@ -2262,7 +2277,7 @@ def _build_table_sections(data, show_dish_icons=True):
     return "".join(blocks)
 
 
-def create_premium_v6_html(data, logo_src=None, qr_src=None, theme_key="cafe", variant="cards", custom_theme=None, show_dish_icons=False):
+def create_premium_v6_html(data, logo_src=None, qr_src=None, theme_key="cafe", variant="cards", custom_theme=None, show_dish_icons=True):
     theme = premium_v6_theme(theme_key, custom=custom_theme)
     notice = html_escape(build_notice(data))
     extra = html_escape(data.get("texto_extra", ""))
@@ -2279,9 +2294,10 @@ def create_premium_v6_html(data, logo_src=None, qr_src=None, theme_key="cafe", v
     qr_large = False
     if variant == "mesa":
         qr_large = True
+        icon_note = "Los iconos se muestran junto a cada plato." if show_dish_icons else "Puedes consultar los alérgenos en la leyenda inferior."
         intro = f'''
         <section class="intro-box">
-            <div><strong>Consulta rápida en mesa o barra.</strong><br>La carta queda limpia, sin iconos junto a cada plato. La guía de alérgenos se mantiene al final.</div>
+            <div><strong>Consulta rápida en mesa o barra.</strong><br>{icon_note} La guía de alérgenos se mantiene al final.</div>
             <div class="intro-badge">2 columnas · código</div>
         </section>
         '''
@@ -2293,10 +2309,14 @@ def create_premium_v6_html(data, logo_src=None, qr_src=None, theme_key="cafe", v
 <meta charset="UTF-8">
 <title>{html_escape(theme['name'])} - {html_escape(data.get('restaurant_name','Menú'))}</title>
 <style>
-@page {{ size:A4 portrait; margin:8mm; }}
+@page {{
+    size:A4 portrait;
+    margin:8mm 8mm 37mm;
+    @bottom-center {{ content:element(eiderFooter); vertical-align:bottom; }}
+}}
 * {{ box-sizing:border-box; }}
 body {{ margin:0; background:{theme['body_bg']}; color:{theme['text']}; font-family:'Trebuchet MS', Verdana, Arial, sans-serif; }}
-.page {{ min-height:281mm; padding:9.5mm; position:relative; overflow:hidden; background:{theme['decor']}, {theme['page_bg']}; border:1.25mm solid {theme['page_border']}; box-shadow:inset 0 0 0 .55mm {theme['inner_border']}; }}
+.page {{ min-height:281mm; padding:9.5mm; position:relative; display:flex; flex-direction:column; background:{theme['decor']}, {theme['page_bg']}; border:1.25mm solid {theme['page_border']}; box-shadow:inset 0 0 0 .55mm {theme['inner_border']}; }}
 .header {{ position:relative; z-index:1; display:grid; grid-template-columns:1fr auto; gap:8mm; align-items:center; margin-bottom:7mm; padding:4mm 0 5mm; border-bottom:1px solid {theme['accent_2']}; background:{theme['header_bg']}; }}
 .head-main {{ min-width:0; }}
 .label {{ color:{theme['accent']}; text-transform:uppercase; letter-spacing:3px; font-size:9px; font-weight:900; margin-bottom:1.8mm; }}
@@ -2310,21 +2330,34 @@ body {{ margin:0; background:{theme['body_bg']}; color:{theme['text']}; font-fam
 .qr-placeholder {{ width:27mm; height:27mm; display:flex; align-items:center; justify-content:center; border:1px dashed {theme['accent_2']}; color:{theme['accent']}; font-size:14px; font-weight:900; margin:0 auto 1mm; background:rgba(255,255,255,.35); }}
 .intro-box {{ position:relative; z-index:1; margin:0 0 5mm; display:grid; grid-template-columns:1fr auto; gap:4mm; align-items:center; padding:3mm 4mm; border:1px solid {theme['panel_border']}; border-left:4px solid {theme['accent']}; border-radius:10px; background:{theme['panel_bg_alt']}; color:{theme['muted']}; font-size:9px; line-height:1.32; }}
 .intro-badge {{ color:{theme['accent']}; font-weight:900; text-transform:uppercase; letter-spacing:.8px; white-space:nowrap; }}
-.layout {{ position:relative; z-index:1; column-count:2; column-gap:7mm; }}
+.layout {{ position:relative; z-index:1; column-count:2; column-gap:7mm; flex:1; }}
 .category {{ break-inside:avoid; margin-bottom:5mm; padding:4mm; border:1px solid {theme['panel_border']}; border-radius:10px; background:{theme['panel_bg']}; box-shadow:{theme['shadow']}; }}
+.category.long {{ break-inside:auto; }}
 .category h2 {{ margin:0 0 3mm; padding-bottom:2mm; color:{theme['accent']}; border-bottom:1px solid {theme['accent_2']}; font-family:Georgia,'Times New Roman',serif; font-size:20px; line-height:1; }}
 .dish {{ padding:1.9mm 0; border-bottom:1px solid {theme['panel_border']}; }}
 .dish:last-child {{ border-bottom:none; }}
-.dish-line {{ display:flex; justify-content:space-between; gap:4mm; align-items:baseline; }}
-.dish-line h3 {{ margin:0; color:{theme['text']}; font-size:11.4px; text-transform:uppercase; letter-spacing:.18px; }}
-.dish-line strong {{ color:{theme['accent']}; font-size:11.2px; white-space:nowrap; }}
+.dish-line {{ display:flex; gap:1.2mm; align-items:center; }}
+.dish-line h3 {{ margin:0; min-width:0; color:{theme['text']}; font-size:11.4px; text-transform:uppercase; letter-spacing:.18px; }}
+.dish-icons {{ display:inline-flex; flex-shrink:0; gap:.5mm; align-items:center; }}
+.dish-dots,.table-dots {{ flex:1; min-width:3mm; height:0; border-bottom:1px dotted {theme['muted']}; }}
+.dish-line strong {{ color:{theme['accent']}; font-size:11.2px; white-space:nowrap; flex-shrink:0; }}
 .dish-desc {{ margin:1mm 0 1.1mm; color:{theme['muted']}; font-size:8.8px; line-height:1.28; }}
 .icon-line {{ display:flex; flex-wrap:wrap; gap:1mm; min-height:4mm; align-items:center; }}
 .allergen-icon {{ width:4.9mm; height:4.9mm; object-fit:contain; }}
 .allergen-icon.small {{ width:4mm; height:4mm; object-fit:contain; vertical-align:middle; }}
 .missing-icon {{ display:inline-flex; align-items:center; justify-content:center; width:4.5mm; height:4.5mm; border:1px solid {theme['accent']}; color:{theme['accent']}; font-size:4.4px; font-weight:900; border-radius:50%; }}
 .extra-box {{ position:relative; z-index:1; margin-bottom:3mm; padding:2.7mm 3mm; border:1px solid {theme['panel_border']}; border-radius:9px; background:{theme['panel_bg_alt']}; color:{theme['muted']}; font-size:8.2px; text-align:center; }}
-.footer {{ position:relative; z-index:1; margin-top:5.5mm; }}
+.footer {{ position:relative; z-index:1; margin-top:auto; padding-top:5.5mm; }}
+.pdf-legend {{ position:running(eiderFooter); width:190mm; padding-bottom:3mm; background:#fff; }}
+.pdf-legend img {{ display:block; width:190mm; height:auto; }}
+.pdf-extra {{ display:none; }}
+.pdf-notice {{ color:{theme['muted']}; font-size:7px; line-height:1.25; text-align:center; }}
+@media screen {{ .pdf-legend {{ display:none; }} }}
+@media print {{
+    .page {{ min-height:250mm; }}
+    .footer {{ display:none; }}
+    .pdf-extra {{ display:block; }}
+}}
 .category.compact {{ padding:3.5mm; border-radius:7px; }}
 .category.compact h2 {{ font-size:18px; margin-bottom:2.5mm; }}
 .dish.compact {{ padding:1.3mm 0; }}
@@ -2340,22 +2373,25 @@ body {{ margin:0; background:{theme['body_bg']}; color:{theme['text']}; font-fam
 .dish.mesa .dish-line h3 {{ font-size:9.6px; }}
 .dish.mesa .dish-line strong {{ font-size:9.5px; }}
 .dish.mesa .dish-desc {{ font-size:7.8px; }}
-.table-category {{ break-inside:avoid; margin-bottom:4.7mm; border:1px solid {theme['panel_border']}; border-radius:10px; overflow:hidden; background:{theme['panel_bg']}; box-shadow:{theme['shadow']}; }}
+.table-category {{ break-inside:avoid; margin-bottom:4.7mm; border:1px solid {theme['panel_border']}; border-radius:10px; background:{theme['panel_bg']}; box-shadow:{theme['shadow']}; }}
+.table-category.long {{ break-inside:auto; }}
 .table-category h2 {{ margin:0; padding:2.6mm 3.2mm; color:{theme['panel_bg_alt']}; background:{theme['accent']}; font-family:Georgia,'Times New Roman',serif; font-size:17px; line-height:1; }}
-.table-row {{ display:grid; grid-template-columns:1fr auto 13mm; gap:2.2mm; align-items:center; padding:1.75mm 2.8mm; border-bottom:1px solid {theme['panel_border']}; }}
-.no-dish-icons .table-row {{ grid-template-columns:1fr 13mm; }}
+.table-row {{ display:flex; gap:1.2mm; align-items:center; padding:1.75mm 2.8mm; border-bottom:1px solid {theme['panel_border']}; }}
+.table-product {{ min-width:0; }}
 .table-row:last-child {{ border-bottom:none; }}
 .table-product strong {{ display:block; color:{theme['text']}; font-size:9.2px; text-transform:uppercase; letter-spacing:.12px; }}
 .table-desc {{ color:{theme['muted']}; font-size:7.5px; line-height:1.2; margin-top:.5mm; }}
-.table-icons {{ display:flex; flex-wrap:wrap; gap:.7mm; justify-content:flex-end; min-width:12mm; }}
-.table-price {{ text-align:right; color:{theme['accent']}; font-size:9px; font-weight:900; }}
+.table-icons {{ display:inline-flex; flex-shrink:0; gap:.5mm; align-items:center; }}
+.table-price {{ text-align:right; color:{theme['accent']}; font-size:9px; font-weight:900; white-space:nowrap; flex-shrink:0; }}
 </style>
 </head>
 <body>
+<div class="pdf-legend"><img src="{eider_legend_data_uri()}" alt="Leyenda de los 14 alérgenos de Eider"></div>
 <div class="{page_classes}">
 {_premium_v6_header(data, theme, logo_src, qr_src, label=label, qr_large=qr_large)}
 {intro}
 <main class="layout">{content}</main>
+<div class="pdf-extra">{extra_html}<div class="pdf-notice">{notice}</div></div>
 <footer class="footer">{extra_html}{allergen_guide_panel_v6(theme, notice)}</footer>
 </div>
 </body>
@@ -2365,8 +2401,7 @@ body {{ margin:0; background:{theme['body_bg']}; color:{theme['text']}; font-fam
 def render_visual_downloads(data, can_export_allergens=True):
     st.subheader("🎨 Diseños en dos columnas")
     st.caption(
-        "Todas mantienen 2 columnas y la guía de alérgenos abajo. Por defecto NO muestran iconos junto a cada plato, "
-        "para que la carta quede más limpia y fácil de editar."
+        "Todas mantienen dos columnas, los iconos junto a cada plato y la leyenda de Eider abajo."
     )
 
     colA, colB, colC = st.columns([1.15, 1.15, 1])
@@ -2380,7 +2415,7 @@ def render_visual_downloads(data, can_export_allergens=True):
     logo_src = uploaded_image_to_data_uri(logo_file, max_side=900) if logo_file else None
     qr_src = uploaded_image_to_data_uri(qr_file, max_side=700) if qr_file else generate_qr_data_uri(qr_url)
 
-    show_dish_icons = st.checkbox("Mostrar iconos junto a cada plato", value=False, key="show_dish_icons_v8")
+    show_dish_icons = st.checkbox("Mostrar iconos junto a cada plato", value=True, key="show_dish_icons_v8")
 
     template = st.selectbox("Elige un diseño", [
         "Café · 2 columnas",
@@ -2472,15 +2507,15 @@ def render_visual_downloads(data, can_export_allergens=True):
             st.info("No se pudo crear el PDF. Descarga el archivo para imprimir y usa la opción de guardar como PDF.")
     with c3:
         st.download_button(
-            "⬇️ Word editable",
-            create_premium_editable_word(data),
+            "⬇️ Word editable con estos colores",
+            create_premium_editable_word(data, theme_key=theme_key, custom_theme=custom_theme, show_dish_icons=show_dish_icons),
             file_name=f"{base_name}_editable.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
 
     st.info(
-        "Para cambiar el diseño después de descargarlo, usa las plantillas de Word. "
-        "La carta muestra los alérgenos en la guía de abajo."
+        "El Word conserva la paleta elegida en un formato editable de dos columnas. "
+        "Incluye iconos por plato y la leyenda original abajo."
     )
 
     with st.expander("👀 Vista previa", expanded=True):
@@ -3198,86 +3233,32 @@ def create_client_pdf_html(data, theme_key="neutral", with_allergens=True):
     footer_css = ""
 
     if with_allergens:
-        labels = {
-            "gluten": "GLUTEN", "crustaceos": "CRUSTÁCEOS", "huevos": "HUEVOS", "pescado": "PESCADO",
-            "cacahuetes": "CACAHUETES", "soja": "SOJA", "lacteos": "LÁCTEOS", "frutos de cascara": "FRUTOS DE<br>CÁSCARA",
-            "apio": "APIO", "mostaza": "MOSTAZA", "sesamo": "GRANOS DE<br>SÉSAMO", "sulfitos": "DIÓXIDO DE<br>AZUFRE Y SULFITOS",
-            "altramuces": "ALTRAMUCES", "moluscos": "MOLUSCOS",
-        }
-        items = []
-        for allergen in ALLERGEN_ORDER:
-            src = file_to_data_uri(ICON_MAP.get(allergen))
-            alt_label = labels[allergen].replace("<br>", " ")
-            icon = f'<img src="{src}" alt="{html_escape(alt_label)}">' if src else ""
-            items.append(f'<div class="legend-item">{icon}<span>{labels[allergen]}</span></div>')
-
         footer_html = (
             '<footer class="allergen-footer">'
-            '<div class="legal">Informamos de acuerdo con el Reglamento de la UE 1169/2011, que nuestros productos contienen o pueden contener los siguientes alérgenos.</div>'
-            f'<div class="legend-grid">{"".join(items)}</div>'
+            f'<img src="{eider_legend_data_uri()}" alt="Leyenda de los 14 alérgenos">'
             '</footer>'
         )
         page_css = """
         @page {
             size: A4;
-            margin: 15mm 15mm 45mm 15mm;
+            margin: 15mm 10mm 35mm 10mm;
             @bottom-center {
                 content: element(allergenFooter);
-                vertical-align: middle;
+                vertical-align: bottom;
             }
         }
         """
         footer_css = """
         .allergen-footer {
             position: running(allergenFooter);
-            width: 164mm;
-            height: 36mm;
-            border: 1px solid #7a746e;
-            padding: 1.4mm 2.5mm 1.0mm;
-            box-sizing: border-box;
+            width: 190mm;
+            padding-bottom: 4mm;
             background: #fff;
-            overflow: hidden;
         }
-        .legal {
-            text-align: center;
-            font-size: 8.2pt;
-            font-weight: 700;
-            margin: 0 0 0.8mm;
-            line-height: 1.12;
-        }
-        .legend-grid {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            grid-template-rows: 12.4mm 12.4mm;
-            align-content: start;
-            width: 100%;
-        }
-        .legend-item {
-            min-width: 0;
-            height: 12.4mm;
-            text-align: center;
-            font-size: 6.8pt;
-            font-weight: 700;
-            line-height: 1.02;
-            padding: 0.10mm 0.25mm;
-            box-sizing: border-box;
-            hyphens: none;
-            word-break: normal;
-            overflow-wrap: normal;
-        }
-        .legend-item img {
+        .allergen-footer img {
             display: block;
-            width: 6.3mm;
-            height: 6.3mm;
-            object-fit: contain;
-            margin: 0 auto 0.10mm;
-        }
-        .legend-item span {
-            display: block;
-            white-space: normal;
-            hyphens: none;
-            word-break: normal;
-            overflow-wrap: normal;
+            width: 190mm;
+            height: auto;
         }
         """
 
@@ -3361,6 +3342,18 @@ def render_quick_outputs(data):
         )
     elif can_export_clean:
         st.caption("El Word editable incluye la guía de alérgenos y estará disponible al terminar la revisión.")
+
+    st.markdown("### Carta clara en dos columnas")
+    st.caption("Una opción sencilla para cartas largas: fondo blanco, iconos junto al plato y la misma leyenda de Eider en el pie.")
+    if can_export_allergens:
+        st.download_button(
+            "⬇️ DESCARGAR CARTA CLARA",
+            create_editable_word_clean_template(data, theme_key='minimal', two_columns=True),
+            file_name=f"Carta_Clara_{restaurant}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="v12_word_clara",
+            use_container_width=True,
+        )
 
 
 def menu_signature(data):

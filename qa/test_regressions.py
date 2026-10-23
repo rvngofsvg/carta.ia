@@ -11,7 +11,7 @@ from zipfile import ZipFile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from qa.audit_runtime import MENU, load_app
 import qwen_core as q
-from word_legend import LEGEND_PATH, ORIGINAL_LEGEND_PATH, set_eider_footer
+from word_legend import LEGEND_PATH, LEGEND_WIDTH, ORIGINAL_LEGEND_PATH, eider_legend_data_uri, set_eider_footer
 from docx import Document
 from PIL import Image, ImageChops
 
@@ -49,7 +49,7 @@ class RegressionTests(unittest.TestCase):
                         with Image.open(LEGEND_PATH) as im:
                             self.assertAlmostEqual(w/h, im.width/im.height, places=4)
                         self.assertGreater(section.bottom_margin, h + section.footer_distance)
-                        self.assertLessEqual(w, section.page_width-section.left_margin-section.right_margin)
+                        self.assertAlmostEqual(w, min(LEGEND_WIDTH, section.page_width-section.left_margin-section.right_margin), delta=10000)
                     set_eider_footer(section)
                     self.assertEqual(len(section.footer._element.xpath('.//pic:pic')), 1)
                 # No original legend linked from body or header.
@@ -110,6 +110,9 @@ class RegressionTests(unittest.TestCase):
 
         book = Document(app.create_landscape_book_word(MENU))
         assert_icons_before_leader_price(book, 'Ensalada de queso y nueces')
+        portrait_width = int(with_allergens.sections[0].footer._element.xpath('.//wp:extent')[0].get('cx'))
+        landscape_width = int(book.sections[0].footer._element.xpath('.//wp:extent')[0].get('cx'))
+        self.assertAlmostEqual(portrait_width, landscape_width, delta=10000)
         clean = Document(app.create_clean_word(MENU))
         self.assertEqual(clean.sections[0].header.paragraphs[0].text, 'Restaurante QA')
         self.assertEqual(len(clean.sections[0].footer._element.xpath('.//pic:pic')), 1)
@@ -119,6 +122,9 @@ class RegressionTests(unittest.TestCase):
             for columns in (False, True):
                 doc = Document(app.create_editable_word_clean_template(MENU, theme, columns))
                 self.assertEqual(len(doc.sections[0].footer._element.xpath('.//pic:pic')), 1)
+                row = next(p for p in doc.paragraphs if 'Ensalada de queso y nueces' in p.text)
+                self.assertEqual(len(row._p.xpath('.//pic:pic')), 2)
+                self.assertTrue(row._p.xpath(".//w:tab[@w:leader='dot']"))
                 if columns:
                     self.assertEqual(len(doc.sections), 2)
                     self.assertNotEqual(doc.sections[0]._sectPr.xpath('./w:cols')[0].get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}num'), '2')
@@ -264,15 +270,25 @@ class RegressionTests(unittest.TestCase):
                 self.assertGreater(len(doc), 1)
                 text = ''.join(p.get_text() for p in doc)
                 self.assertEqual(text.count('Tomate fresco'), 50)
-                self.assertEqual('1169/2011' in text, allergens)
+                for page in doc:
+                    legend_rects = [rect for image in page.get_images(full=True)
+                                    if image[2:4] == (7257, 1049)
+                                    for rect in page.get_image_rects(image[0])]
+                    self.assertEqual(len(legend_rects), 1 if allergens else 0)
+                    if legend_rects:
+                        body_bottom = max(block[3] for block in page.get_text('blocks') if block[6] == 0)
+                        self.assertLess(body_bottom, legend_rects[0].y0)
         Path('qa/after/long.docx').write_bytes(app.create_word(long_menu).getvalue())
 
     def test_design_pdf_without_remote_generation(self):
+        import fitz
         from ai_design import create_ai_menu_pdf
         background = BytesIO()
         Image.new('RGB', (600, 850), 'white').save(background, format='PNG')
         pdf = create_ai_menu_pdf(MENU, background.getvalue(), app.ICON_MAP)
         self.assertTrue(pdf.startswith(b'%PDF'))
+        with fitz.open(stream=pdf, filetype='pdf') as document:
+            self.assertTrue(any(image[2:4] == (7257, 1049) for image in document[0].get_images(full=True)))
         Path('qa/after/design.pdf').write_bytes(pdf)
 
     def test_all_premium_visual_structures_render(self):
@@ -282,12 +298,40 @@ class RegressionTests(unittest.TestCase):
             with self.subTest(variant=variant):
                 html = app.create_premium_v6_html(MENU, theme_key='cafe', variant=variant, show_dish_icons=True)
                 self.assertIn('Ensalada de queso y nueces', html)
-                self.assertEqual(html.count('class="guide-item"'), 14)
+                self.assertIn(eider_legend_data_uri(), html)
+                self.assertIn('class="dish-dots"' if variant != 'table' else 'class="table-dots"', html)
                 pdf = render_pdf(html, app.BASE_DIR)
                 self.assertTrue(pdf.startswith(b'%PDF'))
                 with fitz.open(stream=pdf, filetype='pdf') as document:
                     text = app.normalize_text(''.join(page.get_text() for page in document)).lower()
                     self.assertIn('ensalada de queso y nueces', text)
+                    self.assertTrue(any(image[2:4] == (7257, 1049) for image in document[0].get_images(full=True)))
+
+    def test_visual_word_uses_selected_colors_and_icons(self):
+        cafe = Document(app.create_premium_editable_word(MENU, theme_key='cafe'))
+        burdeos = Document(app.create_premium_editable_word(MENU, theme_key='burdeos'))
+        self.assertNotEqual(cafe.paragraphs[0].runs[0].font.color.rgb, burdeos.paragraphs[0].runs[0].font.color.rgb)
+        row = next(p for p in burdeos.paragraphs if 'Ensalada de queso y nueces' in p.text)
+        self.assertEqual(len(row._p.xpath('.//pic:pic')), 2)
+        self.assertTrue(row._p.xpath(".//w:tab[@w:leader='dot']"))
+
+    def test_long_visual_pdf_keeps_all_dishes_and_legend_on_each_page(self):
+        import fitz
+        from pdf_backend import render_pdf
+        long_menu = copy.deepcopy(MENU)
+        long_menu['categories'][0]['dishes'] *= 15
+        html = app.create_premium_v6_html(long_menu, theme_key='noir', show_dish_icons=True)
+        with fitz.open(stream=render_pdf(html, app.BASE_DIR), filetype='pdf') as document:
+            self.assertGreater(len(document), 1)
+            self.assertEqual(sum(page.get_text().count('ENSALADA DE QUESO Y NUECES') for page in document), 15)
+            for page in document:
+                legends = [rect for image in page.get_images(full=True)
+                           if image[2:4] == (7257, 1049)
+                           for rect in page.get_image_rects(image[0])]
+                self.assertEqual(len(legends), 1)
+                dish_blocks = [block for block in page.get_text('blocks')
+                               if block[6] == 0 and 'ENSALADA DE QUESO Y NUECES' in block[4]]
+                self.assertTrue(all(block[3] < legends[0].y0 for block in dish_blocks))
 
     def test_ui_navigation_edit_and_downloads(self):
         from streamlit.testing.v1 import AppTest

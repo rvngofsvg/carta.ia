@@ -1,16 +1,24 @@
 """Embed Eider's artwork with its white matte removed in real Word footers."""
 from pathlib import Path
+import base64
+from functools import lru_cache
 from PIL import Image
 from docx.shared import Cm, Pt
 
 PUBLIC_DIR = Path(__file__).resolve().parent / 'Public'
 ORIGINAL_LEGEND_PATH = PUBLIC_DIR / 'leyenda_Eider_recreada_colores_HD.png'
 LEGEND_PATH = PUBLIC_DIR / 'leyenda_Eider_recreada_colores_HD_recortada.png'
+LEGEND_WIDTH = Cm(19)
+
+
+@lru_cache(maxsize=1)
+def eider_legend_data_uri():
+    return 'data:image/png;base64,' + base64.b64encode(LEGEND_PATH.read_bytes()).decode('ascii')
 
 
 def set_eider_footer(section):
     # One legend per physical page, also in landscape/book mode.
-    width = section.page_width - section.left_margin - section.right_margin
+    width = min(LEGEND_WIDTH, section.page_width - section.left_margin - section.right_margin)
     with Image.open(LEGEND_PATH) as artwork:
         height = int(width * artwork.height / artwork.width)
     section.footer_distance = Cm(0.45)
