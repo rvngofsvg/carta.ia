@@ -112,6 +112,79 @@ class RegressionTests(unittest.TestCase):
         with patch.object(app, 'translate_json', return_value=payload), self.assertRaises(ValueError):
             app.translate_menu_data(MENU, 'Ingles')
 
+    def test_exports_wait_for_allergen_review_acknowledgement(self):
+        from streamlit.testing.v1 import AppTest
+        pending = copy.deepcopy(MENU)
+        pending['categories'][0]['dishes'][0]['review_notes'] = ['Revisar la ficha técnica de la salsa.']
+        at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=90).run()
+        at.session_state.menu_data = pending
+        at.run()
+        self.assertFalse(at.exception)
+        labels = [button.label for button in at.get('download_button')]
+        self.assertTrue(any('SIN ALÉRGENOS' in label for label in labels))
+        self.assertFalse(any('CON ALÉRGENOS' in label or 'plantilla Word' in label or 'modo libro' in label for label in labels))
+        ack = next(box for box in at.checkbox if 'He revisado estos casos' in box.label)
+        ack.set_value(True).run()
+        self.assertFalse(at.exception)
+        labels = [button.label for button in at.get('download_button')]
+        self.assertTrue(any('WORD CON ALÉRGENOS' in label for label in labels))
+        self.assertTrue(any('plantilla Word' in label for label in labels))
+        self.assertTrue(any('MODO LIBRO' in label for label in labels))
+
+    def test_low_confidence_allergen_result_becomes_review_note(self):
+        data = copy.deepcopy(MENU)
+        result = {'items': [
+            {'category_index': 0, 'dish_index': 0, 'allergens': ['lacteos'], 'confidence': 'baja', 'reason': 'Receta ambigua.'},
+            {'category_index': 0, 'dish_index': 1, 'allergens': [], 'confidence': 'alta', 'reason': 'Sin ingredientes declarados.'},
+        ]}
+        with patch.object(app, 'allergen_reasoning_json', return_value=(result, 'qwen3.8-max')):
+            app.infer_allergens_with_best_model(data)
+        dish = data['categories'][0]['dishes'][0]
+        self.assertTrue(any('Confianza baja' in note for note in dish['review_notes']))
+        self.assertIn('Receta ambigua.', dish['review_notes'][-1])
+        self.assertEqual(app.menu_preflight(data)['review_count'], 1)
+
+    def test_radar_and_universal_extractor_navigation(self):
+        from streamlit.testing.v1 import AppTest
+        at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=90).run()
+        at.radio[0].set_value('📡 Radar de Clientes').run()
+        self.assertFalse(at.exception)
+        at.text_input[0].set_value('Restaurante QA')
+        at.text_input[1].set_value('Madrid')
+        at.button[0].click().run()
+        self.assertFalse(at.exception)
+        markdown = '\n'.join(item.value for item in at.markdown)
+        self.assertIn('Google Maps', markdown)
+        self.assertIn('Instagram', markdown)
+        self.assertIn('TripAdvisor', markdown)
+        at.radio[0].set_value('📄 Extractor de Texto Universal').run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.title[0].value, 'Extractor de Texto Plano 📄➡️📝')
+        uploader = next(widget for widget in at.get('file_uploader') if widget.label == 'Sube tu archivo')
+        uploader.set_value(('carta_qa.txt', b'Ensalada QA\n12,50 EUR', 'text/plain'))
+        at.run()
+        next(button for button in at.button if button.label == '🔄 Extraer Todo el Texto').click().run()
+        self.assertFalse(at.exception)
+        self.assertTrue(any(button.label == '⬇️ Descargar Word con Texto Literal' for button in at.get('download_button')))
+        exported = Document(BytesIO(at.session_state.universal_bytes))
+        self.assertIn('Ensalada QA', '\n'.join(paragraph.text for paragraph in exported.paragraphs))
+
+    def test_text_extractors_read_pdf_and_docx(self):
+        import fitz
+        source_pdf = BytesIO()
+        pdf_doc = fitz.open()
+        pdf_page = pdf_doc.new_page()
+        pdf_page.insert_text((72, 72), 'Carta QA - Ensalada 12,50 EUR')
+        source_pdf.write(pdf_doc.tobytes())
+        source_pdf.seek(0)
+        self.assertIn('Ensalada', app.extract_text_from_pdf(source_pdf))
+        source_docx = Document()
+        source_docx.add_paragraph('Carta QA · Ensalada 12,50 EUR')
+        docx_buffer = BytesIO()
+        source_docx.save(docx_buffer)
+        docx_buffer.seek(0)
+        self.assertIn('Ensalada', app.extract_text_from_docx(docx_buffer))
+
     def test_image_fallback_and_real_transport_contract(self):
         calls = []
         def post(payload, timeout=240):
@@ -145,6 +218,20 @@ class RegressionTests(unittest.TestCase):
         pdf = create_ai_menu_pdf(MENU, background.getvalue(), app.ICON_MAP)
         self.assertTrue(pdf.startswith(b'%PDF'))
         Path('qa/after/design.pdf').write_bytes(pdf)
+
+    def test_all_premium_visual_structures_render(self):
+        import fitz
+        from pdf_backend import render_pdf
+        for variant in ('cards', 'soft', 'compact', 'mesa', 'table'):
+            with self.subTest(variant=variant):
+                html = app.create_premium_v6_html(MENU, theme_key='cafe', variant=variant, show_dish_icons=True)
+                self.assertIn('Ensalada de queso y nueces', html)
+                self.assertEqual(html.count('class="guide-item"'), 14)
+                pdf = render_pdf(html, app.BASE_DIR)
+                self.assertTrue(pdf.startswith(b'%PDF'))
+                with fitz.open(stream=pdf, filetype='pdf') as document:
+                    text = app.normalize_text(''.join(page.get_text() for page in document)).lower()
+                    self.assertIn('ensalada de queso y nueces', text)
 
     def test_ui_navigation_edit_and_downloads(self):
         from streamlit.testing.v1 import AppTest

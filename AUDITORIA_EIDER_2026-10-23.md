@@ -42,6 +42,9 @@ Entrada por imagen, PDF, DOCX y audio; revisión de restaurante, platos, precios
 | Borde del pie PDF en el límite de la hoja | Alineación inferior de la caja de margen sin separación exterior | Centrado vertical dentro del margen inferior reservado |
 | Clasificación incompleta aceptada | Solo se verificaba que `items` fuera una lista | Validación de cobertura exacta, índices, duplicados y tipo de alérgenos; fallback al modelo de revisión |
 | Fallo del clasificador quedaba poco visible | Solo se guardaba un error interno | Nota de revisión por plato cuando no se completa la clasificación |
+| Descargas con dudas podían salir sin revisión | `render_export_preflight` y sus bloqueos no se llamaban desde las pestañas de descarga | Confirmación compartida antes de cualquier salida con alérgenos; se reinicia si cambia la carta o las notas de revisión |
+| Confianza baja de Qwen no activaba una alerta visible | Se guardaba el nivel de confianza, pero no se convertía en nota de revisión ni se mostraba en el editor | La confianza baja genera revisión y el editor enseña confianza y motivo del clasificador |
+| Vista previa de plantillas dependía de `st.components.v1.html` obsoleto | Streamlit 1.60 muestra aviso de retirada | Sustitución por `st.iframe` con la misma vista HTML |
 | Textos auxiliares desaparecían al normalizar | Se descartaban `header_text`, `footer_text` y `notes` | Conservación de esos campos y notas de categoría |
 | IDs duplicados de traducción se aceptaban | Conversión a diccionario sobrescribía duplicados | Comprobación adicional del número de elementos |
 
@@ -71,6 +74,14 @@ Las funciones de exportación se conservan. El código eliminado corresponde a l
 5. Comprobación del PNG incrustado byte a byte, de la relación de aspecto, del margen reservado, de la ausencia de leyenda en cuerpo/cabecera y de que repetir la operación no la duplica.
 6. Medición sobre el PDF renderizado de la carta larga: una imagen de leyenda por página; el contenido acaba al menos 29,5 puntos (10,4 mm) por encima del inicio de la imagen. La imagen queda íntegra dentro de la hoja. Los datos de geometría están en `qa/after/render_geometry.json`.
 7. Compilación Python y `git diff --check` sin errores. Sin funciones top-level duplicadas en los tres módulos existentes.
+
+## Verificación funcional ampliada
+
+La suite se amplió a 16 pruebas. AppTest recorre Radar de Clientes y Extractor Universal con un TXT sintético, comprueba el Word de texto literal y confirma que una nota de revisión oculta las salidas con alérgenos en las pestañas normal, plantillas, horizontal y diseños hasta que el usuario marca una sola confirmación. Después, la prueba confirma que esas descargas se habilitan en todos los apartados. Una clasificación de confianza baja se convierte en una nota con el motivo de Qwen.
+
+Además, una comprobación aislada recorrió las cinco estructuras de Diseño Premium (`cards`, `soft`, `compact`, `mesa` y `table`): cada una produjo un PDF con el plato y los 14 elementos de la guía. El aviso de retirada de `st.components.v1.html` desapareció tras migrar la vista previa a `st.iframe`.
+
+La batería completa actualizada pasó: `Ran 15 tests ... OK`. Los flujos de análisis de texto e imagen, detección de alérgenos y traducción contra Qwen ya se probaron en la ejecución autenticada descrita arriba. La voz y la generación remota de fondos no se han probado contra Alibaba; el PDF de diseño sí se genera con un fondo local sintético.
 
 Los renderizados comprueban LibreOffice; no se afirma una prueba en Microsoft Word nativo. La maquetación puede variar con las fuentes y el motor del equipo receptor. Las pruebas usan una carta sintética, no una carta real del restaurante. Los diseños automáticos se comprobaron con un fondo local; su generación remota sigue pendiente de credenciales.
 

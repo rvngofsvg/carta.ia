@@ -316,7 +316,7 @@ def create_ai_menu_pdf(data, background_bytes, icon_map, with_allergens=True):
     return render_pdf(html, os.path.dirname(os.path.abspath(__file__)))
 
 
-def render_ai_design_mode(data, icon_map):
+def render_ai_design_mode(data, icon_map, can_export_allergens=True):
     st.markdown("### ✨ Diseño IA")
     st.caption("La IA crea el fondo y la dirección artística. Carta IA coloca después platos, precios y alérgenos reales para no alterar datos.")
 
@@ -387,18 +387,21 @@ def render_ai_design_mode(data, icon_map):
         st.image(final_bg, caption="Versión final refinada", use_container_width=True)
 
     try:
-        pdf_all = create_ai_menu_pdf(data, final_bg, icon_map, with_allergens=True)
+        pdf_all = create_ai_menu_pdf(data, final_bg, icon_map, with_allergens=True) if can_export_allergens else None
         pdf_clean = create_ai_menu_pdf(data, final_bg, icon_map, with_allergens=False)
         c1, c2 = st.columns(2)
         with c1:
-            st.download_button(
-                "⬇️ PDF IA CON ALÉRGENOS",
-                pdf_all,
-                file_name="Carta_IA_Con_Alergenos.pdf",
-                mime="application/pdf",
-                key="ai_pdf_allergens",
-                use_container_width=True,
-            )
+            if can_export_allergens:
+                st.download_button(
+                    "⬇️ PDF IA CON ALÉRGENOS",
+                    pdf_all,
+                    file_name="Carta_IA_Con_Alergenos.pdf",
+                    mime="application/pdf",
+                    key="ai_pdf_allergens",
+                    use_container_width=True,
+                )
+            else:
+                st.info("El PDF con alérgenos se habilitará al completar las revisiones pendientes.")
         with c2:
             st.download_button(
                 "⬇️ PDF IA SIN ALÉRGENOS",

@@ -1753,6 +1753,8 @@ def create_landscape_book_word(
 def render_landscape_book_word(data):
     st.subheader('📖 Word horizontal · modo libro')
     st.caption('A4 horizontal editable: dos lados, cabecero en cada lado y una leyenda inferior por página. Los símbolos quedan justo después del plato y el precio al final.')
+    if not render_export_preflight(data, key_prefix="book_exports", compact=True):
+        return
 
     c1, c2, c3 = st.columns([1.25, 0.8, 0.9])
     with c1:
@@ -1797,6 +1799,8 @@ def create_editable_templates_zip(data, two_columns=True):
 def render_editable_clean_templates(data):
     st.subheader('📝 Plantillas editables sin iconos junto a platos')
     st.caption('Estas plantillas mantienen la carta limpia: plato + precio, sin símbolos al lado. La guía inferior conserva los iconos oficiales de alérgenos.')
+    if not render_export_preflight(data, key_prefix="editable_templates", compact=True):
+        return
 
     c1, c2 = st.columns([1.25, 1])
     with c1:
@@ -1878,9 +1882,16 @@ def render_editor(data):
                         format_func=lambda x: ALLERGEN_LABELS.get(x, x),
                         key=f"all_{c_idx}_{d_idx}"
                     )
-                if dish.get("review_notes"):
+                ai_confidence = str(dish.get("_allergen_ai_confidence") or "").strip()
+                ai_reason = str(dish.get("_allergen_ai_reason") or "").strip()
+                if dish.get("review_notes") or ai_confidence or ai_reason:
                     with st.expander("ℹ️ Sugerencia opcional", expanded=False):
-                        st.caption(" · ".join(dish.get("review_notes", [])))
+                        if ai_confidence:
+                            st.caption(f"Confianza IA: {ai_confidence}")
+                        if ai_reason:
+                            st.caption(f"Motivo IA: {ai_reason}")
+                        for note in dish.get("review_notes", []):
+                            st.caption(note)
                 st.divider()
     return data
 
@@ -2202,7 +2213,7 @@ body {{ margin:0; background:{theme['body_bg']}; color:{theme['text']}; font-fam
 </html>'''
 
 
-def render_visual_downloads(data):
+def render_visual_downloads(data, can_export_allergens=True):
     st.subheader("🎨 Plantillas premium en dos columnas · v7")
     st.caption(
         "Todas mantienen 2 columnas y la guía de alérgenos abajo. Por defecto NO muestran iconos junto a cada plato, "
@@ -2291,6 +2302,10 @@ def render_visual_downloads(data):
     )
     base_name = prefix + slugify_filename(data.get("restaurant_name", "menu"))
 
+    if not can_export_allergens:
+        st.info("Las plantillas premium incluyen la guía de alérgenos y se habilitarán al completar las revisiones pendientes.")
+        return
+
     st.markdown("#### Descargas")
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -2320,7 +2335,7 @@ def render_visual_downloads(data):
     )
 
     with st.expander("👀 Vista previa", expanded=True):
-        st.components.v1.html(html_code, height=840, scrolling=True)
+        st.iframe(html_code, height=840)
 
 # ======================================================
 # V11.1 - ESTABILIZACIÓN PROFESIONAL
@@ -2454,6 +2469,14 @@ La selección podrá ser corregida manualmente después por el establecimiento.
             dish["allergens"] = get_ordered_allergens(item.get("allergens", []))
             dish["_allergen_ai_confidence"] = item.get("confidence", "")
             dish["_allergen_ai_reason"] = item.get("reason", "")
+            if normalize_text(dish["_allergen_ai_confidence"]) in {"baja", "low"}:
+                notes = dish.setdefault("review_notes", [])
+                reason = str(dish.get("_allergen_ai_reason") or "").strip()
+                note = "Confianza baja de la IA: validar la receta y sus alérgenos."
+                if reason:
+                    note += f" Motivo: {reason}"
+                if note not in notes:
+                    notes.append(note)
             seen += 1
         if seen:
             data["_allergen_model"] = model_name
@@ -2925,11 +2948,12 @@ def menu_preflight(data):
     }
 
 
-def render_export_preflight(data, key_prefix="export", compact=False):
-    """Muestra el preflight y devuelve True solo si la salida con alérgenos es entregable."""
+def render_export_preflight(data, key_prefix="export", compact=False, require_allergen_review=True):
+    """Valida contenido básico y exige confirmar los casos inciertos para salidas con alérgenos."""
     report = menu_preflight(data)
     signature = menu_signature(data)[:16]
-    ack_key = f"{key_prefix}_allergen_review_ack_{signature}"
+    ack_state_key = f"allergen_review_ack_{signature}"
+    ack_widget_key = f"{ack_state_key}_{key_prefix}"
 
     if not compact:
         st.markdown("#### Control previo a descarga")
@@ -2948,7 +2972,7 @@ def render_export_preflight(data, key_prefix="export", compact=False):
                 st.write(f"• {issue}")
 
     acknowledged = True
-    if report["review_items"]:
+    if report["review_items"] and require_allergen_review:
         with st.expander(
             f"🧾 Platos que requieren validar receta/proveedor ({report['review_count']})",
             expanded=True,
@@ -2957,11 +2981,15 @@ def render_export_preflight(data, key_prefix="export", compact=False):
                 st.markdown(f"**{item['category']} · {item['dish']}**")
                 for note in item["notes"]:
                     st.caption(f"• {note}")
-        acknowledged = st.checkbox(
-            "He revisado estos casos con la receta, ficha técnica o responsable del establecimiento.",
-            key=ack_key,
-            help="Esta confirmación se reinicia automáticamente si cambia el contenido de la carta.",
-        )
+        acknowledged = bool(st.session_state.get(ack_state_key, False))
+        if not acknowledged:
+            acknowledged = st.checkbox(
+                "He revisado estos casos con la receta, ficha técnica o responsable del establecimiento.",
+                key=ack_widget_key,
+                help="Esta confirmación se reinicia automáticamente si cambia el contenido de la carta.",
+            )
+            if acknowledged:
+                st.session_state[ack_state_key] = True
         if not acknowledged:
             st.warning("La descarga final con alérgenos permanece bloqueada hasta confirmar esta revisión.")
 
@@ -3128,6 +3156,10 @@ def create_client_pdf_bytes(data, theme_key="neutral", with_allergens=True):
 def render_quick_outputs(data):
     st.subheader("⬇️ Descargar")
     st.caption("Elige el diseño una vez y descarga la versión que necesites. Los Word son editables.")
+    can_export_allergens = render_export_preflight(
+        data, key_prefix="quick_exports", compact=True, require_allergen_review=True
+    )
+    can_export_clean = not menu_preflight(data)["blocking"]
     theme_keys = list(EDITABLE_WORD_THEMES.keys())
     default_idx = theme_keys.index("neutral") if "neutral" in theme_keys else 0
     theme_key = st.selectbox(
@@ -3143,32 +3175,38 @@ def render_quick_outputs(data):
     with c1:
         st.markdown("### 🛡️ Con alérgenos")
         st.caption("Alérgenos calculados automáticamente y editables en Revisar.")
-        word_all = create_word(data, theme_key=theme_key)
-        pdf_all = create_client_pdf_bytes(data, theme_key=theme_key, with_allergens=True)
-        st.download_button("⬇️ WORD CON ALÉRGENOS", word_all, file_name=f"Carta_Con_Alergenos_{restaurant}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="v12_word_all", use_container_width=True)
-        if pdf_all:
-            st.download_button("⬇️ PDF CON ALÉRGENOS", pdf_all, file_name=f"Carta_Con_Alergenos_{restaurant}.pdf", mime="application/pdf", key="v12_pdf_all", use_container_width=True)
+        if can_export_allergens:
+            word_all = create_word(data, theme_key=theme_key)
+            pdf_all = create_client_pdf_bytes(data, theme_key=theme_key, with_allergens=True)
+            st.download_button("⬇️ WORD CON ALÉRGENOS", word_all, file_name=f"Carta_Con_Alergenos_{restaurant}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="v12_word_all", use_container_width=True)
+            if pdf_all:
+                st.download_button("⬇️ PDF CON ALÉRGENOS", pdf_all, file_name=f"Carta_Con_Alergenos_{restaurant}.pdf", mime="application/pdf", key="v12_pdf_all", use_container_width=True)
+        else:
+            st.info("Las salidas con alérgenos se habilitarán al completar las revisiones pendientes.")
 
     with c2:
         st.markdown("### 📄 Sin alérgenos")
         st.caption("Mismo diseño y contenido, sin iconos ni leyenda.")
-        word_clean = create_client_word_without_allergens(data, theme_key=theme_key)
-        pdf_clean = create_client_pdf_bytes(data, theme_key=theme_key, with_allergens=False)
-        st.download_button("⬇️ WORD SIN ALÉRGENOS", word_clean, file_name=f"Carta_Sin_Alergenos_{restaurant}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="v12_word_clean", use_container_width=True)
-        if pdf_clean:
-            st.download_button("⬇️ PDF SIN ALÉRGENOS", pdf_clean, file_name=f"Carta_Sin_Alergenos_{restaurant}.pdf", mime="application/pdf", key="v12_pdf_clean", use_container_width=True)
+        if can_export_clean:
+            word_clean = create_client_word_without_allergens(data, theme_key=theme_key)
+            pdf_clean = create_client_pdf_bytes(data, theme_key=theme_key, with_allergens=False)
+            st.download_button("⬇️ WORD SIN ALÉRGENOS", word_clean, file_name=f"Carta_Sin_Alergenos_{restaurant}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="v12_word_clean", use_container_width=True)
+            if pdf_clean:
+                st.download_button("⬇️ PDF SIN ALÉRGENOS", pdf_clean, file_name=f"Carta_Sin_Alergenos_{restaurant}.pdf", mime="application/pdf", key="v12_pdf_clean", use_container_width=True)
 
     st.markdown("### ✏️ Word limpio clásico")
     st.caption("Documento de trabajo editable en una columna, sin símbolos junto a cada plato. Es distinto de la carta sin alérgenos.")
-    st.download_button(
-        "⬇️ DESCARGAR WORD LIMPIO EDITABLE",
-        create_clean_word(data),
-        file_name=f"Word_Limpio_{restaurant}.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        key="v12_word_limpio_classic",
-        use_container_width=True,
-    )
-    st.info("Para cambiar un alérgeno manualmente, vuelve a Revisar y usa el selector del plato. No hay validaciones obligatorias.")
+    if can_export_allergens:
+        st.download_button(
+            "⬇️ DESCARGAR WORD LIMPIO EDITABLE",
+            create_clean_word(data),
+            file_name=f"Word_Limpio_{restaurant}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="v12_word_limpio_classic",
+            use_container_width=True,
+        )
+    elif can_export_clean:
+        st.caption("El Word limpio clásico incluye leyenda de alérgenos y se habilitará junto a esas salidas.")
 
 
 def menu_signature(data):
@@ -3186,6 +3224,7 @@ def menu_signature(data):
                 "description": dish.get("description", ""),
                 "price": dish.get("price", ""),
                 "allergens": get_ordered_allergens(dish.get("allergens", [])),
+                "review_notes": [str(note).strip() for note in (dish.get("review_notes") or []) if str(note).strip()],
             })
         stable["categories"].append(c)
     raw = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -3356,25 +3395,33 @@ def render_translation(data):
     if translated:
         language = st.session_state.get("translated_language", target)
         slug = slugify_filename(language)
+        can_export_translated_allergens = render_export_preflight(
+            translated, key_prefix="translated_exports", compact=True
+        )
+        can_export_translated_clean = not menu_preflight(translated)["blocking"]
         c1, c2 = st.columns(2)
         with c1:
-            st.download_button(
-                "⬇️ CON ALÉRGENOS",
-                create_word(translated),
-                file_name=f"Carta_{slug}_Con_Alergenos.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key="v11_3_translate_allergens",
-                use_container_width=True,
-            )
+            if can_export_translated_allergens:
+                st.download_button(
+                    "⬇️ CON ALÉRGENOS",
+                    create_word(translated),
+                    file_name=f"Carta_{slug}_Con_Alergenos.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key="v11_3_translate_allergens",
+                    use_container_width=True,
+                )
+            else:
+                st.info("La descarga con alérgenos se habilitará al completar las revisiones pendientes.")
         with c2:
-            st.download_button(
-                "⬇️ SIN ALÉRGENOS",
-                create_client_word_without_allergens(translated),
-                file_name=f"Carta_{slug}_Sin_Alergenos.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key="v11_3_translate_no_allergens",
-                use_container_width=True,
-            )
+            if can_export_translated_clean:
+                st.download_button(
+                    "⬇️ SIN ALÉRGENOS",
+                    create_client_word_without_allergens(translated),
+                    file_name=f"Carta_{slug}_Sin_Alergenos.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key="v11_3_translate_no_allergens",
+                    use_container_width=True,
+                )
 
 
 # ======================================================
@@ -3469,9 +3516,12 @@ if app_mode == "📝 Generador de Cartas":
             render_landscape_book_word(st.session_state.menu_data)
 
         with tab5:
-            render_ai_design_mode(st.session_state.menu_data, ICON_MAP)
+            can_export_design_allergens = render_export_preflight(
+                st.session_state.menu_data, key_prefix="design_exports", compact=True
+            )
+            render_ai_design_mode(st.session_state.menu_data, ICON_MAP, can_export_design_allergens)
             st.divider()
-            render_visual_downloads(st.session_state.menu_data)
+            render_visual_downloads(st.session_state.menu_data, can_export_design_allergens)
 
         with tab6:
             render_translation(st.session_state.menu_data)
