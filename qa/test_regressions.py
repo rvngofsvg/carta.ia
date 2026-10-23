@@ -323,14 +323,14 @@ class RegressionTests(unittest.TestCase):
         html = app.create_premium_v6_html(long_menu, theme_key='noir', show_dish_icons=True)
         with fitz.open(stream=render_pdf(html, app.BASE_DIR), filetype='pdf') as document:
             self.assertGreater(len(document), 1)
-            self.assertEqual(sum(page.get_text().count('ENSALADA DE QUESO Y NUECES') for page in document), 15)
+            self.assertEqual(sum(app.normalize_text(page.get_text()).count('ensalada de queso y nueces') for page in document), 15)
             for page in document:
                 legends = [rect for image in page.get_images(full=True)
                            if image[2:4] == (7257, 1049)
                            for rect in page.get_image_rects(image[0])]
                 self.assertEqual(len(legends), 1)
                 dish_blocks = [block for block in page.get_text('blocks')
-                               if block[6] == 0 and 'ENSALADA DE QUESO Y NUECES' in block[4]]
+                               if block[6] == 0 and 'ensalada de queso y nueces' in app.normalize_text(block[4])]
                 self.assertTrue(all(block[3] < legends[0].y0 for block in dish_blocks))
 
     def test_ui_navigation_edit_and_downloads(self):
