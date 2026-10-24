@@ -3289,8 +3289,10 @@ def create_client_pdf_bytes(data, theme_key="neutral", with_allergens=True):
     return html_to_pdf_bytes(create_client_pdf_html(data, theme_key=theme_key, with_allergens=with_allergens))
 
 def render_quick_outputs(data):
-    st.subheader("⬇️ Descargar carta")
-    st.caption("Elige el diseño una vez y descarga la versión que necesites. Los Word son editables.")
+    st.subheader("Descargar la carta")
+    st.info("Para entregar la carta con los iconos y la leyenda de alérgenos, descarga **Word con alérgenos**. Puedes abrirlo y editarlo en Word.")
+    st.markdown("### Con alérgenos y leyenda · versión recomendada")
+    st.caption("Iconos junto a cada plato y leyenda de Eider en el pie de página.")
     can_export_allergens = render_export_preflight(
         data, key_prefix="quick_exports", compact=True, require_allergen_review=True
     )
@@ -3305,55 +3307,51 @@ def render_quick_outputs(data):
         key="v12_main_theme",
     )
     restaurant = slugify_filename(data.get("restaurant_name", "menu"))
-    c1, c2 = st.columns(2)
+    if can_export_allergens:
+        word_all = create_word(data, theme_key=theme_key)
+        pdf_all = create_client_pdf_bytes(data, theme_key=theme_key, with_allergens=True)
+        st.download_button("Descargar Word con alérgenos", word_all, file_name=f"Carta_Con_Alergenos_{restaurant}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="v12_word_all", width="stretch", type="primary")
+        if pdf_all:
+            st.download_button("Descargar PDF con alérgenos", pdf_all, file_name=f"Carta_Con_Alergenos_{restaurant}.pdf", mime="application/pdf", key="v12_pdf_all", width="stretch")
+    else:
+        st.warning("Para descargar esta versión, comprueba los platos señalados arriba y marca la casilla de confirmación. Después aparecerán aquí los botones de Word y PDF.")
+        st.button("Word con alérgenos · pendiente de revisión", disabled=True, key="v12_word_all_pending", width="stretch")
 
-    with c1:
-        st.markdown("### 🛡️ Con alérgenos")
-        st.caption("Los alérgenos se añaden automáticamente y puedes cambiarlos en Revisar.")
-        if can_export_allergens:
-            word_all = create_word(data, theme_key=theme_key)
-            pdf_all = create_client_pdf_bytes(data, theme_key=theme_key, with_allergens=True)
-            st.download_button("⬇️ WORD CON ALÉRGENOS", word_all, file_name=f"Carta_Con_Alergenos_{restaurant}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="v12_word_all", use_container_width=True)
-            if pdf_all:
-                st.download_button("⬇️ PDF CON ALÉRGENOS", pdf_all, file_name=f"Carta_Con_Alergenos_{restaurant}.pdf", mime="application/pdf", key="v12_pdf_all", use_container_width=True)
-        else:
-            st.info("Las salidas con alérgenos se habilitarán al completar las revisiones pendientes.")
-
-    with c2:
-        st.markdown("### 📄 Sin alérgenos")
-        st.caption("Mismo diseño y contenido, sin iconos ni leyenda.")
+    with st.expander("Otras versiones: sin alérgenos y otros Word", expanded=False):
+        st.markdown("#### Sin alérgenos")
+        st.warning("Estos archivos no llevan iconos ni leyenda de alérgenos. Úsalos solo si necesitas una carta sin esa información.")
         if can_export_clean:
             word_clean = create_client_word_without_allergens(data, theme_key=theme_key)
             pdf_clean = create_client_pdf_bytes(data, theme_key=theme_key, with_allergens=False)
-            st.download_button("⬇️ WORD SIN ALÉRGENOS", word_clean, file_name=f"Carta_Sin_Alergenos_{restaurant}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="v12_word_clean", use_container_width=True)
+            st.download_button("Descargar Word sin alérgenos", word_clean, file_name=f"Carta_Sin_Alergenos_{restaurant}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="v12_word_clean", width="stretch")
             if pdf_clean:
-                st.download_button("⬇️ PDF SIN ALÉRGENOS", pdf_clean, file_name=f"Carta_Sin_Alergenos_{restaurant}.pdf", mime="application/pdf", key="v12_pdf_clean", use_container_width=True)
+                st.download_button("Descargar PDF sin alérgenos", pdf_clean, file_name=f"Carta_Sin_Alergenos_{restaurant}.pdf", mime="application/pdf", key="v12_pdf_clean", width="stretch")
 
-    st.markdown("### ✏️ Word editable en una columna")
-    st.caption("Incluye los alérgenos abajo y no muestra iconos junto a cada plato.")
-    if can_export_allergens:
-        st.download_button(
-            "⬇️ DESCARGAR WORD LIMPIO EDITABLE",
-            create_clean_word(data, theme_key=theme_key),
-            file_name=f"Word_Limpio_{restaurant}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="v12_word_limpio_classic",
-            use_container_width=True,
-        )
-    elif can_export_clean:
-        st.caption("El Word editable incluye la guía de alérgenos y estará disponible al terminar la revisión.")
+        st.markdown("#### Word sencillo en una columna")
+        st.caption("Editable, con la leyenda abajo y sin iconos junto a cada plato.")
+        if can_export_allergens:
+            st.download_button(
+                "Descargar Word sencillo",
+                create_clean_word(data, theme_key=theme_key),
+                file_name=f"Word_Limpio_{restaurant}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="v12_word_limpio_classic",
+                width="stretch",
+            )
+        elif can_export_clean:
+            st.caption("Disponible cuando termines la revisión de alérgenos.")
 
-    st.markdown("### Carta clara en dos columnas")
-    st.caption("Una opción sencilla para cartas largas: fondo blanco, iconos junto al plato y la misma leyenda de Eider en el pie.")
-    if can_export_allergens:
-        st.download_button(
-            "⬇️ DESCARGAR CARTA CLARA",
-            create_editable_word_clean_template(data, theme_key='minimal', two_columns=True),
-            file_name=f"Carta_Clara_{restaurant}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="v12_word_clara",
-            use_container_width=True,
-        )
+        st.markdown("#### Carta clara en dos columnas")
+        st.caption("Fondo blanco, iconos junto al plato y leyenda en el pie.")
+        if can_export_allergens:
+            st.download_button(
+                "Descargar carta clara",
+                create_editable_word_clean_template(data, theme_key='minimal', two_columns=True),
+                file_name=f"Carta_Clara_{restaurant}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="v12_word_clara",
+                width="stretch",
+            )
 
 
 def menu_signature(data):
@@ -3483,7 +3481,7 @@ JSON:
 
 
 def render_voice_menu_capture():
-    with st.expander("🎙️ Dictar el menú", expanded=True):
+    with st.expander("¿Prefieres dictar la carta? (opcional)", expanded=False):
         st.caption("Habla de forma natural. El menú se ordena para que puedas revisarlo y corregirlo.")
         recorded = st.audio_input("Grabar menú", sample_rate=16000, key="v11_1_voice_record") if hasattr(st, "audio_input") else None
         if recorded is None and not hasattr(st, "audio_input"):
@@ -3580,16 +3578,14 @@ app_mode = st.sidebar.radio("Navegación", ["📝 Crear carta", "🔎 Buscar inf
 
 if app_mode == "📝 Crear carta":
     st.title("Crear una carta 🥘")
-    st.caption("Sube una carta, revísala y descarga los archivos que necesites.")
+    st.caption("Primero sube la carta. Después comprueba los platos y descarga el Word con la leyenda.")
 
     if "menu_data" not in st.session_state:
         st.session_state.menu_data = None
     if "last_image_info" not in st.session_state:
         st.session_state.last_image_info = None
 
-    render_voice_menu_capture()
-
-    st.markdown("#### O subir una carta que ya tienes")
+    st.markdown("#### 1. Sube la carta que ya tienes")
     uploaded_file = st.file_uploader("Sube una imagen, PDF o Word", type=["jpg", "png", "jpeg", "pdf", "docx"])
 
     if uploaded_file:
@@ -3631,21 +3627,20 @@ if app_mode == "📝 Crear carta":
             st.success("✅ Carta lista. Revísala y haz los cambios que necesites antes de descargar.")
             st.rerun()
 
+    render_voice_menu_capture()
+
     if st.session_state.menu_data:
-        st.markdown("---")
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-            "✏️ Revisar",
-            "⬇️ Descargar",
-            "📝 Word para editar",
-            "📖 Carta horizontal",
-            "🎨 Diseños",
-            "🌍 Traducir",
-            "🧪 Alérgenos",
+        st.markdown("#### 2. Comprueba la carta y descarga")
+        st.caption("Primero revisa lo que ha leído la aplicación. Después entra en Descargar.")
+        tab1, tab2, tab_other = st.tabs([
+            "1. Revisar platos",
+            "2. Descargar",
+            "Otras opciones",
         ])
         data = st.session_state.menu_data
 
         with tab1:
-            st.caption("Corrige solo lo que necesites. Los cambios se aplican directamente a las descargas.")
+            st.caption("Comprueba nombres, precios y alérgenos. Corrige solo lo necesario; los cambios pasan a las descargas.")
             previous_signature = st.session_state.get("_last_menu_signature")
             st.session_state.menu_data = render_editor(data)
             new_signature = menu_signature(st.session_state.menu_data)
@@ -3656,40 +3651,33 @@ if app_mode == "📝 Crear carta":
         with tab2:
             render_quick_outputs(st.session_state.menu_data)
 
-        with tab3:
-            render_editable_clean_templates(st.session_state.menu_data)
-
-        with tab4:
-            render_landscape_book_word(st.session_state.menu_data)
-
-        with tab5:
-            can_export_design_allergens = render_export_preflight(
-                st.session_state.menu_data, key_prefix="design_exports", compact=True
-            )
-            render_ai_design_mode(st.session_state.menu_data, ICON_MAP, can_export_design_allergens)
-            st.divider()
-            render_visual_downloads(st.session_state.menu_data, can_export_design_allergens)
-
-        with tab6:
-            render_translation(st.session_state.menu_data)
-
-        with tab7:
-            render_allergen_validation(st.session_state.menu_data)
+        with tab_other:
+            st.caption("Aquí están las plantillas, la carta horizontal, los diseños, la traducción y la comprobación de alérgenos.")
+            tab3, tab4, tab5, tab6, tab7 = st.tabs([
+                "Word para editar",
+                "Carta horizontal",
+                "Diseños",
+                "Traducir",
+                "Alérgenos",
+            ])
+            with tab3:
+                render_editable_clean_templates(st.session_state.menu_data)
+            with tab4:
+                render_landscape_book_word(st.session_state.menu_data)
+            with tab5:
+                can_export_design_allergens = render_export_preflight(
+                    st.session_state.menu_data, key_prefix="design_exports", compact=True
+                )
+                render_ai_design_mode(st.session_state.menu_data, ICON_MAP, can_export_design_allergens)
+                st.divider()
+                render_visual_downloads(st.session_state.menu_data, can_export_design_allergens)
+            with tab6:
+                render_translation(st.session_state.menu_data)
+            with tab7:
+                render_allergen_validation(st.session_state.menu_data)
 
     else:
-        st.markdown("---")
-        empty_tabs = st.tabs([
-            "✏️ Revisar",
-            "⬇️ Descargar",
-            "📝 Word para editar",
-            "📖 Carta horizontal",
-            "🎨 Diseños",
-            "🌍 Traducir",
-            "🧪 Alérgenos",
-        ])
-        for tab in empty_tabs:
-            with tab:
-                st.info("Sube o lee una carta para usar esta opción y descargar tus archivos.")
+        st.info("Cuando leas la carta aparecerán dos pasos: revisar los platos y descargar. Las demás opciones seguirán disponibles en «Otras opciones».")
 
 elif app_mode == "🔎 Buscar información":
     st.title("Buscar información del restaurante 🔎")

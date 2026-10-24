@@ -178,13 +178,14 @@ class RegressionTests(unittest.TestCase):
         at.run()
         self.assertFalse(at.exception)
         labels = [button.label for button in at.get('download_button')]
-        self.assertTrue(any('SIN ALÉRGENOS' in label for label in labels))
-        self.assertFalse(any('CON ALÉRGENOS' in label or 'plantilla de Word' in label or 'WORD HORIZONTAL' in label for label in labels))
+        self.assertTrue(any('Word sin alérgenos' in label for label in labels))
+        self.assertFalse(any('Word con alérgenos' in label or 'plantilla de Word' in label or 'WORD HORIZONTAL' in label for label in labels))
+        self.assertTrue(any(button.label.startswith('Word con alérgenos · pendiente') and button.disabled for button in at.button))
         ack = next(box for box in at.checkbox if 'He comprobado estos platos' in box.label)
         ack.set_value(True).run()
         self.assertFalse(at.exception)
         labels = [button.label for button in at.get('download_button')]
-        self.assertTrue(any('WORD CON ALÉRGENOS' in label for label in labels))
+        self.assertTrue(any('Word con alérgenos' in label for label in labels))
         self.assertTrue(any('plantilla de Word' in label for label in labels))
         self.assertTrue(any('WORD HORIZONTAL' in label for label in labels))
 
@@ -341,14 +342,15 @@ class RegressionTests(unittest.TestCase):
         at.session_state.menu_data = copy.deepcopy(MENU)
         at.run()
         self.assertFalse(at.exception)
-        self.assertEqual(len(at.tabs), 7)
+        self.assertEqual(len(at.tabs), 8)
+        self.assertEqual([tab.label for tab in at.tabs[:3]], ['1. Revisar platos', '2. Descargar', 'Otras opciones'])
         self.assertGreaterEqual(len(at.get('download_button')), 9)
         price = next(w for w in at.text_input if w.label == 'Precio')
         price.set_value('19,75').run()
         self.assertFalse(at.exception)
         self.assertEqual(at.session_state.menu_data['categories'][0]['dishes'][0]['price'], '19,75')
 
-    def test_generator_tabs_remain_visible_before_menu_is_loaded(self):
+    def test_generator_shows_simple_guidance_before_menu_is_loaded(self):
         from streamlit.testing.v1 import AppTest
         at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=90).run()
         self.assertFalse(at.exception)
@@ -359,11 +361,8 @@ class RegressionTests(unittest.TestCase):
         )
         self.assertNotIn('Carta IA', at.title[0].value)
         self.assertNotIn('Serval', ' '.join(at.radio[0].options))
-        self.assertEqual(len(at.tabs), 7)
-        tab_labels = [tab.label for tab in at.tabs]
-        self.assertIn('📝 Word para editar', tab_labels)
-        self.assertIn('📖 Carta horizontal', tab_labels)
-        self.assertTrue(any('Sube o lee una carta' in item.value for item in at.info))
+        self.assertEqual(len(at.tabs), 0)
+        self.assertTrue(any('Cuando leas la carta aparecerán dos pasos' in item.value for item in at.info))
         self.assertEqual(len(at.get('download_button')), 0)
 
 
