@@ -117,6 +117,37 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(clean.sections[0].header.paragraphs[0].text, 'Restaurante QA')
         self.assertEqual(len(clean.sections[0].footer._element.xpath('.//pic:pic')), 1)
 
+    def test_eider_price_tab_moves_one_cm_left_without_changing_page_margins(self):
+        from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
+
+        original = Document(app.PLANTILLA_PATH)
+        template_row = next(
+            p for p in original.paragraphs
+            if p.text.strip().casefold().startswith('plato\t')
+        )
+
+        def dotted_right_tabs(paragraph):
+            return [
+                stop.position.cm
+                for stop in paragraph.paragraph_format.tab_stops
+                if stop.alignment == WD_TAB_ALIGNMENT.RIGHT and stop.leader == WD_TAB_LEADER.DOTS
+            ]
+
+        old_stops = dotted_right_tabs(template_row)
+        self.assertTrue(old_stops, 'La plantilla debe tener una tabulación derecha de puntos')
+        self.assertGreater(old_stops[-1], 1.0)
+
+        for builder in (app.create_word, app.create_client_word_without_allergens, app.create_clean_word):
+            with self.subTest(builder=builder.__name__):
+                doc = Document(builder(MENU))
+                dish_row = next(p for p in doc.paragraphs if 'Ensalada de queso y nueces' in p.text)
+                new_stops = dotted_right_tabs(dish_row)
+                self.assertEqual(len(new_stops), len(old_stops))
+                self.assertAlmostEqual(old_stops[-1] - new_stops[-1], 1.0, delta=0.03)
+                self.assertEqual(doc.sections[0].left_margin, original.sections[0].left_margin)
+                self.assertEqual(doc.sections[0].right_margin, original.sections[0].right_margin)
+                self.assertTrue(any(run.text.startswith('\t') for run in dish_row.runs))
+
     def test_all_templates_and_zip(self):
         for theme in app.EDITABLE_WORD_THEMES:
             for columns in (False, True):
