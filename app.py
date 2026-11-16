@@ -600,6 +600,18 @@ def _add_template_category(doc, name, color=None):
 
 def _add_template_dish_line(doc, dish, with_allergens=False, text_color=None):
     paragraph = _add_template_paragraph(doc, "dish")
+    # Reservar 1 cm a la derecha del precio para añadir alérgenos manualmente.
+    # Se modifica solo el tabulador derecho de puntos heredado de la plantilla.
+    tab_stops = paragraph.paragraph_format.tab_stops
+    for tab_index in reversed(range(len(tab_stops))):
+        stop = tab_stops[tab_index]
+        if stop.alignment == WD_TAB_ALIGNMENT.RIGHT and stop.leader == WD_TAB_LEADER.DOTS:
+            inset_cm = stop.position.cm - 1.0
+            if inset_cm > 0:
+                del tab_stops[tab_index]
+                tab_stops.add_tab_stop(Cm(inset_cm), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            break
+
     name = paragraph.add_run(dish_display_name(dish))
     _apply_template_run_style(name, "dish_name_rPr", doc)
     if text_color:
