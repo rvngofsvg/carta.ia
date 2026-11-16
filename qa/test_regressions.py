@@ -123,7 +123,7 @@ class RegressionTests(unittest.TestCase):
         original = Document(app.PLANTILLA_PATH)
         template_row = next(
             p for p in original.paragraphs
-            if p.text.strip().casefold().startswith('plato\\t')
+            if p.text.strip().casefold().startswith('plato\t')
         )
 
         def dotted_right_tabs(paragraph):
@@ -146,7 +146,7 @@ class RegressionTests(unittest.TestCase):
                 self.assertAlmostEqual(old_stops[-1] - new_stops[-1], 1.0, delta=0.03)
                 self.assertEqual(doc.sections[0].left_margin, original.sections[0].left_margin)
                 self.assertEqual(doc.sections[0].right_margin, original.sections[0].right_margin)
-                self.assertTrue(any(run.text.startswith('\\t') for run in dish_row.runs))
+                self.assertTrue(any(run.text.startswith('\t') for run in dish_row.runs))
 
     def test_all_templates_and_zip(self):
         for theme in app.EDITABLE_WORD_THEMES:
